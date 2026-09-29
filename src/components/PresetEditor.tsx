@@ -16,9 +16,9 @@ const DEFAULT_INPUT: PresetInput = {
   name: "",
   edid_id: "",
   brightness: 1.0,
-  contrast: 0.5,
+  contrast: 1.0,
   rgb_gains: [1.0, 1.0, 1.0],
-  gamma: 2.2,
+  gamma: 1.0,
   vibrance: 50,
   hue_deg: 0,
 };
@@ -232,7 +232,7 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
               className="w-full h-1.5 rounded-lg appearance-none cursor-pointer bg-neutral-700 accent-indigo-500"
             />
             <div className="flex justify-between text-xs text-neutral-600 mt-0.5">
-              <span>1.0</span>
+              <span>1.0 (neutral)</span>
               <span>3.0</span>
             </div>
             {errors.gamma && <p className="mt-1 text-xs text-red-400">{errors.gamma}</p>}
@@ -241,7 +241,7 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
           {/* Brightness slider */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-medium text-neutral-400">Brightness</label>
+              <label className="text-xs font-medium text-neutral-400">Brightness <span className="text-neutral-600 font-normal">(gain)</span></label>
               <span className="text-xs text-neutral-500 font-mono">{form.brightness.toFixed(2)}</span>
             </div>
             <input
@@ -255,7 +255,7 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
             />
             <div className="flex justify-between text-xs text-neutral-600 mt-0.5">
               <span>0</span>
-              <span>1</span>
+              <span>1 (neutral)</span>
             </div>
             {errors.brightness && <p className="mt-1 text-xs text-red-400">{errors.brightness}</p>}
           </div>
@@ -277,14 +277,14 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
             />
             <div className="flex justify-between text-xs text-neutral-600 mt-0.5">
               <span>0</span>
-              <span>1</span>
+              <span>1 (neutral)</span>
             </div>
             {errors.contrast && <p className="mt-1 text-xs text-red-400">{errors.contrast}</p>}
           </div>
 
           {/* RGB gains */}
           <div>
-            <label className="block text-xs font-medium text-neutral-400 mb-2">RGB Gains</label>
+            <label className="block text-xs font-medium text-neutral-400 mb-2">RGB Gains <span className="text-neutral-600 font-normal">(1.0 = unchanged)</span></label>
             <div className="grid grid-cols-3 gap-3">
               {(["R", "G", "B"] as const).map((channel, idx) => (
                 <div key={channel}>
@@ -326,7 +326,7 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
               className="w-full h-1.5 rounded-lg appearance-none cursor-pointer bg-neutral-700 accent-indigo-500 disabled:opacity-40"
             />
             <div className="flex justify-between text-xs text-neutral-600 mt-0.5">
-              <span>0</span><span>100</span>
+              <span>0</span><span>50 (neutral)</span><span>100</span>
             </div>
             {errors.vibrance && <p className="mt-1 text-xs text-red-400">{errors.vibrance}</p>}
           </div>
@@ -344,7 +344,7 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
               className="w-full h-1.5 rounded-lg appearance-none cursor-pointer bg-neutral-700 accent-indigo-500 disabled:opacity-40"
             />
             <div className="flex justify-between text-xs text-neutral-600 mt-0.5">
-              <span>0</span><span>359</span>
+              <span>0 (neutral)</span><span>359</span>
             </div>
             {errors.hue_deg && <p className="mt-1 text-xs text-red-400">{errors.hue_deg}</p>}
             {nvSupported === false && (
