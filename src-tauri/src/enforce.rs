@@ -215,6 +215,7 @@ mod tests {
             gamma: 2.2,
             vibrance,
             hue_deg: hue,
+            color_model: "nvcp-v1".into(),
         }
     }
 

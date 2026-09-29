@@ -9,6 +9,46 @@ use std::path::PathBuf;
 
 fn default_vibrance() -> f64 { 50.0 }
 fn default_hue() -> f64 { 0.0 }
+fn legacy_model() -> String { "gain-v1".into() }
+
+/// Produce a local-date timestamp string `yyyymmdd-HHMMSS` from SystemTime.
+fn local_timestamp() -> String {
+    let dur = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("SystemTime went backwards");
+    let total_secs = dur.as_secs();
+    let days = total_secs / 86400;
+    let secs_today = total_secs % 86400;
+    let h = secs_today / 3600;
+    let m = (secs_today % 3600) / 60;
+    let s = secs_today % 60;
+
+    let mut y = 1970i64;
+    let mut rem = days as i64;
+    loop {
+        let diy = if is_leap(y) { 366 } else { 365 };
+        if rem < diy {
+            break;
+        }
+        rem -= diy;
+        y += 1;
+    }
+    let mon_lengths = [31, if is_leap(y) { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let mut mo = 1u32;
+    for &ml in &mon_lengths {
+        if rem < ml as i64 {
+            break;
+        }
+        rem -= ml as i64;
+        mo += 1;
+    }
+    let d = rem + 1;
+    format!("{y:04}{mo:02}{d:02}-{h:02}{m:02}{s:02}")
+}
+
+fn is_leap(y: i64) -> bool {
+    (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
+}
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -28,6 +68,8 @@ pub struct Preset {
     pub vibrance: f64, // 0–100, 50 = neutral
     #[serde(default = "default_hue")]
     pub hue_deg: f64, // 0–359 degrees
+    #[serde(default = "legacy_model")]
+    pub color_model: String,
 }
 
 /// Input data for creating or updating a preset.
@@ -97,7 +139,7 @@ impl Store {
 
         std::fs::create_dir_all(&profiles_dir)?;
 
-        let presets = if presets_path.exists() {
+        let presets: Vec<Preset> = if presets_path.exists() {
             let content = std::fs::read_to_string(&presets_path)?;
             serde_json::from_str(&content).unwrap_or_default()
         } else {
@@ -112,14 +154,35 @@ impl Store {
             HashMap::new()
         };
 
-        Ok(Store {
-            data_dir,
-            presets_path,
+        // ── Legacy migration: NVCP-scale preset upgrade ─────────────────────
+        // If any preset has color_model == "gain-v1", back up presets.json,
+        // reset brightness/contrast to 50.0 (neutral), stamp nvcp-v1, flush.
+        let needs_migration = presets.iter().any(|p| p.color_model == "gain-v1");
+        let mut store = Store {
+            data_dir: data_dir.clone(),
+            presets_path: presets_path.clone(),
             profiles_dir,
             presets,
             pins_path,
             pinned,
-        })
+        };
+        if needs_migration {
+            // Backup with local-timestamped filename
+            let bak_name = format!("presets.json.bak-{}", local_timestamp());
+            let bak_path = data_dir.join(&bak_name);
+            let _ = std::fs::copy(&presets_path, &bak_path);
+            // Migrate
+            for p in &mut store.presets {
+                if p.color_model == "gain-v1" {
+                    p.brightness = 50.0;
+                    p.contrast = 50.0;
+                    p.color_model = "nvcp-v1".into();
+                }
+            }
+            store.flush()?;
+        }
+
+        Ok(store)
     }
 
     /// Return all stored presets.
@@ -136,14 +199,14 @@ impl Store {
         if input.edid_id.trim().is_empty() {
             return Err(StoreError::InvalidInput("edid_id cannot be empty".into()));
         }
-        if !(0.0..=1.0).contains(&input.brightness) {
+        if !(0.0..=100.0).contains(&input.brightness) {
             return Err(StoreError::InvalidInput(
-                "brightness must be in 0.0..=1.0".into(),
+                "brightness must be in 0.0..=100.0".into(),
             ));
         }
-        if !(0.0..=1.0).contains(&input.contrast) {
+        if !(0.0..=100.0).contains(&input.contrast) {
             return Err(StoreError::InvalidInput(
-                "contrast must be in 0.0..=1.0".into(),
+                "contrast must be in 0.0..=100.0".into(),
             ));
         }
         if !(1.0..=3.0).contains(&input.gamma) {
@@ -192,6 +255,7 @@ impl Store {
             gamma: input.gamma,
             vibrance: input.vibrance,
             hue_deg: input.hue_deg,
+            color_model: "nvcp-v1".into(),
         };
 
         self.presets.push(preset.clone());
@@ -214,14 +278,14 @@ impl Store {
         if input.name.trim().is_empty() {
             return Err(StoreError::InvalidInput("name cannot be empty".into()));
         }
-        if !(0.0..=1.0).contains(&input.brightness) {
+        if !(0.0..=100.0).contains(&input.brightness) {
             return Err(StoreError::InvalidInput(
-                "brightness must be in 0.0..=1.0".into(),
+                "brightness must be in 0.0..=100.0".into(),
             ));
         }
-        if !(0.0..=1.0).contains(&input.contrast) {
+        if !(0.0..=100.0).contains(&input.contrast) {
             return Err(StoreError::InvalidInput(
-                "contrast must be in 0.0..=1.0".into(),
+                "contrast must be in 0.0..=100.0".into(),
             ));
         }
         if !(1.0..=3.0).contains(&input.gamma) {
@@ -264,6 +328,7 @@ impl Store {
             gamma: input.gamma,
             vibrance: input.vibrance,
             hue_deg: input.hue_deg,
+            color_model: self.presets[idx].color_model.clone(),
         };
 
         self.presets[idx] = updated.clone();
@@ -488,19 +553,30 @@ mod tests {
         dir
     }
 
-    /// Helper to create a minimal valid PresetInput.
+    /// Helper to create a minimal valid PresetInput (NVCP-scale values).
     fn minimal_input() -> PresetInput {
         PresetInput {
             name: "Test Preset".into(),
             edid_id: "EDID-001".into(),
             icc_path: None,
-            brightness: 0.5,
-            contrast: 0.8,
+            brightness: 55.0,
+            contrast: 60.0,
             rgb_gains: [1.0, 1.0, 1.0],
             gamma: 2.2,
             vibrance: 50.0,
             hue_deg: 0.0,
         }
+    }
+
+    /// Create a Store backed by a unique temp directory (returns the dir).
+    fn test_store_dir_unique() -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "chromadeck_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ))
     }
 
     // ── create_and_list_preset ─────────────────────────────────────────────
@@ -542,7 +618,7 @@ mod tests {
     fn create_preset_rejects_bad_brightness() {
         let mut store = test_store();
         let mut input = minimal_input();
-        input.brightness = 1.5;
+        input.brightness = 101.0;
         let err = store.create_preset(input).unwrap_err();
         assert!(err.to_string().contains("brightness"));
     }
@@ -570,8 +646,8 @@ mod tests {
                     name: "Updated".into(),
                     edid_id: preset.edid_id.clone(),
                     icc_path: None,
-                    brightness: 0.9,
-                    contrast: 0.3,
+                    brightness: 55.0,
+                    contrast: 60.0,
                     rgb_gains: [0.8, 0.9, 1.0],
                     gamma: 2.0,
                     vibrance: 50.0,
@@ -582,7 +658,7 @@ mod tests {
 
         assert_eq!(updated.name, "Updated");
         assert_eq!(updated.id, preset.id);
-        assert_eq!(updated.brightness, 0.9);
+        assert_eq!(updated.brightness, 55.0);
     }
 
     #[test]
@@ -690,8 +766,8 @@ mod tests {
                     name: "Second".into(),
                     edid_id: "EDID-002".into(),
                     icc_path: None,
-                    brightness: 0.3,
-                    contrast: 0.6,
+                    brightness: 30.0,
+                    contrast: 60.0,
                     rgb_gains: [0.5, 0.5, 0.5],
                     gamma: 2.5,
                     vibrance: 50.0,
@@ -749,6 +825,43 @@ mod tests {
         let preset = store.create_preset(input).unwrap();
         assert_eq!(preset.vibrance, 75.0);
         assert_eq!(preset.hue_deg, 120.0);
+    }
+
+    // ── color_model / migration ──────────────────────────────────────────────
+
+    #[test]
+    fn legacy_file_migrates_brightness_contrast_to_neutral_with_backup() {
+        let dir = test_store_dir_unique();
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("presets.json"),
+            r#"[{"id":"a","name":"Old","edid_id":"E","icc_hash":"","icc_filename":"","brightness":0.55,"contrast":0.5,"rgb_gains":[1.0,1.0,1.0],"gamma":1.25,"vibrance":100.0,"hue_deg":0.0}]"#,
+        )
+        .unwrap();
+        let store = Store::new(dir.clone()).unwrap();
+        let p = &store.list_presets()[0];
+        assert_eq!((p.brightness, p.contrast), (50.0, 50.0));
+        assert_eq!((p.gamma, p.vibrance), (1.25, 100.0)); // untouched
+        assert!(std::fs::read_dir(&dir).unwrap().any(|e| e
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with("presets.json.bak-")));
+    }
+
+    #[test]
+    fn create_rejects_brightness_above_100() {
+        let mut input = minimal_input();
+        input.brightness = 101.0;
+        let err = test_store().create_preset(input).unwrap_err();
+        assert!(err.to_string().contains("brightness"));
+    }
+
+    #[test]
+    fn create_stamps_nvcp_model() {
+        let mut store = test_store();
+        let preset = store.create_preset(minimal_input()).unwrap();
+        assert_eq!(preset.color_model, "nvcp-v1");
     }
 
     // ── pin/unpin pins ──────────────────────────────────────────────────────
