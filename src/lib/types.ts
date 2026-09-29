@@ -25,6 +25,8 @@ export interface Preset {
   contrast: number;     // 0.0 – 1.0
   rgb_gains: [number, number, number]; // per-channel multiplier
   gamma: number;        // 1.0 – 3.0
+  vibrance: number;     // 0 – 100, 50 neutral
+  hue_deg: number;      // 0 – 359 degrees
 }
 
 export interface PresetInput {
@@ -35,10 +37,13 @@ export interface PresetInput {
   contrast: number;
   rgb_gains: [number, number, number];
   gamma: number;
+  vibrance: number;
+  hue_deg: number;
 }
 
 export interface ApplyResult {
   icc_applied: boolean;
   gamma_applied: boolean;
+  vibrance_applied: boolean;
   error?: string;
 }

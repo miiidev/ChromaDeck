@@ -1,6 +1,19 @@
 import { describe, it, expect } from "vitest";
 import { validatePreset } from "./validation";
 
+describe("vibrance validation", () => {
+  it("rejects vibrance out of range", () => {
+    expect(validatePreset({ vibrance: 101 }).vibrance).toContain("0 and 100");
+    expect(validatePreset({ vibrance: -1 }).vibrance).toBeDefined();
+    expect(validatePreset({ vibrance: 50 }).vibrance).toBeUndefined();
+  });
+
+  it("rejects hue out of range", () => {
+    expect(validatePreset({ hue_deg: 360 }).hue_deg).toContain("0 and 359");
+    expect(validatePreset({ hue_deg: 0 }).hue_deg).toBeUndefined();
+  });
+});
+
 describe("validatePreset", () => {
   it("rejects gamma=5 (out of range)", () => {
     const errors = validatePreset({ gamma: 5 });

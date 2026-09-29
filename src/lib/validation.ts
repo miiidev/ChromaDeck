@@ -8,6 +8,8 @@ export interface ValidationErrors {
   contrast?: string;
   rgb_gains?: string;
   icc_path?: string;
+  vibrance?: string;
+  hue_deg?: string;
 }
 
 /** Validate a partial PresetInput and return per-field error strings. */
@@ -48,6 +50,18 @@ export function validatePreset(input: Partial<PresetInput>): ValidationErrors {
     }
   }
 
+  if (input.vibrance !== undefined) {
+    if (typeof input.vibrance !== "number" || input.vibrance < 0 || input.vibrance > 100) {
+      errors.vibrance = "Vibrance must be between 0 and 100";
+    }
+  }
+
+  if (input.hue_deg !== undefined) {
+    if (typeof input.hue_deg !== "number" || input.hue_deg < 0 || input.hue_deg > 359) {
+      errors.hue_deg = "Hue must be between 0 and 359";
+    }
+  }
+
   return errors;
 }
 
@@ -63,6 +77,8 @@ export function validatePresetForm(
     brightness: input.brightness,
     contrast: input.contrast,
     rgb_gains: input.rgb_gains,
+    vibrance: input.vibrance,
+    hue_deg: input.hue_deg,
   });
 
   Object.assign(errors, all);

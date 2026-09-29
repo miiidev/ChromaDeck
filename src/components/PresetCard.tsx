@@ -29,7 +29,7 @@ export default function PresetCard({ preset, monitor, onEdit, onRefreshParent }:
         setTimeout(() => setLastResult(null), 3000);
       }
     } catch (err) {
-      setLastResult({ icc_applied: false, gamma_applied: false, error: String(err) });
+      setLastResult({ icc_applied: false, gamma_applied: false, vibrance_applied: false, error: String(err) });
       setTimeout(() => setLastResult(null), 6000);
     } finally {
       setApplying(false);
@@ -45,6 +45,8 @@ export default function PresetCard({ preset, monitor, onEdit, onRefreshParent }:
         contrast: preset.contrast,
         rgb_gains: preset.rgb_gains,
         gamma: preset.gamma,
+        vibrance: preset.vibrance,
+        hue_deg: preset.hue_deg,
       });
       onRefreshParent();
     } catch {
@@ -74,6 +76,7 @@ export default function PresetCard({ preset, monitor, onEdit, onRefreshParent }:
     const parts: string[] = [];
     if (lastResult.icc_applied) parts.push("ICC applied");
     if (lastResult.gamma_applied) parts.push("gamma applied");
+    if (lastResult.vibrance_applied) parts.push("vibrance applied");
     return (
       <span className="text-xs text-emerald-400">
         {parts.join(" + ") || "Applied"}
@@ -102,6 +105,8 @@ export default function PresetCard({ preset, monitor, onEdit, onRefreshParent }:
           <span className="font-mono">
             RGB {preset.rgb_gains.map((v) => v.toFixed(1)).join("/")}
           </span>
+          <span>V {preset.vibrance.toFixed(0)}</span>
+          <span>H {preset.hue_deg.toFixed(0)}°</span>
         </div>
         {getApplyResultDisplay()}
       </div>

@@ -1,6 +1,7 @@
 import { useState, useEffect, type FormEvent } from "react";
 import type { Monitor, Preset, PresetInput } from "../lib/types";
 import { createPreset, updatePreset, importIcc } from "../lib/tauri";
+import { vibranceSupported } from "../lib/tauri";
 import { validatePresetForm, type ValidationErrors } from "../lib/validation";
 import { open } from "@tauri-apps/plugin-dialog";
 
@@ -18,6 +19,8 @@ const DEFAULT_INPUT: PresetInput = {
   contrast: 0.5,
   rgb_gains: [1.0, 1.0, 1.0],
   gamma: 2.2,
+  vibrance: 50,
+  hue_deg: 0,
 };
 
 export default function PresetEditor({ monitors, editPreset, onClose, onSaved }: Props) {
@@ -27,6 +30,7 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
   const [saving, setSaving] = useState(false);
   const [iccStatus, setIccStatus] = useState<{ hash: string; filename: string } | null>(null);
   const [iccImporting, setIccImporting] = useState(false);
+  const [nvSupported, setNvSupported] = useState<boolean | null>(null);
 
   // Populate form when editing
   useEffect(() => {
@@ -38,6 +42,8 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
         contrast: editPreset.contrast,
         rgb_gains: editPreset.rgb_gains,
         gamma: editPreset.gamma,
+        vibrance: editPreset.vibrance,
+        hue_deg: editPreset.hue_deg,
       });
       if (editPreset.icc_hash) {
         setIccStatus({ hash: editPreset.icc_hash, filename: editPreset.icc_filename });
@@ -54,6 +60,20 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
     setErrors({});
     setIccImporting(false);
   }, [editPreset, monitors]);
+
+  // Probe NVAPI vibrance/hue support when monitor selection changes
+  useEffect(() => {
+    let cancelled = false;
+    setNvSupported(null);
+    if (!form.edid_id) {
+      setNvSupported(false);
+      return;
+    }
+    vibranceSupported(form.edid_id)
+      .then((ok) => { if (!cancelled) setNvSupported(ok); })
+      .catch(() => { if (!cancelled) setNvSupported(false); });
+    return () => { cancelled = true; };
+  }, [form.edid_id]);
 
   const handleBrowseIcc = async () => {
     setIccImporting(true);
@@ -291,6 +311,45 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
               ))}
             </div>
             {errors.rgb_gains && <p className="mt-1 text-xs text-red-400">{errors.rgb_gains}</p>}
+          </div>
+
+          {/* Vibrance slider */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-medium text-neutral-400">Digital Vibrance</label>
+              <span className="text-xs text-neutral-500 font-mono">{form.vibrance.toFixed(0)}</span>
+            </div>
+            <input
+              type="range" min={0} max={100} step={1} value={form.vibrance}
+              disabled={nvSupported === false}
+              onChange={(e) => updateField("vibrance", parseFloat(e.target.value))}
+              className="w-full h-1.5 rounded-lg appearance-none cursor-pointer bg-neutral-700 accent-indigo-500 disabled:opacity-40"
+            />
+            <div className="flex justify-between text-xs text-neutral-600 mt-0.5">
+              <span>0</span><span>100</span>
+            </div>
+            {errors.vibrance && <p className="mt-1 text-xs text-red-400">{errors.vibrance}</p>}
+          </div>
+
+          {/* Hue slider */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-medium text-neutral-400">Hue</label>
+              <span className="text-xs text-neutral-500 font-mono">{form.hue_deg.toFixed(0)}°</span>
+            </div>
+            <input
+              type="range" min={0} max={359} step={1} value={form.hue_deg}
+              disabled={nvSupported === false}
+              onChange={(e) => updateField("hue_deg", parseFloat(e.target.value))}
+              className="w-full h-1.5 rounded-lg appearance-none cursor-pointer bg-neutral-700 accent-indigo-500 disabled:opacity-40"
+            />
+            <div className="flex justify-between text-xs text-neutral-600 mt-0.5">
+              <span>0</span><span>359</span>
+            </div>
+            {errors.hue_deg && <p className="mt-1 text-xs text-red-400">{errors.hue_deg}</p>}
+            {nvSupported === false && (
+              <p className="mt-1 text-xs text-amber-400">Digital vibrance/hue need an NVIDIA-driven display.</p>
+            )}
           </div>
 
           {/* Precedence hint */}
