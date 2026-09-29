@@ -79,6 +79,24 @@ impl RealColorApi {
             .find(|m| m.edid_id == edid_id && !m.device_name.is_empty())
             .map(|m| m.device_name)
     }
+
+    /// Reject ramps no driver will accept: a channel peaking at 0 (brightness
+    /// 0 blanks the display) is refused by `SetDeviceGammaRamp`, so fail fast
+    /// with an actionable message instead of a cryptic Win32 error.
+    /// Returns the error message when blank, `None` when appliable.
+    /// Pure function (no hardware) so it is unit-testable.
+    pub fn blank_channel_error(ramp: &[u16; 256 * 3]) -> Option<String> {
+        for ch in 0..3 {
+            if ramp[ch * 256 + 255] == 0 {
+                return Some(
+                    "ramp peak is 0 (brightness 0 blanks the display, which \
+                     this driver rejects); raise Brightness above 0"
+                        .into(),
+                );
+            }
+        }
+        None
+    }
 }
 
 impl ColorApi for RealColorApi {
@@ -171,15 +189,26 @@ impl ColorApi for RealColorApi {
         // Build the gamma ramp.
         let ramp = build_gamma_ramp(brightness, contrast, rgb_gains, gamma);
 
+        // Fail fast on blank ramps (see blank_channel_error) before touching
+        // the driver, so the user gets an actionable message.
+        if let Some(msg) = Self::blank_channel_error(&ramp) {
+            unsafe { let _ = DeleteDC(hdc); };
+            return Err(msg);
+        }
+
         // SAFETY: SetDeviceGammaRamp writes the ramp into the display driver.
         let ok: bool = unsafe { SetDeviceGammaRamp(hdc, &ramp as *const _ as _).as_bool() };
+        // Capture the Win32 error immediately: DeleteDC below may overwrite it.
+        let last_error = std::io::Error::last_os_error();
 
         // Cleanup DC.
         // SAFETY: DeleteDC is safe after a successful CreateDCW.
         unsafe { let _ = DeleteDC(hdc); };
 
         if !ok {
-            Err(format!("SetDeviceGammaRamp failed for {device_name}"))
+            Err(format!(
+                "SetDeviceGammaRamp failed for {device_name} (win32 error {last_error})"
+            ))
         } else {
             Ok(())
         }
@@ -624,5 +653,29 @@ mod tests {
     fn zero_brightness_ramp_stays_zero() {
         let ramp = build_gamma_ramp(0.0, 0.5, [1.0, 1.0, 1.0], 2.2);
         assert!(ramp.iter().all(|&v| v == 0));
+    }
+
+    // ── Blank-ramp guard (regression: same error text, new cause) ─────
+
+    /// A zero-peak (brightness 0) ramp must be flagged with an actionable
+    /// message instead of reaching the driver and failing cryptically.
+    #[test]
+    fn zero_peak_ramp_flagged_with_actionable_error() {
+        let ramp = build_gamma_ramp(0.0, 0.5, [1.0, 1.0, 1.0], 1.25);
+        let msg = RealColorApi::blank_channel_error(&ramp)
+            .expect("zero ramp must be flagged");
+        assert!(
+            msg.contains("Brightness"),
+            "message must tell the user what to change, got: {msg}"
+        );
+    }
+
+    /// Normal and floor-rescaled ramps must NOT be flagged.
+    #[test]
+    fn appliable_ramps_not_flagged() {
+        let full = build_gamma_ramp(1.0, 1.0, [1.0, 1.0, 1.0], 1.0);
+        assert!(RealColorApi::blank_channel_error(&full).is_none());
+        let dim = build_gamma_ramp(0.5, 0.5, [1.0, 1.0, 1.0], 1.25);
+        assert!(RealColorApi::blank_channel_error(&dim).is_none());
     }
 }
