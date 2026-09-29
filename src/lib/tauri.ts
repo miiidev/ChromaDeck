@@ -2,7 +2,7 @@
 // Mirror the Rust backend commands defined in src-tauri/src/monitor.rs and store.rs.
 
 import { invoke } from "@tauri-apps/api/core";
-import type { ApplyResult, Monitor, Preset, PresetInput } from "./types";
+import type { ApplyResult, EnforceEvent, Monitor, Preset, PresetInput } from "./types";
 
 /** Fetch the list of connected monitors with their EDID identifiers. */
 export async function listMonitors(): Promise<Monitor[]> {
@@ -68,4 +68,26 @@ export async function resetMonitor(edidId: string): Promise<ApplyResult> {
  */
 export async function vibranceSupported(edidId: string): Promise<boolean> {
   return invoke<boolean>("vibrance_supported_cmd", { edidId });
+}
+
+// ── Pin enforcement ─────────────────────────────────────────────────────────
+
+/** Pin a preset as the enforced default for its monitor. */
+export async function pinPreset(edidId: string, presetId: string): Promise<void> {
+  return invoke<void>("pin_preset_cmd", { edidId, presetId });
+}
+
+/** Remove enforcement for a monitor (no-op when unpinned). */
+export async function unpinMonitor(edidId: string): Promise<void> {
+  return invoke<void>("unpin_monitor_cmd", { edidId });
+}
+
+/** Map of edid_id -> preset_id for pinned monitors. */
+export async function listPins(): Promise<Record<string, string>> {
+  return invoke<Record<string, string>>("list_pins_cmd");
+}
+
+/** Force a full enforce pass now; returns per-pin outcomes. */
+export async function reapplyNow(): Promise<EnforceEvent[]> {
+  return invoke<EnforceEvent[]>("reapply_now_cmd");
 }

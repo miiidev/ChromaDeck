@@ -1,9 +1,32 @@
 import { useState, useEffect, useCallback } from "react";
 import "./App.css";
-import { listMonitors, listPresets } from "./lib/tauri";
-import type { Monitor, Preset } from "./lib/types";
+import { listMonitors, listPresets, listPins, reapplyNow } from "./lib/tauri";
+import type { Monitor, Preset, EnforceEvent } from "./lib/types";
+import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import MonitorList from "./components/MonitorList";
 import PresetEditor from "./components/PresetEditor";
+
+function AutostartToggle() {
+  const [on, setOn] = useState<boolean | null>(null);
+  useEffect(() => {
+    isEnabled().then(setOn).catch(() => setOn(false));
+  }, []);
+  const toggle = async () => {
+    try {
+      if (on) await disable();
+      else await enable();
+      setOn(!on);
+    } catch {
+      // keep current state on failure
+    }
+  };
+  return (
+    <label className="inline-flex items-center gap-1.5 text-xs text-neutral-500 cursor-pointer">
+      <input type="checkbox" checked={on ?? false} onChange={toggle} className="accent-indigo-500" />
+      Start with Windows
+    </label>
+  );
+}
 
 function App() {
   const [monitors, setMonitors] = useState<Monitor[]>([]);
@@ -12,17 +35,21 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [editingPreset, setEditingPreset] = useState<Preset | null>(null);
   const [showEditor, setShowEditor] = useState(false);
+  const [pins, setPins] = useState<Record<string, string>>({});
+  const [reapplyMsg, setReapplyMsg] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [monitorsData, presetsData] = await Promise.all([
+      const [monitorsData, presetsData, pinsData] = await Promise.all([
         listMonitors(),
         listPresets(),
+        listPins(),
       ]);
       setMonitors(monitorsData);
       setPresets(presetsData);
+      setPins(pinsData);
     } catch (err) {
       setError(String(err));
     } finally {
@@ -96,18 +123,42 @@ function App() {
         onEdit={handleEdit}
         onRefresh={fetchData}
         onCreateNew={handleCreateNew}
+        pins={pins}
+        onPinChange={fetchData}
       />
 
       {/* Status bar */}
       <footer className="border-t border-neutral-800 px-6 py-2 flex items-center justify-between text-xs text-neutral-600">
         <span>
-          {loading ? "Loading…" : `${presets.length} preset${presets.length !== 1 ? "s" : ""} · ${monitors.filter((m) => m.connected).length} monitor${monitors.filter((m) => m.connected).length !== 1 ? "s" : ""} connected`}
+          {loading ? "Loading…" : `${presets.length} preset${presets.length !== 1 ? "s" : ""} · ${monitors.filter((m) => m.connected).length} monitor${monitors.filter((m) => m.connected).length !== 1 ? "s" : ""} connected · ${Object.keys(pins).length} pinned`}
         </span>
-        {!loading && (
-          <span>
-            Last refresh: {new Date().toLocaleTimeString()}
-          </span>
-        )}
+        <span className="inline-flex items-center gap-3">
+          {reapplyMsg && <span className="text-neutral-400">{reapplyMsg}</span>}
+          {!loading && (
+            <span>
+              Last refresh: {new Date().toLocaleTimeString()}
+            </span>
+          )}
+          <button
+            onClick={async () => {
+              try {
+                const events: EnforceEvent[] = await reapplyNow();
+                const applied = events.filter((e) => e.applied).length;
+                const firstErr = events.find((e) => e.error)?.error;
+                setReapplyMsg(firstErr ? `Reapply: ${firstErr}` : `Reapplied ${applied}/${events.length}`);
+              } catch (err) {
+                setReapplyMsg(`Reapply failed: ${String(err)}`);
+              }
+              setTimeout(() => setReapplyMsg(null), 5000);
+              fetchData();
+            }}
+            className="px-2 py-1 text-xs rounded-md text-neutral-500 hover:text-neutral-200 hover:bg-neutral-700 transition-colors"
+            title="Re-run enforcement now"
+          >
+            Reapply now
+          </button>
+          <AutostartToggle />
+        </span>
       </footer>
 
       {/* Editor modal */}

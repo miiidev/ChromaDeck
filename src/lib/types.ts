@@ -47,3 +47,10 @@ export interface ApplyResult {
   vibrance_applied: boolean;
   error?: string;
 }
+
+export interface EnforceEvent {
+  edid_id: string;
+  preset_id: string;
+  applied: boolean;
+  error?: string;
+}

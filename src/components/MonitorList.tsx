@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Monitor, Preset } from "../lib/types";
-import { resetMonitor } from "../lib/tauri";
+import { resetMonitor, unpinMonitor } from "../lib/tauri";
 import PresetCard from "./PresetCard";
 
 interface Props {
@@ -10,6 +10,8 @@ interface Props {
   onEdit: (preset: Preset) => void;
   onRefresh: () => void;
   onCreateNew: () => void;
+  pins: Record<string, string>;
+  onPinChange: () => void;
 }
 
 /** Loading skeleton rows */
@@ -54,6 +56,11 @@ function MonitorResetButton({ edidId }: { edidId: string }) {
     setResetting(true);
     setMessage(null);
     try {
+      await unpinMonitor(edidId); // no-op when unpinned; Reset always disarms
+    } catch {
+      // ignore — reset proceeds regardless
+    }
+    try {
       const result = await resetMonitor(edidId);
       if (result.error) {
         setMessage({ text: `Reset failed: ${result.error}`, ok: false });
@@ -93,7 +100,7 @@ function MonitorResetButton({ edidId }: { edidId: string }) {
   );
 }
 
-export default function MonitorList({ monitors, presets, loading, onEdit, onRefresh, onCreateNew }: Props) {
+export default function MonitorList({ monitors, presets, loading, onEdit, onRefresh, onCreateNew, pins, onPinChange }: Props) {
   if (loading) {
     return (
       <section className="flex-1 p-6 space-y-4">
@@ -222,6 +229,8 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
                     monitor={monitor}
                     onEdit={onEdit}
                     onRefreshParent={onRefresh}
+                    isPinned={pins[monitor.edid_id] === preset.id}
+                    onPinChange={onPinChange}
                   />
                 ))}
               </div>

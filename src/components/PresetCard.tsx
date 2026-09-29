@@ -1,15 +1,17 @@
 import { useState } from "react";
 import type { Monitor, Preset, ApplyResult } from "../lib/types";
-import { applyPreset, deletePreset, createPreset } from "../lib/tauri";
+import { applyPreset, deletePreset, createPreset, pinPreset, unpinMonitor } from "../lib/tauri";
 
 interface Props {
   preset: Preset;
   monitor: Monitor;
   onEdit: (preset: Preset) => void;
   onRefreshParent: () => void;
+  isPinned: boolean;
+  onPinChange: () => void;
 }
 
-export default function PresetCard({ preset, monitor, onEdit, onRefreshParent }: Props) {
+export default function PresetCard({ preset, monitor, onEdit, onRefreshParent, isPinned, onPinChange }: Props) {
   const [applying, setApplying] = useState(false);
   const [lastResult, setLastResult] = useState<ApplyResult | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -92,6 +94,11 @@ export default function PresetCard({ preset, monitor, onEdit, onRefreshParent }:
           <span className="text-sm font-medium text-neutral-200 truncate">
             {preset.name}
           </span>
+          {isPinned && (
+            <span className="text-[10px] font-medium text-indigo-300 bg-indigo-900/40 border border-indigo-800/50 rounded px-1.5 py-0.5">
+              Pinned
+            </span>
+          )}
           {preset.icc_hash && (
             <span className="text-xs text-neutral-500 truncate hidden sm:inline">
               ICC{preset.icc_filename ? `: ${preset.icc_filename}` : ""}
@@ -126,6 +133,22 @@ export default function PresetCard({ preset, monitor, onEdit, onRefreshParent }:
             {applying ? "Applying…" : "Apply"}
           </button>
         )}
+
+        <button
+          onClick={async () => {
+            try {
+              if (isPinned) await unpinMonitor(preset.edid_id);
+              else await pinPreset(preset.edid_id, preset.id);
+              onPinChange();
+            } catch {
+              // silent (matches existing card error style)
+            }
+          }}
+          className="px-2 py-1 text-xs font-medium rounded-md text-neutral-400 hover:text-neutral-200 hover:bg-neutral-700 transition-colors"
+          title={isPinned ? "Stop enforcing this preset" : "Pin as enforced default"}
+        >
+          {isPinned ? "Unpin" : "Pin"}
+        </button>
 
         <button
           onClick={() => onEdit(preset)}
