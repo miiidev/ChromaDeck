@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef, type FormEvent } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 import type { Monitor, Preset, PresetInput } from "../lib/types";
 import { createPreset, updatePreset, importIcc } from "../lib/tauri";
 import { validatePresetForm, type ValidationErrors } from "../lib/validation";
+import { open } from "@tauri-apps/plugin-dialog";
 
 interface Props {
   monitors: Monitor[];
@@ -26,7 +27,6 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
   const [saving, setSaving] = useState(false);
   const [iccStatus, setIccStatus] = useState<{ hash: string; filename: string } | null>(null);
   const [iccImporting, setIccImporting] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Populate form when editing
   useEffect(() => {
@@ -55,21 +55,21 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
     setIccImporting(false);
   }, [editPreset, monitors]);
 
-  const handleFilePick = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    // In a Tauri webview, File.path gives the real filesystem path
-    const filePath = (file as File & { path?: string }).path;
-    if (!filePath) {
-      setErrors((prev) => ({ ...prev, icc_path: "Cannot access file path in browser preview. Run with `npm run tauri dev`." }));
-      return;
-    }
-
+  const handleBrowseIcc = async () => {
     setIccImporting(true);
     try {
-      const hash = await importIcc(filePath);
-      setIccStatus({ hash, filename: file.name });
+      const selected = await open({
+        multiple: false,
+        filters: [{ name: "ICC profiles", extensions: ["icc", "icm"] }],
+      });
+      if (!selected) {
+        // User cancelled — reset importing state, no error
+        setIccImporting(false);
+        return;
+      }
+      const hash = await importIcc(selected);
+      const parts = selected.replace(/\\/g, "/").split("/");
+      setIccStatus({ hash, filename: parts[parts.length - 1] });
       setErrors((prev) => {
         const { icc_path: _, ...rest } = prev;
         return rest;
@@ -179,16 +179,9 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
               ICC Profile <span className="text-neutral-600 font-normal">(optional)</span>
             </label>
             <div className="flex items-center gap-2">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".icc,.icm"
-                onChange={handleFilePick}
-                className="hidden"
-              />
               <button
                 type="button"
-                onClick={() => fileInputRef.current?.click()}
+                onClick={handleBrowseIcc}
                 disabled={iccImporting}
                 className="px-3 py-2 text-xs font-medium rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 border border-neutral-700 transition-colors disabled:opacity-50"
               >
