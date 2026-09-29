@@ -1,5 +1,6 @@
 mod color;
 mod monitor;
+mod nvapi;
 mod store;
 
 use color::{apply_preset_cmd, reset_monitor_cmd};
