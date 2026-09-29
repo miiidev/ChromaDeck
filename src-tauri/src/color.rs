@@ -11,6 +11,9 @@ use windows::core::PCWSTR;
 use windows::Win32::Graphics::Gdi::{CreateDCW, DeleteDC, HDC};
 use windows::Win32::UI::ColorSystem::GetDeviceGammaRamp;
 
+use crate::nvapi::{fns, display_id_for_device, resolve_device_name};
+use crate::nvgamma::{display_luid, nvcp_ramp, persist_nvcp, set_target_gamma, ui_to_internal};
+
 // ── ApplyResult ─────────────────────────────────────────────────────────────
 
 /// Result of applying a preset to a monitor.
@@ -41,6 +44,36 @@ impl ApplyResult {
             error: None,
         }
     }
+}
+
+// ── Gamma engine selection ─────────────────────────────────────────────────
+
+/// Engine used to apply gamma to a display.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum GammaEngine {
+    Nvapi,
+    Gdi,
+}
+
+/// Pure engine selector for testability.
+fn engine_for_flags(nvapi_ok: bool) -> GammaEngine {
+    if nvapi_ok {
+        GammaEngine::Nvapi
+    } else {
+        GammaEngine::Gdi
+    }
+}
+
+/// Select the gamma engine for a given display by probing NVAPI availability.
+pub(crate) fn gamma_engine(edid_id: &str) -> GammaEngine {
+    let nvapi_ok = fns()
+        .and_then(|f| {
+            resolve_device_name(edid_id)
+                .and_then(|n| display_id_for_device(f, &n).ok())
+                .map(|_| ())
+        })
+        .is_some();
+    engine_for_flags(nvapi_ok)
 }
 
 // ── Injectable API trait ────────────────────────────────────────────────────
@@ -334,21 +367,86 @@ pub fn apply_color(
     let mut vibrance_applied = false;
     let mut error: Option<String> = None;
 
-    // Step 1 — Gamma / RGB overlay
-    match api.set_gamma_ramp(
-        &preset.edid_id,
-        preset.brightness,
-        preset.contrast,
-        preset.rgb_gains,
-        preset.gamma,
-    ) {
-        Ok(()) => gamma_applied = true,
-        Err(e) => {
-            let gamma_err = format!("gamma: {e}");
-            error = Some(match error {
-                Some(ref prev) => format!("{prev}; {gamma_err}"),
-                None => gamma_err,
-            });
+    // Step 1 — Gamma / RGB overlay (engine-branched)
+    let engine = gamma_engine(&preset.edid_id);
+    match engine {
+        GammaEngine::Nvapi => {
+            // NVAPI path: NVCP transfer math + set_target_gamma + persist
+            let nvapi_result = (|| -> Result<(), String> {
+                let fns = fns().ok_or_else(|| "NVAPI unavailable".to_string())?;
+                let device_name = resolve_device_name(&preset.edid_id)
+                    .ok_or_else(|| format!("no display device found for EDID {}", preset.edid_id))?;
+                let display_id = display_id_for_device(fns, &device_name)?;
+
+                let b_int = ui_to_internal(preset.brightness);
+                let c_int = ui_to_internal(preset.contrast);
+                let mut ramp = nvcp_ramp(b_int, c_int, preset.gamma);
+
+                // Apply RGB gains as post-multiplier (preserves existing behavior)
+                for i in 0..1024 {
+                    ramp[i * 3] = (ramp[i * 3] as f64 * preset.rgb_gains[0]).clamp(0.0, 1.0) as f32;
+                    ramp[i * 3 + 1] =
+                        (ramp[i * 3 + 1] as f64 * preset.rgb_gains[1]).clamp(0.0, 1.0) as f32;
+                    ramp[i * 3 + 2] =
+                        (ramp[i * 3 + 2] as f64 * preset.rgb_gains[2]).clamp(0.0, 1.0) as f32;
+                }
+
+                set_target_gamma(fns, display_id, &ramp)?;
+
+                // Best-effort persist: failure does NOT fail the apply
+                if let Ok(luid) = display_luid(fns, display_id) {
+                    let b_arr = [b_int; 3];
+                    let c_arr = [c_int; 3];
+                    let g_arr = [preset.gamma * 100.0; 3];
+                    if let Err(e) = persist_nvcp(luid, b_arr, c_arr, g_arr) {
+                        return Err(format!("persist: {e}"));
+                    }
+                }
+
+                Ok(())
+            })();
+
+            match nvapi_result {
+                Ok(()) => gamma_applied = true,
+                Err(e) => {
+                    if e.starts_with("persist: ") {
+                        // Gamma succeeded but persist failed — gamma still counts as applied
+                        gamma_applied = true;
+                        error = Some(match error {
+                            Some(ref prev) => format!("{prev}; {e}"),
+                            None => e,
+                        });
+                    } else {
+                        let gamma_err = format!("gamma: {e}");
+                        error = Some(match error {
+                            Some(ref prev) => format!("{prev}; {gamma_err}"),
+                            None => gamma_err,
+                        });
+                    }
+                }
+            }
+        }
+        GammaEngine::Gdi => {
+            // GDI fallback with mapped gains: gain = 0.8 + 0.004 × ui_val
+            // (neutral 50 → gain 1.0, matching the old gain-model neutral)
+            let b_gain = 0.8 + 0.004 * preset.brightness;
+            let c_gain = 0.8 + 0.004 * preset.contrast;
+            match api.set_gamma_ramp(
+                &preset.edid_id,
+                b_gain,
+                c_gain,
+                preset.rgb_gains,
+                preset.gamma,
+            ) {
+                Ok(()) => gamma_applied = true,
+                Err(e) => {
+                    let gamma_err = format!("gamma: {e}");
+                    error = Some(match error {
+                        Some(ref prev) => format!("{prev}; {gamma_err}"),
+                        None => gamma_err,
+                    });
+                }
+            }
         }
     }
 
@@ -438,10 +536,55 @@ pub fn reset_monitor(
     let mut vibrance_applied = false;
     let mut error: Option<String> = None;
 
-    match api.set_gamma_ramp(edid_id, 1.0, 1.0, [1.0, 1.0, 1.0], 1.0) {
-        Ok(()) => gamma_applied = true,
-        Err(e) => {
-            error = Some(format!("reset: {e}"));
+    let engine = gamma_engine(edid_id);
+    match engine {
+        GammaEngine::Nvapi => {
+            // NVAPI reset: identity ramp + neutral 100s persist
+            let nvapi_result = (|| -> Result<(), String> {
+                let fns = fns().ok_or_else(|| "NVAPI unavailable".to_string())?;
+                let device_name = resolve_device_name(edid_id)
+                    .ok_or_else(|| format!("no display device found for EDID {edid_id}"))?;
+                let display_id = display_id_for_device(fns, &device_name)?;
+
+                // Identity ramp at neutral (100, 100, 1.0)
+                let ramp = nvcp_ramp(100.0, 100.0, 1.0);
+                set_target_gamma(fns, display_id, &ramp)?;
+
+                // Persist neutral 100s
+                if let Ok(luid) = display_luid(fns, display_id) {
+                    let neutral = [100.0; 3];
+                    if let Err(e) = persist_nvcp(luid, neutral, neutral, neutral) {
+                        return Err(format!("persist: {e}"));
+                    }
+                }
+
+                Ok(())
+            })();
+
+            match nvapi_result {
+                Ok(()) => gamma_applied = true,
+                Err(e) => {
+                    if e.starts_with("persist: ") {
+                        // Gamma reset succeeded but persist failed
+                        gamma_applied = true;
+                        error = Some(match error {
+                            Some(ref prev) => format!("{prev}; {e}"),
+                            None => e,
+                        });
+                    } else {
+                        error = Some(format!("reset: {e}"));
+                    }
+                }
+            }
+        }
+        GammaEngine::Gdi => {
+            // GDI reset: unchanged identity gain values (1.0 = neutral)
+            match api.set_gamma_ramp(edid_id, 1.0, 1.0, [1.0, 1.0, 1.0], 1.0) {
+                Ok(()) => gamma_applied = true,
+                Err(e) => {
+                    error = Some(format!("reset: {e}"));
+                }
+            }
         }
     }
 
@@ -587,6 +730,14 @@ pub fn reset_monitor_cmd(edid_id: String) -> ApplyResult {
 mod tests {
     use super::*;
     use crate::store::Preset;
+
+    // ── Engine selection (pure seam) ───────────────────────────────────
+
+    #[test]
+    fn engine_for_flags_selects_correct_engine() {
+        assert_eq!(engine_for_flags(true), GammaEngine::Nvapi);
+        assert_eq!(engine_for_flags(false), GammaEngine::Gdi);
+    }
 
     fn fake_preset() -> Preset {
         Preset {
