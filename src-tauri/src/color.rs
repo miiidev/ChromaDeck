@@ -348,11 +348,34 @@ pub fn apply_preset(
     }
 }
 
+/// Reset a monitor to system defaults: identity gamma ramp
+/// (brightness 1, contrast 1, unit RGB gains, gamma 1). ICC associations
+/// are left untouched. Returns an `ApplyResult` with `icc_applied: false`.
+pub fn reset_monitor(api: &dyn ColorApi, edid_id: &str) -> ApplyResult {
+    if !api.is_connected(edid_id) {
+        return ApplyResult::offline();
+    }
+
+    match api.set_gamma_ramp(edid_id, 1.0, 1.0, [1.0, 1.0, 1.0], 1.0) {
+        Ok(()) => ApplyResult {
+            icc_applied: false,
+            gamma_applied: true,
+            error: None,
+        },
+        Err(e) => ApplyResult {
+            icc_applied: false,
+            gamma_applied: false,
+            error: Some(format!("reset: {e}")),
+        },
+    }
+}
+
 // ── Recorder / mock for testing ─────────────────────────────────────────────
 
 #[cfg(test)]
 pub struct TestRecorder {
     pub calls: std::sync::Mutex<Vec<String>>,
+    pub last_gamma_params: std::sync::Mutex<Option<(f64, f64, [f64; 3], f64)>>,
     pub connected: bool,
     pub icc_should_fail: bool,
     pub gamma_should_fail: bool,
@@ -363,6 +386,7 @@ impl TestRecorder {
     pub fn new(connected: bool) -> Self {
         TestRecorder {
             calls: std::sync::Mutex::new(Vec::new()),
+            last_gamma_params: std::sync::Mutex::new(None),
             connected,
             icc_should_fail: false,
             gamma_should_fail: false,
@@ -389,13 +413,15 @@ impl ColorApi for TestRecorder {
     fn set_gamma_ramp(
         &self,
         _edid_id: &str,
-        _brightness: f64,
-        _contrast: f64,
-        _rgb_gains: [f64; 3],
-        _gamma: f64,
+        brightness: f64,
+        contrast: f64,
+        rgb_gains: [f64; 3],
+        gamma: f64,
     ) -> Result<(), String> {
         let mut calls = self.calls.lock().unwrap();
         calls.push("gamma".into());
+        *self.last_gamma_params.lock().unwrap() =
+            Some((brightness, contrast, rgb_gains, gamma));
         if self.gamma_should_fail {
             Err("mock gamma failure".into())
         } else {
@@ -443,6 +469,12 @@ pub fn apply_preset_cmd(
 
     let api = RealColorApi;
     apply_preset(&api, &preset, &profiles_dir_str)
+}
+
+#[tauri::command]
+pub fn reset_monitor_cmd(edid_id: String) -> ApplyResult {
+    let api = RealColorApi;
+    reset_monitor(&api, &edid_id)
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────────
@@ -653,6 +685,43 @@ mod tests {
     fn zero_brightness_ramp_stays_zero() {
         let ramp = build_gamma_ramp(0.0, 0.5, [1.0, 1.0, 1.0], 2.2);
         assert!(ramp.iter().all(|&v| v == 0));
+    }
+
+    // ── reset_monitor ──────────────────────────────────────────────────
+
+    /// Reset must call gamma exactly once with identity parameters and
+    /// never touch ICC.
+    #[test]
+    fn reset_calls_gamma_once_with_identity_and_no_icc() {
+        let recorder = TestRecorder::new(true);
+
+        let result = reset_monitor(&recorder, "EDID-001");
+
+        let calls = recorder.calls.lock().unwrap();
+        assert_eq!(*calls, vec!["gamma"], "reset is gamma-only");
+        let params = recorder.last_gamma_params.lock().unwrap();
+        assert_eq!(
+            *params,
+            Some((1.0, 1.0, [1.0, 1.0, 1.0], 1.0)),
+            "reset must use identity parameters"
+        );
+        assert!(!result.icc_applied);
+        assert!(result.gamma_applied);
+        assert!(result.error.is_none());
+    }
+
+    /// Reset on an offline monitor returns the offline error without
+    /// touching the driver.
+    #[test]
+    fn reset_offline_monitor_returns_offline_error() {
+        let recorder = TestRecorder::new(false);
+
+        let result = reset_monitor(&recorder, "EDID-001");
+
+        let calls = recorder.calls.lock().unwrap();
+        assert!(calls.is_empty(), "no driver calls when offline");
+        assert!(!result.gamma_applied);
+        assert!(result.error.as_ref().unwrap().contains("offline"));
     }
 
     // ── Blank-ramp guard (regression: same error text, new cause) ─────

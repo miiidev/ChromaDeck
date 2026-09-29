@@ -1,4 +1,6 @@
+import { useState } from "react";
 import type { Monitor, Preset } from "../lib/types";
+import { resetMonitor } from "../lib/tauri";
 import PresetCard from "./PresetCard";
 
 interface Props {
@@ -40,6 +42,54 @@ function EmptyState({ onCreateNew }: { onCreateNew: () => void }) {
         Create Preset
       </button>
     </div>
+  );
+}
+
+/** Per-monitor reset-to-default button with inline result feedback */
+function MonitorResetButton({ edidId }: { edidId: string }) {
+  const [resetting, setResetting] = useState(false);
+  const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
+
+  const handleReset = async () => {
+    setResetting(true);
+    setMessage(null);
+    try {
+      const result = await resetMonitor(edidId);
+      if (result.error) {
+        setMessage({ text: `Reset failed: ${result.error}`, ok: false });
+        setTimeout(() => setMessage(null), 6000);
+      } else {
+        setMessage({ text: "Reset to default", ok: true });
+        setTimeout(() => setMessage(null), 3000);
+      }
+    } catch (err) {
+      setMessage({ text: `Reset failed: ${String(err)}`, ok: false });
+      setTimeout(() => setMessage(null), 6000);
+    } finally {
+      setResetting(false);
+    }
+  };
+
+  return (
+    <span className="inline-flex items-center gap-2">
+      {message && (
+        <span className={`text-xs ${message.ok ? "text-emerald-400" : "text-red-400"}`}>
+          {message.text}
+        </span>
+      )}
+      <button
+        onClick={handleReset}
+        disabled={resetting}
+        className={`px-2 py-1 text-xs font-medium rounded-md transition-colors ${
+          resetting
+            ? "text-neutral-500 cursor-wait"
+            : "text-neutral-500 hover:text-neutral-200 hover:bg-neutral-700"
+        }`}
+        title="Reset this monitor to default colours (identity gamma)"
+      >
+        {resetting ? "Resetting…" : "Reset"}
+      </button>
+    </span>
   );
 }
 
@@ -143,10 +193,13 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
                 )}
               </div>
               {monitor.connected ? (
-                <span className="inline-flex items-center gap-1.5 text-xs text-emerald-400">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                  Connected
-                </span>
+                <div className="flex items-center gap-2">
+                  <MonitorResetButton edidId={monitor.edid_id} />
+                  <span className="inline-flex items-center gap-1.5 text-xs text-emerald-400">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                    Connected
+                  </span>
+                </div>
               ) : (
                 <span className="inline-flex items-center gap-1.5 text-xs text-neutral-500">
                   <span className="w-1.5 h-1.5 rounded-full bg-neutral-600" />

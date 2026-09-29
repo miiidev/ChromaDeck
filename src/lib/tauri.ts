@@ -51,3 +51,12 @@ export async function importIcc(srcPath: string): Promise<string> {
 export async function applyPreset(id: string): Promise<ApplyResult> {
   return invoke<ApplyResult>("apply_preset_cmd", { id });
 }
+
+/**
+ * Reset a monitor to system defaults (identity gamma ramp).
+ * ICC associations are left untouched.
+ */
+export async function resetMonitor(edidId: string): Promise<ApplyResult> {
+  // Note: arg name must match the Rust param `edid_id` exactly.
+  return invoke<ApplyResult>("reset_monitor_cmd", { edid_id: edidId });
+}
