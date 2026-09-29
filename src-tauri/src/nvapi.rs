@@ -368,4 +368,17 @@ mod tests {
         assert!(load_nvapi("does_not_exist_at_all.dll").is_none());
     }
 
+    // ── Spec pins (hermetic) ──────────────────────────────────────────
+
+    #[test]
+    fn struct_versions_match_hardware_proven_values() {
+        assert_eq!(nvapi_version::<DvcInfoEx>(), 0x10014);
+        assert_eq!(nvapi_version::<HueInfo>(), 0x1000C);
+    }
+
+    #[test]
+    fn resolve_unknown_edid_returns_none() {
+        assert!(resolve_device_name("NO_SUCH_EDID").is_none());
+    }
+
     }
