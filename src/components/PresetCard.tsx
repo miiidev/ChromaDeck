@@ -141,7 +141,6 @@ export default function PresetCard({ preset, monitor, onEdit, onRefreshParent }:
           <div className="flex items-center gap-1">
             <button
               onClick={handleDelete}
-              disabled={confirmDelete}
               className="px-2 py-1 text-xs font-medium rounded-md bg-red-700 hover:bg-red-600 text-white transition-colors"
             >
               {"Delete?"}
