@@ -17,6 +17,7 @@ use windows::Win32::Graphics::Gdi::{CreateDCW, DeleteDC, HDC};
 pub struct ApplyResult {
     pub icc_applied: bool,
     pub gamma_applied: bool,
+    pub vibrance_applied: bool,
     pub error: Option<String>,
 }
 
@@ -26,6 +27,7 @@ impl ApplyResult {
         ApplyResult {
             icc_applied: false,
             gamma_applied: false,
+            vibrance_applied: false,
             error: Some("monitor is offline".into()),
         }
     }
@@ -34,6 +36,7 @@ impl ApplyResult {
         ApplyResult {
             icc_applied: true,
             gamma_applied: true,
+            vibrance_applied: true,
             error: None,
         }
     }
@@ -299,6 +302,7 @@ fn build_gamma_ramp(
 /// Returns an `ApplyResult` summarising what succeeded / failed.
 pub fn apply_preset(
     api: &dyn ColorApi,
+    nv: &dyn crate::nvapi::NvColorApi,
     preset: &crate::store::Preset,
     store_profiles_dir: &str,
 ) -> ApplyResult {
@@ -309,6 +313,7 @@ pub fn apply_preset(
 
     let mut icc_applied = false;
     let mut gamma_applied = false;
+    let mut vibrance_applied = false;
     let mut error: Option<String> = None;
 
     // Step 2 — ICC (first)
@@ -341,9 +346,27 @@ pub fn apply_preset(
         }
     }
 
+    // Step 4 — NVAPI vibrance/hue overlay (last; skipped when neutral so
+    // pre-existing presets behave exactly as before).
+    if preset.vibrance != crate::nvapi::VIBRANCE_NEUTRAL
+        || preset.hue_deg != crate::nvapi::HUE_NEUTRAL
+    {
+        match nv.set(&preset.edid_id, preset.vibrance, preset.hue_deg) {
+            Ok(()) => vibrance_applied = true,
+            Err(e) => {
+                let nv_err = format!("vibrance: {e}");
+                error = Some(match error {
+                    Some(ref prev) => format!("{prev}; {nv_err}"),
+                    None => nv_err,
+                });
+            }
+        }
+    }
+
     ApplyResult {
         icc_applied,
         gamma_applied,
+        vibrance_applied,
         error,
     }
 }
@@ -360,11 +383,13 @@ pub fn reset_monitor(api: &dyn ColorApi, edid_id: &str) -> ApplyResult {
         Ok(()) => ApplyResult {
             icc_applied: false,
             gamma_applied: true,
+            vibrance_applied: false,
             error: None,
         },
         Err(e) => ApplyResult {
             icc_applied: false,
             gamma_applied: false,
+            vibrance_applied: false,
             error: Some(format!("reset: {e}")),
         },
     }
@@ -444,6 +469,7 @@ pub fn apply_preset_cmd(
             return ApplyResult {
                 icc_applied: false,
                 gamma_applied: false,
+                vibrance_applied: false,
                 error: Some(format!("store lock: {e}")),
             }
         }
@@ -455,6 +481,7 @@ pub fn apply_preset_cmd(
             return ApplyResult {
                 icc_applied: false,
                 gamma_applied: false,
+                vibrance_applied: false,
                 error: Some(format!("preset not found: {id}")),
             }
         }
@@ -468,7 +495,8 @@ pub fn apply_preset_cmd(
     drop(store);
 
     let api = RealColorApi;
-    apply_preset(&api, &preset, &profiles_dir_str)
+    let nv = crate::nvapi::RealNvapi;
+    apply_preset(&api, &nv, &preset, &profiles_dir_str)
 }
 
 #[tauri::command]
@@ -513,9 +541,10 @@ mod tests {
     #[test]
     fn apply_precedence_is_icc_then_gamma() {
         let recorder = TestRecorder::new(true);
+        let nv = MockNvapi::new(true);
         let preset = fake_preset();
 
-        let _result = apply_preset(&recorder, &preset, "profiles");
+        let _result = apply_preset(&recorder, &nv, &preset, "profiles");
 
         let calls = recorder.calls.lock().unwrap();
         assert_eq!(
@@ -530,9 +559,10 @@ mod tests {
     #[test]
     fn offline_monitor_returns_false_and_error() {
         let recorder = TestRecorder::new(false);
+        let nv = MockNvapi::new(true);
         let preset = fake_preset();
 
-        let result = apply_preset(&recorder, &preset, "profiles");
+        let result = apply_preset(&recorder, &nv, &preset, "profiles");
         assert!(!result.icc_applied);
         assert!(!result.gamma_applied);
         assert!(result.error.is_some());
@@ -547,12 +577,13 @@ mod tests {
     #[test]
     fn missing_icc_returns_error_not_panic() {
         let recorder = TestRecorder::new(true);
+        let nv = MockNvapi::new(true);
         let mut preset = fake_preset();
         preset.icc_hash = "nonexistent".into();
         preset.icc_filename = "nonexistent.icc".into();
 
         // With a recorder that always succeeds, both should be applied.
-        let result = apply_preset(&recorder, &preset, "profiles");
+        let result = apply_preset(&recorder, &nv, &preset, "profiles");
 
         assert!(result.icc_applied);
         assert!(result.gamma_applied);
@@ -564,9 +595,10 @@ mod tests {
     #[test]
     fn no_icc_skips_icc_and_applies_gamma_only() {
         let recorder = TestRecorder::new(true);
+        let nv = MockNvapi::new(true);
         let preset = preset_no_icc();
 
-        let _result = apply_preset(&recorder, &preset, "profiles");
+        let _result = apply_preset(&recorder, &nv, &preset, "profiles");
 
         let calls = recorder.calls.lock().unwrap();
         assert_eq!(*calls, vec!["gamma"], "without ICC, only gamma is applied");
@@ -577,10 +609,11 @@ mod tests {
     #[test]
     fn icc_failure_still_applies_gamma() {
         let mut recorder = TestRecorder::new(true);
+        let nv = MockNvapi::new(true);
         recorder.icc_should_fail = true;
         let preset = fake_preset();
 
-        let result = apply_preset(&recorder, &preset, "profiles");
+        let result = apply_preset(&recorder, &nv, &preset, "profiles");
 
         let calls = recorder.calls.lock().unwrap();
         assert_eq!(*calls, vec!["icc", "gamma"], "both are attempted");
@@ -748,5 +781,49 @@ mod tests {
         assert!(RealColorApi::blank_channel_error(&full).is_none());
         let dim = build_gamma_ramp(0.5, 0.5, [1.0, 1.0, 1.0], 1.25);
         assert!(RealColorApi::blank_channel_error(&dim).is_none());
+    }
+
+    // ── NVAPI vibrance/hue ──────────────────────────────────────────────
+
+    use crate::nvapi::MockNvapi;
+
+    #[test]
+    fn neutral_preset_issues_zero_nvapi_calls() {
+        let color = TestRecorder::new(true);
+        let nv = MockNvapi::new(true);
+        let preset = fake_preset(); // vibrance 50.0, hue_deg 0.0
+        let result = apply_preset(&color, &nv, &preset, "profiles");
+        assert!(nv.calls.lock().unwrap().is_empty());
+        assert!(!result.vibrance_applied);
+        assert!(result.error.is_none());
+    }
+
+    #[test]
+    fn nonneutral_preset_calls_nvapi_with_exact_values() {
+        let color = TestRecorder::new(true);
+        let nv = MockNvapi::new(true);
+        let mut preset = fake_preset();
+        preset.vibrance = 75.0;
+        preset.hue_deg = 120.0;
+        let result = apply_preset(&color, &nv, &preset, "profiles");
+        assert_eq!(
+            *nv.calls.lock().unwrap(),
+            vec![("set".to_string(), 75.0, 120.0)]
+        );
+        assert!(result.gamma_applied && result.vibrance_applied);
+        assert!(result.error.is_none());
+    }
+
+    #[test]
+    fn vibrance_failure_still_reports_gamma_success() {
+        let color = TestRecorder::new(true);
+        let mut nv = MockNvapi::new(true);
+        nv.fail_set = true;
+        let mut preset = fake_preset();
+        preset.vibrance = 75.0;
+        let result = apply_preset(&color, &nv, &preset, "profiles");
+        assert!(result.gamma_applied);
+        assert!(!result.vibrance_applied);
+        assert!(result.error.as_ref().unwrap().contains("vibrance"));
     }
 }

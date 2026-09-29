@@ -61,3 +61,11 @@ export async function resetMonitor(edidId: string): Promise<ApplyResult> {
   // (cf. importIcc/srcPath); the backend expects `edidId`.
   return invoke<ApplyResult>("reset_monitor_cmd", { edidId });
 }
+
+/**
+ * Probe whether a monitor supports NVIDIA vibrance/hue control.
+ * Resolves by EDID; arg name must be camelCase (Tauri v2 convention).
+ */
+export async function vibranceSupported(edidId: string): Promise<boolean> {
+  return invoke<boolean>("vibrance_supported_cmd", { edidId });
+}

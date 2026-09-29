@@ -5,6 +5,7 @@ mod store;
 
 use color::{apply_preset_cmd, reset_monitor_cmd};
 use monitor::list_monitors_cmd;
+use nvapi::vibrance_supported_cmd;
 use store::{
     create_preset_cmd, delete_preset_cmd, import_icc_cmd, list_presets_cmd,
     update_preset_cmd, AppStore,
@@ -36,6 +37,7 @@ pub fn run() {
             delete_preset_cmd,
             import_icc_cmd,
             apply_preset_cmd,
+            vibrance_supported_cmd,
             reset_monitor_cmd,
         ])
         .run(tauri::generate_context!())
