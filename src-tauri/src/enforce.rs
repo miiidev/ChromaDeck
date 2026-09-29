@@ -132,25 +132,37 @@ fn color_drifted(preset: &crate::store::Preset, reader: &dyn StateReader, edid_i
 }
 
 /// Drift check for the NVAPI engine path: compare registry B/C/G (internal
-/// scale) against preset-converted values. Vibrance/hue are also checked.
-/// The GDI LUT is NOT consulted — NVAPI owns the ramp; a foreign LUT writer
-/// would be overwritten on next apply anyway.
+/// scale) against preset-converted values. Then verify the GDI LUT is still
+/// the identity ramp — exclusive-fullscreen games clobber only the GDI LUT
+/// while leaving the NVAPI registry untouched, so registry-match alone would
+/// miss the canonical evaporation case. Vibrance/hue are also checked.
 fn nvapi_drifted(preset: &crate::store::Preset, reader: &dyn StateReader, edid_id: &str) -> bool {
     // Registry compare: B/C/G internal must equal preset's converted values.
     // Registry values are DWORDs, so exact comparison suffices.
-    let has_registry_drift = match reader.read_nvcp_registry(edid_id) {
+    match reader.read_nvcp_registry(edid_id) {
         Some((b, c, g)) => {
             let expected_b = crate::nvgamma::ui_to_internal(preset.brightness);
             let expected_c = crate::nvgamma::ui_to_internal(preset.contrast);
             let expected_g = preset.gamma * 100.0;
-            b != expected_b || c != expected_c || g != expected_g
+            if b != expected_b || c != expected_c || g != expected_g {
+                return true; // registry drift
+            }
         }
-        None => true, // unreachable registry → treat as drift (heal attempt)
+        None => return true, // unreachable registry → treat as drift (heal attempt)
     };
 
-    if has_registry_drift {
-        return true;
-    }
+    // GDI LUT must be identity — NVAPI owns the color pipeline.  A foreign
+    // writer (e.g. exclusive-fullscreen game) only touches the GDI LUT, so
+    // a registry match alone would miss the evaporation entirely.
+    let identity = crate::color::build_gamma_ramp(1.0, 1.0, [1.0, 1.0, 1.0], 1.0);
+    match reader.read_lut(edid_id) {
+        Ok(live) => {
+            if live != identity {
+                return true; // foreign LUT writer detected
+            }
+        }
+        Err(_) => return true, // unreadable → treat as drift
+    };
 
     // Vibrance/hue check (same logic as GDI branch).
     color_drifted(preset, reader, edid_id)
@@ -480,8 +492,8 @@ mod tests {
 
     // ── Test 8: nvapi_registry_match_is_not_drift ─────────────────
     //
-    // On an NVAPI display, drift is detected via registry compare, NOT the
-    // GDI LUT. A matching registry with a garbage LUT must not trigger apply.
+    // On an NVAPI display, drift is detected via registry compare AND GDI
+    // LUT identity check. Registry matching + identity LUT = no drift.
 
     #[test]
     fn nvapi_registry_match_is_not_drift() {
@@ -497,7 +509,7 @@ mod tests {
         pins.insert("E".to_string(), preset.id.clone());
 
         let reader = MockStateReader {
-            lut: [0u16; 768], // garbage LUT
+            lut: build_gamma_ramp(1.0, 1.0, [1.0, 1.0, 1.0], 1.0), // identity GDI LUT
             color: (50.0, 0.0), // matches neutral v/h
             fail: false,
             nvcp_registry: Some((100.0, 100.0, 100.0)), // matches ui_to_internal(50)
@@ -506,15 +518,15 @@ mod tests {
 
         let events = check_once(&color, &nv, &reader, &pins, &[preset], false);
         assert_eq!(events.len(), 1);
-        assert!(!events[0].applied, "registry match → no apply on NVAPI display");
+        assert!(!events[0].applied, "registry match + identity LUT → no apply");
         assert!(events[0].error.is_none());
         assert!(
             color.calls.lock().unwrap().is_empty(),
-            "no gamma calls when registry matches"
+            "no gamma calls when registry matches and LUT is identity"
         );
         assert!(
             nv.calls.lock().unwrap().is_empty(),
-            "no nv calls when registry matches"
+            "no nv calls when registry matches and LUT is identity"
         );
     }
 
@@ -585,5 +597,41 @@ mod tests {
         assert!(!events[0].applied, "in-sync GDI → no apply");
         assert!(events[0].error.is_none());
         assert!(color.calls.lock().unwrap().is_empty());
+    }
+
+    // ── Test 11: nvapi_dirty_lut_counts_as_drift ─────────────────
+    //
+    // Canonical evaporation case: registry matches but a foreign writer
+    // (e.g. exclusive-fullscreen game) clobbered the GDI LUT. Must be
+    // detected as drift even though the registry is pristine.
+
+    #[test]
+    fn nvapi_dirty_lut_counts_as_drift() {
+        let color = TestRecorder::new(true);
+        let nv = MockNvapi::new(true);
+
+        let mut preset = p("p1", "E", 50.0, 50.0, 0.0);
+        preset.contrast = 50.0;
+        preset.gamma = 1.0;
+
+        let mut pins = HashMap::new();
+        pins.insert("E".to_string(), preset.id.clone());
+
+        let reader = MockStateReader {
+            lut: [0u16; 768], // dimmed — NOT identity
+            color: (50.0, 0.0),
+            fail: false,
+            nvcp_registry: Some((100.0, 100.0, 100.0)), // pristine registry
+            engine: crate::color::GammaEngine::Nvapi,
+        };
+
+        let events = check_once(&color, &nv, &reader, &pins, &[preset], false);
+        assert_eq!(events.len(), 1);
+        assert!(events[0].applied, "dirty LUT → must reapply despite clean registry");
+        assert!(events[0].error.is_none());
+
+        // apply_color is called (GDI fallback in test context)
+        let calls = color.calls.lock().unwrap();
+        assert!(!calls.is_empty(), "gamma should be called on dirty LUT");
     }
 }

@@ -371,6 +371,15 @@ pub fn apply_color(
     let engine = gamma_engine(&preset.edid_id);
     match engine {
         GammaEngine::Nvapi => {
+            // Stage-purity: reset GDI LUT to identity before the NVAPI
+            // set.  Exclusive-fullscreen games may have clobbered only the
+            // GDI LUT (the canonical evaporation case); this guarantees
+            // the NVAPI path owns the full pipeline on every apply.
+            // Best-effort — failure appends error but does NOT block NVAPI.
+            let gdi_purge_err = api.set_gamma_ramp(
+                &preset.edid_id, 1.0, 1.0, [1.0, 1.0, 1.0], 1.0,
+            ).err().map(|e| format!("gdi-purge: {e}"));
+
             // NVAPI path: NVCP transfer math + set_target_gamma + persist
             let nvapi_result = (|| -> Result<(), String> {
                 let fns = fns().ok_or_else(|| "NVAPI unavailable".to_string())?;
@@ -424,6 +433,14 @@ pub fn apply_color(
                         });
                     }
                 }
+            }
+
+            // Append GDI-purge error (best-effort, gamma already tracked).
+            if let Some(e) = gdi_purge_err {
+                error = Some(match error {
+                    Some(ref prev) => format!("{prev}; {e}"),
+                    None => e,
+                });
             }
         }
         GammaEngine::Gdi => {
