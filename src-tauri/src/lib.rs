@@ -9,6 +9,7 @@ use color::{apply_preset_cmd, reset_monitor_cmd};
 use enforce::reapply_now_cmd;
 use monitor::list_monitors_cmd;
 use nvapi::vibrance_supported_cmd;
+use nvgamma::capture_nvcp_cmd;
 use store::{
     create_preset_cmd, delete_preset_cmd, import_icc_cmd, list_pins_cmd, list_presets_cmd,
     pin_preset_cmd, unpin_monitor_cmd, update_preset_cmd, AppStore,
@@ -121,6 +122,7 @@ pub fn run() {
             unpin_monitor_cmd,
             list_pins_cmd,
             reapply_now_cmd,
+            capture_nvcp_cmd,
         ])
         .setup(|app| {
             build_tray(app.handle())?;

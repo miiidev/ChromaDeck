@@ -126,6 +126,157 @@ pub(crate) fn set_target_gamma(
     Ok(())
 }
 
+// ── Registry persist / capture ──────────────────────────────────────────
+
+use serde::Serialize;
+use winreg::enums::*;
+use winreg::RegKey;
+
+/// Base registry path under HKCU for NVTweak color settings.
+const NVTWEAK_BASE: &str = r"Software\NVIDIA Corporation\Global\NVTweak\Devices";
+/// First DWORD value name under a Color key (live-driver observation).
+const REG_BASE_VALUE: u32 = 3538946;
+
+/// Build the NVTweak color key path for a given LUID.
+fn nvtweak_color_key(luid: u32) -> String {
+    format!("{}\\{}-0\\Color", NVTWEAK_BASE, luid)
+}
+
+/// Internal: persist B/C/G values (internal scale, channel-specific) at a
+/// given registry key base. Creates keys as needed.
+fn persist_nvcp_at(
+    base_color_key: &str,
+    b: [f64; 3],
+    c: [f64; 3],
+    g: [f64; 3],
+) -> Result<(), String> {
+    let key = RegKey::predef(HKEY_CURRENT_USER)
+        .create_subkey_with_flags(base_color_key, KEY_WRITE)
+        .map_err(|e| format!("failed to create NVTweak key: {e}"))?
+        .0;
+
+    let values = [b, c, g];
+    for (attr_idx, attr) in values.iter().enumerate() {
+        for (chan_idx, &val) in attr.iter().enumerate() {
+            let reg_name = (REG_BASE_VALUE + (attr_idx * 3 + chan_idx) as u32).to_string();
+            key.set_value(&reg_name, &(val as u32))
+                .map_err(|e| format!("failed to write registry value {reg_name}: {e}"))?;
+        }
+    }
+
+    key.set_value("NvCplGammaSet", &1u32)
+        .map_err(|e| format!("failed to write NvCplGammaSet: {e}"))?;
+
+    Ok(())
+}
+
+/// Persist NVCP B/C/G for a given display LUID.
+pub(crate) fn persist_nvcp(
+    luid: u32,
+    b: [f64; 3],
+    c: [f64; 3],
+    g: [f64; 3],
+) -> Result<(), String> {
+    persist_nvcp_at(&nvtweak_color_key(luid), b, c, g)
+}
+
+/// Internal: read B/C/G channel means (missing keys default to 100.0).
+fn read_nvcp_at(base_color_key: &str) -> (f64, f64, f64) {
+    let key = match RegKey::predef(HKEY_CURRENT_USER)
+        .open_subkey_with_flags(base_color_key, KEY_READ)
+    {
+        Ok(k) => k,
+        Err(_) => return (100.0, 100.0, 100.0),
+    };
+
+    let mut totals = [0.0f64; 3]; // b_total, c_total, g_total
+    let mut counts = [0u32; 3];
+
+    for attr_idx in 0..3 {
+        for chan_idx in 0..3 {
+            let reg_name = (REG_BASE_VALUE + (attr_idx * 3 + chan_idx) as u32).to_string();
+            match key.get_value::<u32, _>(&reg_name) {
+                Ok(v) => {
+                    totals[attr_idx] += v as f64;
+                    counts[attr_idx] += 1;
+                }
+                Err(_) => {} // skip missing
+            }
+        }
+    }
+
+    let mean = |total: f64, count: u32| -> f64 {
+        if count == 0 {
+            100.0
+        } else {
+            total / count as f64
+        }
+    };
+
+    (
+        mean(totals[0], counts[0]),
+        mean(totals[1], counts[1]),
+        mean(totals[2], counts[2]),
+    )
+}
+
+/// Read NVCP B/C/G channel means for a given display LUID.
+pub(crate) fn read_nvcp(luid: u32) -> (f64, f64, f64) {
+    read_nvcp_at(&nvtweak_color_key(luid))
+}
+
+// ── CapturedState ──────────────────────────────────────────────────────
+
+/// Live NVCP/driver state returned by the capture command.
+#[derive(Debug, Clone, Serialize)]
+pub struct CapturedState {
+    /// Brightness 0–100 UI scale (50 neutral).
+    pub brightness: f64,
+    /// Contrast 0–100 UI scale (50 neutral).
+    pub contrast: f64,
+    /// Gamma exponent (1.0–3.0, 1.0 neutral).
+    pub gamma: f64,
+    /// Vibrance 0–100 (50 neutral).
+    pub vibrance: f64,
+    /// Hue angle 0–359 (0 neutral).
+    pub hue_deg: f64,
+}
+
+/// Read NVCP/driver live state for a display identified by EDID.
+///
+/// Registry B/C/G channel means → UI scale. RGB gains intentionally left at
+/// 1.0 (documented — no faithful mapping from NVCP's floating-point ramp to
+/// the gain model exists). Vibrance/hue via live DVC reads.
+pub fn capture_nvcp(edid_id: &str) -> Result<CapturedState, String> {
+    let fns = crate::nvapi::fns().ok_or_else(|| "NVAPI unavailable".to_string())?;
+    let device = crate::nvapi::resolve_device_name(edid_id)
+        .ok_or_else(|| "NVAPI unavailable for this display".to_string())?;
+    let display_id = crate::nvapi::display_id_for_device(fns, &device)?;
+    let luid = display_luid(fns, display_id)?;
+
+    let (b_int, c_int, g_int) = read_nvcp(luid);
+
+    let brightness = internal_to_ui(b_int).clamp(0.0, 100.0);
+    let contrast = internal_to_ui(c_int).clamp(0.0, 100.0);
+    let gamma = g_int / 100.0;
+
+    let (vibrance, hue_deg) = crate::nvapi::read_levels(edid_id)?;
+
+    Ok(CapturedState {
+        brightness,
+        contrast,
+        gamma,
+        vibrance,
+        hue_deg,
+    })
+}
+
+/// Tauri command: read NVCP/driver live state for import into the editor.
+#[tauri::command]
+pub fn capture_nvcp_cmd(edid_id: String) -> Result<CapturedState, String> {
+    capture_nvcp(&edid_id)
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -184,5 +335,46 @@ mod tests {
     fn nvcp_ramp_value_full_index_is_one_at_neutral() {
         let v = nvcp_ramp_value(1023, 100.0, 100.0, 1.0);
         assert!((v - 1.0).abs() < 1e-6);
+    }
+
+    // ── Registry persist / capture *at seam (scratch key) ─────────────
+
+    const TEST_KEY_PREFIX: &str = r"Software\ChromaDeckTest";
+
+    fn test_color_key(luid: u32) -> String {
+        format!("{}\\{}-0\\Color", TEST_KEY_PREFIX, luid)
+    }
+
+    fn persist_nvcp_test(
+        b: [f64; 3],
+        c: [f64; 3],
+        g: [f64; 3],
+        luid: u32,
+    ) -> Result<(), String> {
+        persist_nvcp_at(&test_color_key(luid), b, c, g)
+    }
+
+    fn read_nvcp_test(luid: u32) -> (f64, f64, f64) {
+        read_nvcp_at(&test_color_key(luid))
+    }
+
+    fn delete_test_tree() {
+        let _ = RegKey::predef(HKEY_CURRENT_USER)
+            .delete_subkey_all(TEST_KEY_PREFIX);
+    }
+
+    #[test]
+    fn persist_then_read_roundtrips() {
+        let luid = 0xC0FFEE;
+        persist_nvcp_test([90.0, 100.0, 110.0], [100.0; 3], [100.0; 3], luid).unwrap();
+        let (b, c, g) = read_nvcp_test(luid);
+        assert_eq!((b, c, g), (100.0, 100.0, 100.0)); // channel means
+        delete_test_tree();
+    }
+
+    #[test]
+    fn missing_keys_read_as_neutral() {
+        let (b, c, g) = read_nvcp_test(0xDEAD);
+        assert_eq!((b, c, g), (100.0, 100.0, 100.0));
     }
 }

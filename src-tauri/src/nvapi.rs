@@ -169,7 +169,7 @@ pub(crate) fn load_nvapi(library_name: &str) -> Option<NvapiFns> {
     Some(fns)
 }
 
-fn fns() -> Option<&'static NvapiFns> {
+pub(crate) fn fns() -> Option<&'static NvapiFns> {
     NVAPI.get_or_init(|| load_nvapi("nvapi64.dll")).as_ref()
 }
 
@@ -192,7 +192,7 @@ pub(crate) fn resolve_device_name(edid_id: &str) -> Option<String> {
         .map(|m| m.device_name)
 }
 
-fn display_id_for_device(fns: &NvapiFns, device_name: &str) -> Result<u32, String> {
+pub(crate) fn display_id_for_device(fns: &NvapiFns, device_name: &str) -> Result<u32, String> {
     let name = CString::new(device_name).map_err(|_| "display name contains nul byte".to_string())?;
     let mut id: u32 = 0;
     // SAFETY: GetDisplayIdByDisplayName writes one u32 on success.
