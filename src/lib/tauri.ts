@@ -57,6 +57,7 @@ export async function applyPreset(id: string): Promise<ApplyResult> {
  * ICC associations are left untouched.
  */
 export async function resetMonitor(edidId: string): Promise<ApplyResult> {
-  // Note: arg name must match the Rust param `edid_id` exactly.
-  return invoke<ApplyResult>("reset_monitor_cmd", { edid_id: edidId });
+  // Tauri v2 maps camelCase JS keys to snake_case Rust params
+  // (cf. importIcc/srcPath); the backend expects `edidId`.
+  return invoke<ApplyResult>("reset_monitor_cmd", { edidId });
 }
