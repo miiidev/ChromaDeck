@@ -1,7 +1,7 @@
 import { useState, useEffect, type FormEvent } from "react";
 import type { Monitor, Preset, PresetInput } from "../lib/types";
 import { createPreset, updatePreset, importIcc } from "../lib/tauri";
-import { vibranceSupported } from "../lib/tauri";
+import { vibranceSupported, captureNvcp } from "../lib/tauri";
 import { validatePresetForm, type ValidationErrors } from "../lib/validation";
 import { open } from "@tauri-apps/plugin-dialog";
 
@@ -15,8 +15,8 @@ interface Props {
 const DEFAULT_INPUT: PresetInput = {
   name: "",
   edid_id: "",
-  brightness: 1.0,
-  contrast: 1.0,
+  brightness: 50,
+  contrast: 50,
   rgb_gains: [1.0, 1.0, 1.0],
   gamma: 1.0,
   vibrance: 50,
@@ -30,6 +30,7 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
   const [saving, setSaving] = useState(false);
   const [iccStatus, setIccStatus] = useState<{ hash: string; filename: string } | null>(null);
   const [iccImporting, setIccImporting] = useState(false);
+  const [nvcpImporting, setNvcpImporting] = useState(false);
   const [nvSupported, setNvSupported] = useState<boolean | null>(null);
 
   // Populate form when editing
@@ -98,6 +99,31 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
       setErrors((prev) => ({ ...prev, icc_path: `ICC import failed: ${err}` }));
     } finally {
       setIccImporting(false);
+    }
+  };
+
+  const handleCaptureNvcp = async () => {
+    if (!form.edid_id) return;
+    setNvcpImporting(true);
+    setErrors((prev) => {
+      const { nvcp: _, ...rest } = prev;
+      return rest;
+    });
+    try {
+      const state = await captureNvcp(form.edid_id);
+      setForm((prev) => ({
+        ...prev,
+        brightness: state.brightness,
+        contrast: state.contrast,
+        gamma: state.gamma,
+        vibrance: state.vibrance,
+        hue_deg: state.hue_deg,
+        // rgb_gains intentionally untouched
+      }));
+    } catch (err) {
+      setErrors((prev) => ({ ...prev, nvcp: `NVCP capture failed: ${err}` }));
+    } finally {
+      setNvcpImporting(false);
     }
   };
 
@@ -171,23 +197,34 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
             {errors.name && <p className="mt-1 text-xs text-red-400">{errors.name}</p>}
           </div>
 
-          {/* Monitor select */}
+          {/* Monitor select + NVCP capture */}
           <div>
             <label className="block text-xs font-medium text-neutral-400 mb-1.5">Monitor</label>
-            <select
-              value={form.edid_id}
-              onChange={(e) => updateField("edid_id", e.target.value)}
-              className={`w-full px-3 py-2 text-sm rounded-lg border bg-neutral-800 text-neutral-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-colors ${
-                errors.name && !form.edid_id ? "border-red-500/50" : "border-neutral-700"
-              }`}
-            >
-              <option value="">— Select monitor —</option>
-              {connectedMonitors.map((m) => (
-                <option key={m.edid_id} value={m.edid_id}>
-                  {m.model || m.device_name} {m.serial ? `(${m.serial})` : ""}
-                </option>
-              ))}
-            </select>
+            <div className="flex items-center gap-2">
+              <select
+                value={form.edid_id}
+                onChange={(e) => updateField("edid_id", e.target.value)}
+                className={`flex-1 px-3 py-2 text-sm rounded-lg border bg-neutral-800 text-neutral-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-colors ${
+                  errors.name && !form.edid_id ? "border-red-500/50" : "border-neutral-700"
+                }`}
+              >
+                <option value="">— Select monitor —</option>
+                {connectedMonitors.map((m) => (
+                  <option key={m.edid_id} value={m.edid_id}>
+                    {m.model || m.device_name} {m.serial ? `(${m.serial})` : ""}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={handleCaptureNvcp}
+                disabled={!form.edid_id || nvcpImporting}
+                className="shrink-0 px-3 py-2 text-xs font-medium rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 border border-neutral-700 transition-colors disabled:opacity-50"
+              >
+                {nvcpImporting ? "Importing…" : "Import NVCP state"}
+              </button>
+            </div>
+            {errors.nvcp && <p className="mt-1 text-xs text-red-400">{errors.nvcp}</p>}
             {connectedMonitors.length === 0 && (
               <p className="mt-1 text-xs text-amber-400">No connected monitors detected.</p>
             )}
@@ -241,21 +278,20 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
           {/* Brightness slider */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-medium text-neutral-400">Brightness <span className="text-neutral-600 font-normal">(gain)</span></label>
-              <span className="text-xs text-neutral-500 font-mono">{form.brightness.toFixed(2)}</span>
+              <label className="text-xs font-medium text-neutral-400">Brightness</label>
+              <span className="text-xs text-neutral-500 font-mono">{form.brightness.toFixed(0)}</span>
             </div>
             <input
               type="range"
               min={0}
-              max={1}
-              step={0.01}
+              max={100}
+              step={1}
               value={form.brightness}
               onChange={(e) => updateField("brightness", parseFloat(e.target.value))}
               className="w-full h-1.5 rounded-lg appearance-none cursor-pointer bg-neutral-700 accent-indigo-500"
             />
             <div className="flex justify-between text-xs text-neutral-600 mt-0.5">
-              <span>0</span>
-              <span>1 (neutral)</span>
+              <span>0</span><span>50 (neutral)</span><span>100</span>
             </div>
             {errors.brightness && <p className="mt-1 text-xs text-red-400">{errors.brightness}</p>}
           </div>
@@ -264,20 +300,19 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-xs font-medium text-neutral-400">Contrast</label>
-              <span className="text-xs text-neutral-500 font-mono">{form.contrast.toFixed(2)}</span>
+              <span className="text-xs text-neutral-500 font-mono">{form.contrast.toFixed(0)}</span>
             </div>
             <input
               type="range"
               min={0}
-              max={1}
-              step={0.01}
+              max={100}
+              step={1}
               value={form.contrast}
               onChange={(e) => updateField("contrast", parseFloat(e.target.value))}
               className="w-full h-1.5 rounded-lg appearance-none cursor-pointer bg-neutral-700 accent-indigo-500"
             />
             <div className="flex justify-between text-xs text-neutral-600 mt-0.5">
-              <span>0</span>
-              <span>1 (neutral)</span>
+              <span>0</span><span>50 (neutral)</span><span>100</span>
             </div>
             {errors.contrast && <p className="mt-1 text-xs text-red-400">{errors.contrast}</p>}
           </div>

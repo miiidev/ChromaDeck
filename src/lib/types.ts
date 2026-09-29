@@ -21,8 +21,8 @@ export interface Preset {
   edid_id: string;
   icc_hash: string;
   icc_filename: string;
-  brightness: number;   // 0.0 – 1.0
-  contrast: number;     // 0.0 – 1.0
+  brightness: number;   // 0–100 UI, 50 neutral
+  contrast: number;     // 0–100 UI, 50 neutral
   rgb_gains: [number, number, number]; // per-channel multiplier
   gamma: number;        // 1.0 – 3.0
   vibrance: number;     // 0 – 100, 50 neutral
@@ -53,4 +53,12 @@ export interface EnforceEvent {
   preset_id: string;
   applied: boolean;
   error?: string;
+}
+
+export interface CapturedState {
+  brightness: number; // 0–100 UI
+  contrast: number;   // 0–100 UI
+  gamma: number;      // exponent
+  vibrance: number;
+  hue_deg: number;
 }

@@ -51,8 +51,8 @@ describe("validatePreset", () => {
     expect(errors.name).toBeUndefined();
   });
 
-  it("rejects brightness > 1", () => {
-    const errors = validatePreset({ brightness: 1.5 });
+  it("rejects brightness > 100", () => {
+    const errors = validatePreset({ brightness: 101 });
     expect(errors.brightness).toBeDefined();
   });
 
@@ -61,8 +61,8 @@ describe("validatePreset", () => {
     expect(errors.brightness).toBeDefined();
   });
 
-  it("accepts brightness=0.5", () => {
-    const errors = validatePreset({ brightness: 0.5 });
+  it("accepts brightness=50", () => {
+    const errors = validatePreset({ brightness: 50 });
     expect(errors.brightness).toBeUndefined();
   });
 
@@ -85,10 +85,16 @@ describe("validatePreset", () => {
     const errors = validatePreset({
       name: "Test",
       gamma: 2.2,
-      brightness: 0.5,
-      contrast: 0.5,
+      brightness: 50,
+      contrast: 50,
       rgb_gains: [1.0, 1.0, 1.0],
     });
     expect(Object.keys(errors)).toHaveLength(0);
   });
+});
+
+it("rejects brightness/contrast outside 0-100", () => {
+  expect(validatePreset({ brightness: 101 }).brightness).toContain("0 and 100");
+  expect(validatePreset({ contrast: -1 }).contrast).toBeDefined();
+  expect(validatePreset({ brightness: 50 }).brightness).toBeUndefined();
 });

@@ -2,7 +2,7 @@
 // Mirror the Rust backend commands defined in src-tauri/src/monitor.rs and store.rs.
 
 import { invoke } from "@tauri-apps/api/core";
-import type { ApplyResult, EnforceEvent, Monitor, Preset, PresetInput } from "./types";
+import type { ApplyResult, CapturedState, EnforceEvent, Monitor, Preset, PresetInput } from "./types";
 
 /** Fetch the list of connected monitors with their EDID identifiers. */
 export async function listMonitors(): Promise<Monitor[]> {
@@ -90,4 +90,9 @@ export async function listPins(): Promise<Record<string, string>> {
 /** Force a full enforce pass now; returns per-pin outcomes. */
 export async function reapplyNow(): Promise<EnforceEvent[]> {
   return invoke<EnforceEvent[]>("reapply_now_cmd");
+}
+
+/** Read NVCP/driver live state into editor-fillable values. */
+export async function captureNvcp(edidId: string): Promise<CapturedState> {
+  return invoke<CapturedState>("capture_nvcp_cmd", { edidId });
 }

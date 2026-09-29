@@ -10,6 +10,7 @@ export interface ValidationErrors {
   icc_path?: string;
   vibrance?: string;
   hue_deg?: string;
+  nvcp?: string;
 }
 
 /** Validate a partial PresetInput and return per-field error strings. */
@@ -29,14 +30,14 @@ export function validatePreset(input: Partial<PresetInput>): ValidationErrors {
   }
 
   if (input.brightness !== undefined) {
-    if (typeof input.brightness !== "number" || input.brightness < 0 || input.brightness > 1) {
-      errors.brightness = "Brightness must be between 0 and 1";
+    if (typeof input.brightness !== "number" || input.brightness < 0 || input.brightness > 100) {
+      errors.brightness = "Brightness must be between 0 and 100";
     }
   }
 
   if (input.contrast !== undefined) {
-    if (typeof input.contrast !== "number" || input.contrast < 0 || input.contrast > 1) {
-      errors.contrast = "Contrast must be between 0 and 1";
+    if (typeof input.contrast !== "number" || input.contrast < 0 || input.contrast > 100) {
+      errors.contrast = "Contrast must be between 0 and 100";
     }
   }
 
