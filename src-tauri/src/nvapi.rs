@@ -35,11 +35,13 @@ const NVAPI_GET_DVC_INFO_EX: u32 = 0x0E45002D;
 const NVAPI_SET_DVC_LEVEL_EX: u32 = 0x4A82C2B1;
 const NVAPI_GET_HUE_INFO: u32 = 0x95B64341;
 const NVAPI_SET_HUE_ANGLE: u32 = 0x0F5A0F22C;
+const NVAPI_SET_TARGET_GAMMA: u32 = 0x7082A053;
+const NVAPI_GET_LUID_FROM_DISPLAY_ID: u32 = 0xD4A859F2;
 
 type NvAPI_ShortString = [c_char; 64];
 type NvStatus = i32;
 
-const NVAPI_OK: NvStatus = 0;
+pub(crate) const NVAPI_OK: NvStatus = 0;
 
 // ── Private NVAPI struct layouts (from NvAPIWrapper, C# StructLayout Pack=8) ──
 
@@ -70,19 +72,24 @@ struct HueInfo {
 
 // ── Function pointers (resolved once via NvAPI_QueryInterface) ───────────
 
-struct NvapiFns {
+pub(crate) struct NvapiFns {
     /// Keep the HMODULE alive for the process lifetime (never freed).
-    _lib: HMODULE,
-    initialize: unsafe extern "system" fn() -> NvStatus,
-    get_error_message: unsafe extern "system" fn(NvStatus, *mut NvAPI_ShortString),
-    get_display_id: unsafe extern "system" fn(*const c_char, *mut u32) -> NvStatus,
-    get_dvc_info_ex:
+    pub(crate) _lib: HMODULE,
+    pub(crate) initialize: unsafe extern "system" fn() -> NvStatus,
+    pub(crate) get_error_message: unsafe extern "system" fn(NvStatus, *mut NvAPI_ShortString),
+    pub(crate) get_display_id: unsafe extern "system" fn(*const c_char, *mut u32) -> NvStatus,
+    pub(crate) get_dvc_info_ex:
         unsafe extern "system" fn(display_handle: *mut c_void, output_id: u32, info: *mut DvcInfoEx) -> NvStatus,
-    set_dvc_level_ex:
+    pub(crate) set_dvc_level_ex:
         unsafe extern "system" fn(display_handle: *mut c_void, output_id: u32, info: *const DvcInfoEx) -> NvStatus,
-    get_hue_info:
+    pub(crate) get_hue_info:
         unsafe extern "system" fn(display_handle: *mut c_void, output_id: u32, info: *mut HueInfo) -> NvStatus,
-    set_hue_angle: unsafe extern "system" fn(display_handle: *mut c_void, output_id: u32, angle: i32) -> NvStatus,
+    pub(crate) set_hue_angle: unsafe extern "system" fn(display_handle: *mut c_void, output_id: u32, angle: i32) -> NvStatus,
+    // ── New entries for Task 2 ─────────────────────────────
+    pub(crate) set_gamma:
+        unsafe extern "system" fn(u32, *const crate::nvgamma::NvGammaRampEx) -> NvStatus,
+    pub(crate) get_luid:
+        unsafe extern "system" fn(u32, u32, *mut windows::core::GUID) -> NvStatus,
 }
 
 // SAFETY: resolved once at startup; function pointers stay valid for the
@@ -147,6 +154,8 @@ pub(crate) fn load_nvapi(library_name: &str) -> Option<NvapiFns> {
         set_dvc_level_ex: unsafe { std::mem::transmute(resolve!(NVAPI_SET_DVC_LEVEL_EX)) },
         get_hue_info: unsafe { std::mem::transmute(resolve!(NVAPI_GET_HUE_INFO)) },
         set_hue_angle: unsafe { std::mem::transmute(resolve!(NVAPI_SET_HUE_ANGLE)) },
+        set_gamma: unsafe { std::mem::transmute(resolve!(NVAPI_SET_TARGET_GAMMA)) },
+        get_luid: unsafe { std::mem::transmute(resolve!(NVAPI_GET_LUID_FROM_DISPLAY_ID)) },
     };
 
     // SAFETY: NvAPI_Initialize is safe to call once.
@@ -232,7 +241,7 @@ pub(crate) fn read_levels(edid_id: &str) -> Result<(f64, f64), String> {
 }
 
 /// Map a non-zero NVAPI status to the error message string.
-fn status_to_string(fns: &NvapiFns, status: NvStatus) -> String {
+pub(crate) fn status_to_string(fns: &NvapiFns, status: NvStatus) -> String {
     let mut buf: NvAPI_ShortString = [0 as c_char; 64];
     // SAFETY: GetErrorMessage writes up to 63 chars + null into buf.
     unsafe { (fns.get_error_message)(status, &mut buf) };

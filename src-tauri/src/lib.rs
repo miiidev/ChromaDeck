@@ -2,6 +2,7 @@ mod color;
 mod enforce;
 mod monitor;
 mod nvapi;
+mod nvgamma;
 mod store;
 
 use color::{apply_preset_cmd, reset_monitor_cmd};
