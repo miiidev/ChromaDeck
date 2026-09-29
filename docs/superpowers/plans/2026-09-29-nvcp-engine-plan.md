@@ -146,7 +146,8 @@ fn ui_internal_mapping_roundtrips() {
     assert_eq!(ui_to_internal(50.0), 100.0);
     assert_eq!(ui_to_internal(0.0), 80.0);
     assert_eq!(ui_to_internal(100.0), 120.0);
-    assert_eq!(internal_to_ui(88.0), 60.0);
+    assert_eq!(internal_to_ui(104.0), 60.0);
+    assert_eq!(internal_to_ui(ui_to_internal(60.0)), 60.0);
 }
 
 #[test]
@@ -449,13 +450,13 @@ Expected: all green (report exact counts).
 
 With NVCP closed: set NVCP brightness to 60% manually, read
 `HKCU\...\NVTweak\Devices\<luid>-0\Color` → expect the brightness
-DWORDs to read **88**. Set back to 50% → expect **100**. (Validates
+DWORDs to read **104**. Set back to 50% → expect **100**. (Validates
 `internal = 80 + ui×0.4` against the driver of record.)
 
 - [ ] **Step 3: Round-trip through the app**
 
 Via dev app: create preset (brightness 60, rest neutral), Apply →
-NVCP UI must show 60% → registry reads 88 → GDI LUT read shows the
+NVCP UI must show 60% → registry reads 104 → GDI LUT read shows the
 NVCP-shaped ramp (NOT the old gain shape). Then Reset → NVCP UI back
 to 50%, registry 100s.
 
