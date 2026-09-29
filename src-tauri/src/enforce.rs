@@ -330,10 +330,10 @@ mod tests {
         assert_eq!(
             nv_calls[0],
             ("set".to_string(), 75.0, 0.0),
-            "call should set vibrance=7.0 hie=0.0"
+            "call should set vibrance=75.0 hue=0.0"
         );
 
-        // Gamma should also be calle (apply_color always apples gamma)
+        // Gamma should also be called (apply_color always applies gamma)
         let color_calls = color.calls.lock().unwrap();
         assert!(color_calls.contains(&"gamma".to_string()));
     }

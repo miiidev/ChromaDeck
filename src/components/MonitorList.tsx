@@ -48,7 +48,7 @@ function EmptyState({ onCreateNew }: { onCreateNew: () => void }) {
 }
 
 /** Per-monitor reset-to-default button with inline result feedback */
-function MonitorResetButton({ edidId }: { edidId: string }) {
+function MonitorResetButton({ edidId, onPinChange }: { edidId: string; onPinChange: () => void }) {
   const [resetting, setResetting] = useState(false);
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
 
@@ -56,23 +56,26 @@ function MonitorResetButton({ edidId }: { edidId: string }) {
     setResetting(true);
     setMessage(null);
     try {
-      await unpinMonitor(edidId); // no-op when unpinned; Reset always disarms
-    } catch {
-      // ignore — reset proceeds regardless
-    }
-    try {
-      const result = await resetMonitor(edidId);
-      if (result.error) {
-        setMessage({ text: `Reset failed: ${result.error}`, ok: false });
-        setTimeout(() => setMessage(null), 6000);
-      } else {
-        setMessage({ text: "Reset to default", ok: true });
-        setTimeout(() => setMessage(null), 3000);
+      try {
+        await unpinMonitor(edidId); // no-op when unpinned; Reset always disarms
+      } catch {
+        // ignore — reset proceeds regardless
       }
-    } catch (err) {
-      setMessage({ text: `Reset failed: ${String(err)}`, ok: false });
-      setTimeout(() => setMessage(null), 6000);
+      try {
+        const result = await resetMonitor(edidId);
+        if (result.error) {
+          setMessage({ text: `Reset failed: ${result.error}`, ok: false });
+          setTimeout(() => setMessage(null), 6000);
+        } else {
+          setMessage({ text: "Reset to default", ok: true });
+          setTimeout(() => setMessage(null), 3000);
+        }
+      } catch (err) {
+        setMessage({ text: `Reset failed: ${String(err)}`, ok: false });
+        setTimeout(() => setMessage(null), 6000);
+      }
     } finally {
+      onPinChange();
       setResetting(false);
     }
   };
@@ -201,7 +204,7 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
               </div>
               {monitor.connected ? (
                 <div className="flex items-center gap-2">
-                  <MonitorResetButton edidId={monitor.edid_id} />
+                  <MonitorResetButton edidId={monitor.edid_id} onPinChange={onPinChange} />
                   <span className="inline-flex items-center gap-1.5 text-xs text-emerald-400">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
                     Connected
