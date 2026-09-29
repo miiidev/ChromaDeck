@@ -43,6 +43,13 @@ const NVAPI_OK: NvStatus = 0;
 
 // ── Private NVAPI struct layouts (from NvAPIWrapper, C# StructLayout Pack=8) ──
 
+/// NVAPI struct version encoding: sizeof(struct) | (1 << 16).
+/// Proven on hardware (RTX 3050, driver 610.74): DvcInfoEx (20 bytes)
+/// requires 0x10014; HueInfo (12 bytes) requires 0x1000C.
+fn nvapi_version<T>() -> u32 {
+    (std::mem::size_of::<T>() as u32) | (1 << 16)
+}
+
 /// NV_PRIVATE_DISPLAY_DVC_INFO_EX — vibrance levels (0..100).
 #[repr(C)]
 struct DvcInfoEx {
@@ -187,19 +194,6 @@ fn display_id_for_device(fns: &NvapiFns, device_name: &str) -> Result<u32, Strin
     Ok(id)
 }
 
-/// Convert device_name from Win32 (`\\.\DISPLAY1`) to NVAPI (`\DISPLAY1`).
-fn nvapi_device_name(device_name: &str) -> String {
-    // The Win32 device_name from EnumDisplayDevices starts with `\.\`.
-    // NVAPI's GetDisplayIdByDisplayName wants just `\DISPLAY1`.
-    if let Some(stripped) = device_name.strip_prefix(r"\.\") {
-        let mut result = String::from("\\");
-        result.push_str(stripped);
-        result
-    } else {
-        device_name.to_string()
-    }
-}
-
 /// Map a non-zero NVAPI status to the error message string.
 fn status_to_string(fns: &NvapiFns, status: NvStatus) -> String {
     let mut buf: NvAPI_ShortString = [0 as c_char; 64];
@@ -221,7 +215,7 @@ impl NvColorApi for RealNvapi {
             None => return false,
         };
         let device_name = match resolve_device_name(edid_id) {
-            Some(n) => nvapi_device_name(&n),
+            Some(n) => n,
             None => return false,
         };
         let display_id = match display_id_for_device(fns, &device_name) {
@@ -231,7 +225,7 @@ impl NvColorApi for RealNvapi {
         // Probe DVC – if it works, hue likely does too; both use the
         // same display path. Avoid making two calls here.
         let mut info = DvcInfoEx {
-            version: 1,
+            version: nvapi_version::<DvcInfoEx>(),
             current_level: 0,
             minimum_level: 0,
             maximum_level: 0,
@@ -248,14 +242,14 @@ impl NvColorApi for RealNvapi {
             None => return Err("NVAPI unavailable for this display".into()),
         };
         let device_name = match resolve_device_name(edid_id) {
-            Some(n) => nvapi_device_name(&n),
+            Some(n) => n,
             None => return Err("NVAPI unavailable for this display".into()),
         };
         let display_id = display_id_for_device(fns, &device_name)?;
 
         // Set DVC level (vibrance)
         let dvc_info = DvcInfoEx {
-            version: 1,
+            version: nvapi_version::<DvcInfoEx>(),
             current_level: vibrance as i32,
             minimum_level: 0,
             maximum_level: 100,
@@ -374,16 +368,4 @@ mod tests {
         assert!(load_nvapi("does_not_exist_at_all.dll").is_none());
     }
 
-    // ── nvapi_device_name helper ──────────────────────────────────────
-
-    #[test]
-    fn nvapi_device_name_strips_dot_prefix() {
-        assert_eq!(nvapi_device_name(r"\.\DISPLAY1"), r"\DISPLAY1");
     }
-
-    #[test]
-    fn nvapi_device_name_passthrough_for_other_names() {
-        assert_eq!(nvapi_device_name(r"\DISPLAY1"), r"\DISPLAY1");
-        assert_eq!(nvapi_device_name("other"), "other");
-    }
-}
