@@ -159,7 +159,7 @@ fn persist_nvcp_at(
     for (attr_idx, attr) in values.iter().enumerate() {
         for (chan_idx, &val) in attr.iter().enumerate() {
             let reg_name = (REG_BASE_VALUE + (attr_idx * 3 + chan_idx) as u32).to_string();
-            key.set_value(&reg_name, &(val as u32))
+            key.set_value(&reg_name, &(val.round() as u32))
                 .map_err(|e| format!("failed to write registry value {reg_name}: {e}"))?;
         }
     }

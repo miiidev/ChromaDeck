@@ -66,6 +66,12 @@ describe("validatePreset", () => {
     expect(errors.brightness).toBeUndefined();
   });
 
+  it("rejects brightness/contrast outside 0-100", () => {
+    expect(validatePreset({ brightness: 101 }).brightness).toContain("0 and 100");
+    expect(validatePreset({ contrast: -1 }).contrast).toBeDefined();
+    expect(validatePreset({ brightness: 50 }).brightness).toBeUndefined();
+  });
+
   it("rejects negative RGB gains", () => {
     const errors = validatePreset({ rgb_gains: [-1, 0, 0] });
     expect(errors.rgb_gains).toBeDefined();
@@ -91,10 +97,4 @@ describe("validatePreset", () => {
     });
     expect(Object.keys(errors)).toHaveLength(0);
   });
-});
-
-it("rejects brightness/contrast outside 0-100", () => {
-  expect(validatePreset({ brightness: 101 }).brightness).toContain("0 and 100");
-  expect(validatePreset({ contrast: -1 }).contrast).toBeDefined();
-  expect(validatePreset({ brightness: 50 }).brightness).toBeUndefined();
 });

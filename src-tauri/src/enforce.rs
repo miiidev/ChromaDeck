@@ -138,13 +138,18 @@ fn color_drifted(preset: &crate::store::Preset, reader: &dyn StateReader, edid_i
 /// miss the canonical evaporation case. Vibrance/hue are also checked.
 fn nvapi_drifted(preset: &crate::store::Preset, reader: &dyn StateReader, edid_id: &str) -> bool {
     // Registry compare: B/C/G internal must equal preset's converted values.
-    // Registry values are DWORDs, so exact comparison suffices.
+    // Registry values are DWORDs written with rounding.  Compare rounded-to-u32
+    // on both sides to avoid false-drift from f64 truncation (e.g. UI 37 →
+    // internal 94.8 → DWORD 95 via round).
     match reader.read_nvcp_registry(edid_id) {
         Some((b, c, g)) => {
             let expected_b = crate::nvgamma::ui_to_internal(preset.brightness);
             let expected_c = crate::nvgamma::ui_to_internal(preset.contrast);
             let expected_g = preset.gamma * 100.0;
-            if b != expected_b || c != expected_c || g != expected_g {
+            if (b.round() as u32) != (expected_b.round() as u32)
+                || (c.round() as u32) != (expected_c.round() as u32)
+                || (g.round() as u32) != (expected_g.round() as u32)
+            {
                 return true; // registry drift
             }
         }
@@ -633,5 +638,53 @@ mod tests {
         // apply_color is called (GDI fallback in test context)
         let calls = color.calls.lock().unwrap();
         assert!(!calls.is_empty(), "gamma should be called on dirty LUT");
+    }
+
+    // ── Test 12: nvapi_registry_rounding_no_false_drift ─────────────
+    //
+    // Non-multiple-of-5 values (e.g. UI 37 → internal 94.8) round when
+    // persisted to DWORD. The drift check must round both sides so that
+    // a stored DWORD 95 matches expected 95 (not false-vs-94.8).
+
+    #[test]
+    fn nvapi_registry_rounding_no_false_drift() {
+        let color = TestRecorder::new(true);
+        let nv = MockNvapi::new(true);
+
+        let mut preset = p("p1", "E", 37.0, 50.0, 0.0);
+        preset.contrast = 50.0;
+        preset.gamma = 1.0;
+
+        let mut pins = HashMap::new();
+        pins.insert("E".to_string(), preset.id.clone());
+
+        let expected_b = crate::nvgamma::ui_to_internal(37.0); // 94.8
+        let stored_b = expected_b.round() as u32; // 95
+
+        // Registry holding 95 → no drift (matches rounded expected)
+        let reader_match = MockStateReader {
+            lut: crate::color::build_gamma_ramp(1.0, 1.0, [1.0, 1.0, 1.0], 1.0),
+            color: (50.0, 0.0),
+            fail: false,
+            nvcp_registry: Some((stored_b as f64, 100.0, 100.0)),
+            engine: crate::color::GammaEngine::Nvapi,
+        };
+        let events = check_once(&color, &nv, &reader_match, &pins, &[preset.clone()], false);
+        assert_eq!(events.len(), 1);
+        assert!(!events[0].applied, "95 matches rounded 94.8 → no drift");
+        assert!(events[0].error.is_none());
+
+        // Registry holding 94 → IS drift (94 != 95)
+        let reader_drift = MockStateReader {
+            lut: crate::color::build_gamma_ramp(1.0, 1.0, [1.0, 1.0, 1.0], 1.0),
+            color: (50.0, 0.0),
+            fail: false,
+            nvcp_registry: Some((94.0, 100.0, 100.0)),
+            engine: crate::color::GammaEngine::Nvapi,
+        };
+        let events2 = check_once(&color, &nv, &reader_drift, &pins, &[preset], false);
+        assert_eq!(events2.len(), 1);
+        assert!(events2[0].applied, "94 ≠ rounded 95 → drift detected");
+        assert!(events2[0].error.is_none());
     }
 }
