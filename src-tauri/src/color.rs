@@ -421,26 +421,52 @@ pub fn apply_preset(
 }
 
 /// Reset a monitor to system defaults: identity gamma ramp
-/// (brightness 1, contrast 1, unit RGB gains, gamma 1). ICC associations
-/// are left untouched. Returns an `ApplyResult` with `icc_applied: false`.
-pub fn reset_monitor(api: &dyn ColorApi, edid_id: &str) -> ApplyResult {
+/// (brightness 1, contrast 1, unit RGB gains, gamma 1) plus neutral
+/// vibrance (50) and hue (0). ICC associations are left untouched.
+/// Vibrance is skipped silently where NVAPI reports unsupported.
+/// Returns an `ApplyResult` with `icc_applied: false`.
+pub fn reset_monitor(
+    api: &dyn ColorApi,
+    nv: &dyn crate::nvapi::NvColorApi,
+    edid_id: &str,
+) -> ApplyResult {
     if !api.is_connected(edid_id) {
         return ApplyResult::offline();
     }
 
+    let mut gamma_applied = false;
+    let mut vibrance_applied = false;
+    let mut error: Option<String> = None;
+
     match api.set_gamma_ramp(edid_id, 1.0, 1.0, [1.0, 1.0, 1.0], 1.0) {
-        Ok(()) => ApplyResult {
-            icc_applied: false,
-            gamma_applied: true,
-            vibrance_applied: false,
-            error: None,
-        },
-        Err(e) => ApplyResult {
-            icc_applied: false,
-            gamma_applied: false,
-            vibrance_applied: false,
-            error: Some(format!("reset: {e}")),
-        },
+        Ok(()) => gamma_applied = true,
+        Err(e) => {
+            error = Some(format!("reset: {e}"));
+        }
+    }
+
+    if nv.supported(edid_id) {
+        match nv.set(
+            edid_id,
+            crate::nvapi::VIBRANCE_NEUTRAL,
+            crate::nvapi::HUE_NEUTRAL,
+        ) {
+            Ok(()) => vibrance_applied = true,
+            Err(e) => {
+                let nv_err = format!("vibrance: {e}");
+                error = Some(match error {
+                    Some(ref prev) => format!("{prev}; {nv_err}"),
+                    None => nv_err,
+                });
+            }
+        }
+    }
+
+    ApplyResult {
+        icc_applied: false,
+        gamma_applied,
+        vibrance_applied,
+        error,
     }
 }
 
@@ -551,7 +577,8 @@ pub fn apply_preset_cmd(
 #[tauri::command]
 pub fn reset_monitor_cmd(edid_id: String) -> ApplyResult {
     let api = RealColorApi;
-    reset_monitor(&api, &edid_id)
+    let nv = crate::nvapi::RealNvapi;
+    reset_monitor(&api, &nv, &edid_id)
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────────
@@ -773,24 +800,34 @@ mod tests {
 
     // ── reset_monitor ──────────────────────────────────────────────────
 
-    /// Reset must call gamma exactly once with identity parameters and
-    /// never touch ICC.
-    #[test]
-    fn reset_calls_gamma_once_with_identity_and_no_icc() {
-        let recorder = TestRecorder::new(true);
+    use crate::nvapi::{HUE_NEUTRAL, VIBRANCE_NEUTRAL};
 
-        let result = reset_monitor(&recorder, "EDID-001");
+    /// Reset restores full defaults: identity gamma plus neutral
+    /// vibrance/hue, never ICC.
+    #[test]
+    fn reset_restores_full_defaults() {
+        let recorder = TestRecorder::new(true);
+        let nv = MockNvapi::new(true);
+
+        let result = reset_monitor(&recorder, &nv, "EDID-001");
 
         let calls = recorder.calls.lock().unwrap();
-        assert_eq!(*calls, vec!["gamma"], "reset is gamma-only");
+        assert_eq!(*calls, vec!["gamma"], "reset always writes identity gamma");
         let params = recorder.last_gamma_params.lock().unwrap();
         assert_eq!(
             *params,
             Some((1.0, 1.0, [1.0, 1.0, 1.0], 1.0)),
             "reset must use identity parameters"
         );
+        let nv_calls = nv.calls.lock().unwrap();
+        assert_eq!(
+            *nv_calls,
+            vec![("set".to_string(), VIBRANCE_NEUTRAL, HUE_NEUTRAL)],
+            "reset must restore neutral vibrance/hue"
+        );
         assert!(!result.icc_applied);
         assert!(result.gamma_applied);
+        assert!(result.vibrance_applied);
         assert!(result.error.is_none());
     }
 
@@ -799,13 +836,46 @@ mod tests {
     #[test]
     fn reset_offline_monitor_returns_offline_error() {
         let recorder = TestRecorder::new(false);
+        let nv = MockNvapi::new(false);
 
-        let result = reset_monitor(&recorder, "EDID-001");
+        let result = reset_monitor(&recorder, &nv, "EDID-001");
 
         let calls = recorder.calls.lock().unwrap();
         assert!(calls.is_empty(), "no driver calls when offline");
+        assert!(nv.calls.lock().unwrap().is_empty());
         assert!(!result.gamma_applied);
+        assert!(!result.vibrance_applied);
         assert!(result.error.as_ref().unwrap().contains("offline"));
+    }
+
+    /// Reset skips vibrance silently where NVAPI reports unsupported
+    /// (e.g. iGPU-driven panels): gamma still applies, no error.
+    #[test]
+    fn reset_skips_vibrance_when_unsupported() {
+        let recorder = TestRecorder::new(true);
+        let nv = MockNvapi::new(false);
+
+        let result = reset_monitor(&recorder, &nv, "EDID-001");
+
+        assert!(result.gamma_applied);
+        assert!(!result.vibrance_applied);
+        assert!(nv.calls.lock().unwrap().is_empty());
+        assert!(result.error.is_none());
+    }
+
+    /// Vibrance failure during reset still reports gamma success with a
+    /// vibrance error attached.
+    #[test]
+    fn reset_reports_vibrance_failure_but_keeps_gamma() {
+        let recorder = TestRecorder::new(true);
+        let mut nv = MockNvapi::new(true);
+        nv.fail_set = true;
+
+        let result = reset_monitor(&recorder, &nv, "EDID-001");
+
+        assert!(result.gamma_applied);
+        assert!(!result.vibrance_applied);
+        assert!(result.error.as_ref().unwrap().contains("vibrance"));
     }
 
     // ── Blank-ramp guard (regression: same error text, new cause) ─────
