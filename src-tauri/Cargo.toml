@@ -27,6 +27,7 @@ sha2 = "0.10"
 hex = "0.4"
 uuid = { version = "1", features = ["v4"] }
 dirs = "6"
+tokio = { version = "1", features = ["time"] }
 windows = { version = "0.62", features = [
     "Win32_Graphics_Gdi",
     "Win32_UI_ColorSystem",

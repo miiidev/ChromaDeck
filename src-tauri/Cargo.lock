@@ -473,6 +473,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
+ "tokio",
  "uuid",
  "windows 0.62.2",
  "winreg",

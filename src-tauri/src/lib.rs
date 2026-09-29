@@ -1,14 +1,16 @@
 mod color;
+mod enforce;
 mod monitor;
 mod nvapi;
 mod store;
 
 use color::{apply_preset_cmd, reset_monitor_cmd};
+use enforce::reapply_now_cmd;
 use monitor::list_monitors_cmd;
 use nvapi::vibrance_supported_cmd;
 use store::{
-    create_preset_cmd, delete_preset_cmd, import_icc_cmd, list_presets_cmd,
-    update_preset_cmd, AppStore,
+    create_preset_cmd, delete_preset_cmd, import_icc_cmd, list_pins_cmd, list_presets_cmd,
+    pin_preset_cmd, unpin_monitor_cmd, update_preset_cmd, AppStore,
 };
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -39,6 +41,10 @@ pub fn run() {
             apply_preset_cmd,
             vibrance_supported_cmd,
             reset_monitor_cmd,
+            pin_preset_cmd,
+            unpin_monitor_cmd,
+            list_pins_cmd,
+            reapply_now_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
