@@ -194,6 +194,43 @@ fn display_id_for_device(fns: &NvapiFns, device_name: &str) -> Result<u32, Strin
     Ok(id)
 }
 
+/// Read current (vibrance, hue) for an EDID. Used by the enforcer's drift
+/// check. Hardware-only; verified live in Task 6.
+pub(crate) fn read_levels(edid_id: &str) -> Result<(f64, f64), String> {
+    let fns = fns().ok_or_else(|| "NVAPI unavailable for this display".to_string())?;
+    let device = resolve_device_name(edid_id)
+        .ok_or_else(|| "NVAPI unavailable for this display".to_string())?;
+    let id = display_id_for_device(fns, &device)?;
+
+    // Read DVC current level (vibrance)
+    let mut dvc = DvcInfoEx {
+        version: nvapi_version::<DvcInfoEx>(),
+        current_level: 0,
+        minimum_level: 0,
+        maximum_level: 0,
+        default_level: 0,
+    };
+    // SAFETY: get_dvc_info_ex writes into info on success.
+    let dvc_status = unsafe { (fns.get_dvc_info_ex)(std::ptr::null_mut(), id, &mut dvc) };
+    if dvc_status != NVAPI_OK {
+        return Err(status_to_string(fns, dvc_status));
+    }
+
+    // Read HUE angle
+    let mut hue = HueInfo {
+        version: nvapi_version::<HueInfo>(),
+        current_angle: 0,
+        default_angle: 0,
+    };
+    // SAFETY: get_hue_info writes into info on success.
+    let hue_status = unsafe { (fns.get_hue_info)(std::ptr::null_mut(), id, &mut hue) };
+    if hue_status != NVAPI_OK {
+        return Err(status_to_string(fns, hue_status));
+    }
+
+    Ok((dvc.current_level as f64, hue.current_angle as f64))
+}
+
 /// Map a non-zero NVAPI status to the error message string.
 fn status_to_string(fns: &NvapiFns, status: NvStatus) -> String {
     let mut buf: NvAPI_ShortString = [0 as c_char; 64];

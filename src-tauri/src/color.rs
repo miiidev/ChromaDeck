@@ -9,6 +9,7 @@ use std::path::PathBuf;
 
 use windows::core::PCWSTR;
 use windows::Win32::Graphics::Gdi::{CreateDCW, DeleteDC, HDC};
+use windows::Win32::UI::ColorSystem::GetDeviceGammaRamp;
 
 // ── ApplyResult ─────────────────────────────────────────────────────────────
 
@@ -170,24 +171,7 @@ impl ColorApi for RealColorApi {
             .ok_or_else(|| format!("no display device found for EDID {edid_id}"))?;
 
         // Create a device context for the target monitor.
-        let wide_device: Vec<u16> = OsString::from(&device_name)
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect();
-
-        // SAFETY: CreateDCW for a display device returns a handle to the monitor's DC.
-        let hdc: HDC = unsafe {
-            CreateDCW(
-                PCWSTR::from_raw(windows::core::w!("DISPLAY").as_ptr()),
-                PCWSTR::from_raw(wide_device.as_ptr()),
-                None,
-                None,
-            )
-        };
-
-        if hdc.is_invalid() {
-            return Err(format!("failed to create DC for {device_name}"));
-        }
+        let hdc = open_display_dc(&device_name)?;
 
         // Build the gamma ramp.
         let ramp = build_gamma_ramp(brightness, contrast, rgb_gains, gamma);
@@ -249,7 +233,7 @@ impl ColorApi for RealColorApi {
 /// (brightness 0), are left untouched.
 const MIN_CHANNEL_PEAK: u16 = 0x8000;
 
-fn build_gamma_ramp(
+pub(crate) fn build_gamma_ramp(
     brightness: f64,
     contrast: f64,
     rgb_gains: [f64; 3],
@@ -294,41 +278,63 @@ fn build_gamma_ramp(
     ramp
 }
 
-// ── apply_preset (core logic) ───────────────────────────────────────────────
+// ── Shared DC / read helpers (enforcer) ─────────────────────────────────
 
-/// Apply a preset to its target monitor.
-///
-/// Precedence: ICC first, then gamma/RGB overlay on top.
-/// Returns an `ApplyResult` summarising what succeeded / failed.
-pub fn apply_preset(
+
+/// Open a device context for a display device. Shared by set/read paths.
+fn open_display_dc(device_name: &str) -> Result<HDC, String> {
+    let wide_device: Vec<u16> = OsString::from(device_name)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    // SAFETY: CreateDCW for a display device returns the monitor's DC.
+    let hdc: HDC = unsafe {
+        CreateDCW(
+            PCWSTR::from_raw(windows::core::w!("DISPLAY").as_ptr()),
+            PCWSTR::from_raw(wide_device.as_ptr()),
+            None,
+            None,
+        )
+    };
+    if hdc.is_invalid() {
+        return Err(format!("failed to create DC for {device_name}"));
+    }
+    Ok(hdc)
+}
+
+/// Read the live gamma ramp for a display device. Used by the enforcer's
+/// drift check. Hardware-only; verified live in Task 6.
+pub(crate) fn read_gamma_ramp(device_name: &str) -> Result<[u16; 256 * 3], String> {
+    let hdc = open_display_dc(device_name)?;
+    let mut ramp = [0u16; 256 * 3];
+    // SAFETY: GetDeviceGammaRamp fills 768 WORDs on success.
+    let ok: bool = unsafe { GetDeviceGammaRamp(hdc, &mut ramp as *mut _ as _).as_bool() };
+    // SAFETY: DeleteDC is safe after a successful CreateDCW.
+    unsafe { let _ = DeleteDC(hdc); };
+    if !ok {
+        return Err(format!("GetDeviceGammaRamp failed for {device_name}"));
+    }
+    Ok(ramp)
+}
+
+// ── Shared apply core (gamma + vibrance, no ICC) ────────────────────────────
+
+/// Apply driver-level color state (gamma LUT + NVAPI vibrance/hue),
+/// without ICC association. Shared by manual Apply and the enforcer.
+pub fn apply_color(
     api: &dyn ColorApi,
     nv: &dyn crate::nvapi::NvColorApi,
     preset: &crate::store::Preset,
-    store_profiles_dir: &str,
 ) -> ApplyResult {
-    // Step 1 — monitor connectivity check
     if !api.is_connected(&preset.edid_id) {
         return ApplyResult::offline();
     }
 
-    let mut icc_applied = false;
     let mut gamma_applied = false;
     let mut vibrance_applied = false;
     let mut error: Option<String> = None;
 
-    // Step 2 — ICC (first)
-    if !preset.icc_hash.is_empty() {
-        let profile_path = RealColorApi::profile_path(store_profiles_dir, &preset.icc_filename);
-        let profile_path_str = profile_path.to_string_lossy().to_string();
-        match api.associate_icc(&preset.edid_id, &profile_path_str) {
-            Ok(()) => icc_applied = true,
-            Err(e) => {
-                error = Some(format!("ICC: {e}"));
-            }
-        }
-    }
-
-    // Step 3 — Gamma / RGB overlay (second, on top)
+    // Step 1 — Gamma / RGB overlay
     match api.set_gamma_ramp(
         &preset.edid_id,
         preset.brightness,
@@ -346,7 +352,7 @@ pub fn apply_preset(
         }
     }
 
-    // Step 4 — NVAPI vibrance/hue overlay (last; skipped when neutral so
+    // Step 2 — NVAPI vibrance/hue overlay (last; skipped when neutral so
     // pre-existing presets behave exactly as before).
     if preset.vibrance != crate::nvapi::VIBRANCE_NEUTRAL
         || preset.hue_deg != crate::nvapi::HUE_NEUTRAL
@@ -364,11 +370,54 @@ pub fn apply_preset(
     }
 
     ApplyResult {
-        icc_applied,
+        icc_applied: false,
         gamma_applied,
         vibrance_applied,
         error,
     }
+}
+
+// ── apply_preset (ICC + shared apply_color) ─────────────────────────────────
+
+/// Apply a preset to its target monitor.
+///
+/// Precedence: ICC first, then gamma/RGB overlay on top.
+/// Returns an `ApplyResult` summarising what succeeded / failed.
+pub fn apply_preset(
+    api: &dyn ColorApi,
+    nv: &dyn crate::nvapi::NvColorApi,
+    preset: &crate::store::Preset,
+    store_profiles_dir: &str,
+) -> ApplyResult {
+    // Step 1 — monitor connectivity check
+    if !api.is_connected(&preset.edid_id) {
+        return ApplyResult::offline();
+    }
+
+    let mut icc_applied = false;
+    let mut icc_error: Option<String> = None;
+
+    // Step 2 — ICC (first)
+    if !preset.icc_hash.is_empty() {
+        let profile_path = RealColorApi::profile_path(store_profiles_dir, &preset.icc_filename);
+        let profile_path_str = profile_path.to_string_lossy().to_string();
+        match api.associate_icc(&preset.edid_id, &profile_path_str) {
+            Ok(()) => icc_applied = true,
+            Err(e) => {
+                icc_error = Some(format!("ICC: {e}"));
+            }
+        }
+    }
+
+    // Step 3 — gamma + vibrance via shared core
+    let mut result = apply_color(api, nv, preset);
+    result.icc_applied = icc_applied;
+    result.error = match (icc_error, result.error) {
+        (Some(a), Some(b)) => Some(format!("{a}; {b}")),
+        (Some(a), None) => Some(a),
+        (None, b) => b,
+    };
+    result
 }
 
 /// Reset a monitor to system defaults: identity gamma ramp
