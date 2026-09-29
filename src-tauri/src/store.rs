@@ -3,6 +3,7 @@
 // and ICC profiles as profiles/{sha256}.icc, keyed by edid_id.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::io;
 use std::path::PathBuf;
 
@@ -84,6 +85,8 @@ pub struct Store {
     presets_path: PathBuf,
     profiles_dir: PathBuf,
     presets: Vec<Preset>,
+    pins_path: PathBuf,
+    pinned: HashMap<String, String>, // edid_id -> preset_id
 }
 
 impl Store {
@@ -101,11 +104,21 @@ impl Store {
             Vec::new()
         };
 
+        let pins_path = data_dir.join("pins.json");
+        let pinned: HashMap<String, String> = if pins_path.exists() {
+            let content = std::fs::read_to_string(&pins_path)?;
+            serde_json::from_str(&content).unwrap_or_default()
+        } else {
+            HashMap::new()
+        };
+
         Ok(Store {
             data_dir,
             presets_path,
             profiles_dir,
             presets,
+            pins_path,
+            pinned,
         })
     }
 
@@ -267,7 +280,14 @@ impl Store {
             .ok_or_else(|| StoreError::NotFound(id.into()))?;
 
         let removed = self.presets.remove(idx);
+        let pinned_gone = self.pinned.values().any(|v| v == id);
+        if pinned_gone {
+            self.pinned.retain(|_, v| v != id);
+        }
         self.flush()?;
+        if pinned_gone {
+            self.flush_pins()?;
+        }
         Ok(removed)
     }
 
@@ -310,6 +330,44 @@ impl Store {
         let tmp = self.data_dir.join("presets.json.tmp");
         std::fs::write(&tmp, &json)?;
         std::fs::rename(&tmp, &self.presets_path)?;
+        Ok(())
+    }
+
+    /// Pin a preset to a monitor. Returns error when preset does not exist
+    /// or does not belong to the given monitor.
+    pub fn pin_preset(&mut self, edid_id: &str, preset_id: &str) -> Result<(), StoreError> {
+        let preset = self
+            .presets
+            .iter()
+            .find(|p| p.id == preset_id)
+            .ok_or_else(|| StoreError::NotFound(preset_id.into()))?;
+        if preset.edid_id != edid_id {
+            return Err(StoreError::InvalidInput(
+                "preset does not belong to this monitor".into(),
+            ));
+        }
+        self.pinned.insert(edid_id.into(), preset_id.into());
+        self.flush_pins()
+    }
+
+    /// Remove the pin for a monitor (no-op when absent).
+    pub fn unpin_monitor(&mut self, edid_id: &str) {
+        if self.pinned.remove(edid_id).is_some() {
+            let _ = self.flush_pins();
+        }
+    }
+
+    /// Return a copy of the current pin map (edid_id -> preset_id).
+    pub fn list_pins(&self) -> HashMap<String, String> {
+        self.pinned.clone()
+    }
+
+    /// Atomically persist the pin map to `pins.json`.
+    fn flush_pins(&self) -> Result<(), StoreError> {
+        let json = serde_json::to_string_pretty(&self.pinned)?;
+        let tmp = self.data_dir.join("pins.json.tmp");
+        std::fs::write(&tmp, &json)?;
+        std::fs::rename(&tmp, &self.pins_path)?;
         Ok(())
     }
 }
@@ -373,6 +431,31 @@ pub fn import_icc_cmd(
     store.import_icc(&src_path).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub fn pin_preset_cmd(
+    state: tauri::State<'_, AppStore>,
+    edid_id: String,
+    preset_id: String,
+) -> Result<(), String> {
+    let mut store = state.0.lock().map_err(|e| e.to_string())?;
+    store.pin_preset(&edid_id, &preset_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn unpin_monitor_cmd(state: tauri::State<'_, AppStore>, edid_id: String) {
+    if let Ok(mut store) = state.0.lock() {
+        store.unpin_monitor(&edid_id);
+    }
+}
+
+#[tauri::command]
+pub fn list_pins_cmd(
+    state: tauri::State<'_, AppStore>,
+) -> Result<HashMap<String, String>, String> {
+    let store = state.0.lock().map_err(|e| e.to_string())?;
+    Ok(store.list_pins())
+}
+
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -388,8 +471,21 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ));
+        test_store_at(dir)
+    }
+
+    /// Create a Store at a specific directory (cleaning any leftovers first).
+    fn test_store_at(dir: PathBuf) -> Store {
         let _ = std::fs::remove_dir_all(&dir);
         Store::new(dir).unwrap()
+    }
+
+    /// Shared temp directory for persistence tests (fixed name, cleaned).
+    fn test_store_dir() -> PathBuf {
+        let dir = std::env::temp_dir().join("chromadeck_test_shared");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
     }
 
     /// Helper to create a minimal valid PresetInput.
@@ -653,5 +749,52 @@ mod tests {
         let preset = store.create_preset(input).unwrap();
         assert_eq!(preset.vibrance, 75.0);
         assert_eq!(preset.hue_deg, 120.0);
+    }
+
+    // ── pin/unpin pins ──────────────────────────────────────────────────────
+
+    #[test]
+    fn pin_and_unpin_roundtrip() {
+        let mut store = test_store();
+        let preset = store.create_preset(minimal_input()).unwrap();
+        store.pin_preset("EDID-001", &preset.id).unwrap();
+        assert_eq!(store.list_pins().get("EDID-001"), Some(&preset.id));
+        store.unpin_monitor("EDID-001");
+        assert!(store.list_pins().is_empty());
+    }
+
+    #[test]
+    fn pin_rejects_unknown_preset() {
+        let mut store = test_store();
+        let err = store.pin_preset("EDID-001", "nope").unwrap_err();
+        assert!(err.to_string().contains("preset not found"));
+    }
+
+    #[test]
+    fn pin_rejects_wrong_monitor_preset() {
+        let mut store = test_store();
+        let preset = store.create_preset(minimal_input()).unwrap(); // edid EDID-001
+        let err = store.pin_preset("EDID-999", &preset.id).unwrap_err();
+        assert!(err.to_string().contains("does not belong"));
+    }
+
+    #[test]
+    fn delete_cascades_pin() {
+        let mut store = test_store();
+        let preset = store.create_preset(minimal_input()).unwrap();
+        store.pin_preset("EDID-001", &preset.id).unwrap();
+        store.delete_preset(&preset.id).unwrap();
+        assert!(store.list_pins().is_empty());
+    }
+
+    #[test]
+    fn pins_persist_across_reopen() {
+        let dir = test_store_dir();
+        let mut store = Store::new(dir.clone()).unwrap();
+        let preset = store.create_preset(minimal_input()).unwrap();
+        store.pin_preset("EDID-001", &preset.id).unwrap();
+        drop(store);
+        let reopened = Store::new(dir).unwrap();
+        assert_eq!(reopened.list_pins().get("EDID-001"), Some(&preset.id));
     }
 }
