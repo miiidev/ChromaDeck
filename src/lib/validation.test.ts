@@ -1,0 +1,81 @@
+import { describe, it, expect } from "vitest";
+import { validatePreset } from "./validation";
+
+describe("validatePreset", () => {
+  it("rejects gamma=5 (out of range)", () => {
+    const errors = validatePreset({ gamma: 5 });
+    expect(errors.gamma).toBeDefined();
+    expect(errors.gamma).toContain("Gamma");
+  });
+
+  it("accepts gamma=2.2 (in range)", () => {
+    const errors = validatePreset({ gamma: 2.2 });
+    expect(errors.gamma).toBeUndefined();
+  });
+
+  it("rejects gamma boundary low (0.9)", () => {
+    const errors = validatePreset({ gamma: 0.9 });
+    expect(errors.gamma).toBeDefined();
+  });
+
+  it("accepts gamma boundary low (1.0)", () => {
+    const errors = validatePreset({ gamma: 1.0 });
+    expect(errors.gamma).toBeUndefined();
+  });
+
+  it("accepts gamma boundary high (3.0)", () => {
+    const errors = validatePreset({ gamma: 3.0 });
+    expect(errors.gamma).toBeUndefined();
+  });
+
+  it("rejects empty name", () => {
+    const errors = validatePreset({ name: "" });
+    expect(errors.name).toBeDefined();
+  });
+
+  it("accepts valid name", () => {
+    const errors = validatePreset({ name: "My Preset" });
+    expect(errors.name).toBeUndefined();
+  });
+
+  it("rejects brightness > 1", () => {
+    const errors = validatePreset({ brightness: 1.5 });
+    expect(errors.brightness).toBeDefined();
+  });
+
+  it("rejects brightness < 0", () => {
+    const errors = validatePreset({ brightness: -0.1 });
+    expect(errors.brightness).toBeDefined();
+  });
+
+  it("accepts brightness=0.5", () => {
+    const errors = validatePreset({ brightness: 0.5 });
+    expect(errors.brightness).toBeUndefined();
+  });
+
+  it("rejects negative RGB gains", () => {
+    const errors = validatePreset({ rgb_gains: [-1, 0, 0] });
+    expect(errors.rgb_gains).toBeDefined();
+  });
+
+  it("accepts zero RGB gains", () => {
+    const errors = validatePreset({ rgb_gains: [0, 0, 0] });
+    expect(errors.rgb_gains).toBeUndefined();
+  });
+
+  it("rejects wrong-length rgb_gains array", () => {
+    const errors = validatePreset({ rgb_gains: [1, 2] as unknown as [number, number, number] });
+    expect(errors.rgb_gains).toBeDefined();
+  });
+
+  it("returns empty errors when all fields are valid", () => {
+    const errors = validatePreset({
+      name: "Test",
+      gamma: 2.2,
+      brightness: 0.5,
+      contrast: 0.5,
+      rgb_gains: [1.0, 1.0, 1.0],
+    });
+    expect(Object.keys(errors)).toHaveLength(0);
+  });
+});
