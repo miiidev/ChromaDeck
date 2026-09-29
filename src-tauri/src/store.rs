@@ -6,6 +6,9 @@ use serde::{Deserialize, Serialize};
 use std::io;
 use std::path::PathBuf;
 
+fn default_vibrance() -> f64 { 50.0 }
+fn default_hue() -> f64 { 0.0 }
+
 // ── Types ──────────────────────────────────────────────────────────────────
 
 /// A saved colour preset for one monitor.
@@ -20,6 +23,10 @@ pub struct Preset {
     pub contrast: f64,
     pub rgb_gains: [f64; 3],
     pub gamma: f64,
+    #[serde(default = "default_vibrance")]
+    pub vibrance: f64, // 0–100, 50 = neutral
+    #[serde(default = "default_hue")]
+    pub hue_deg: f64, // 0–359 degrees
 }
 
 /// Input data for creating or updating a preset.
@@ -32,6 +39,8 @@ pub struct PresetInput {
     pub contrast: f64,
     pub rgb_gains: [f64; 3],
     pub gamma: f64,
+    pub vibrance: f64,
+    pub hue_deg: f64,
 }
 
 // ── Store errors ───────────────────────────────────────────────────────────
@@ -129,6 +138,16 @@ impl Store {
                 "gamma must be in 1.0..=3.0".into(),
             ));
         }
+        if !(0.0..=100.0).contains(&input.vibrance) {
+            return Err(StoreError::InvalidInput(
+                "vibrance must be in 0.0..=100.0".into(),
+            ));
+        }
+        if !(0.0..=359.0).contains(&input.hue_deg) {
+            return Err(StoreError::InvalidInput(
+                "hue_deg must be in 0.0..=359.0".into(),
+            ));
+        }
         for &g in &input.rgb_gains {
             if !(0.0..=10.0).contains(&g) {
                 return Err(StoreError::InvalidInput(
@@ -158,6 +177,8 @@ impl Store {
             contrast: input.contrast,
             rgb_gains: input.rgb_gains,
             gamma: input.gamma,
+            vibrance: input.vibrance,
+            hue_deg: input.hue_deg,
         };
 
         self.presets.push(preset.clone());
@@ -195,6 +216,16 @@ impl Store {
                 "gamma must be in 1.0..=3.0".into(),
             ));
         }
+        if !(0.0..=100.0).contains(&input.vibrance) {
+            return Err(StoreError::InvalidInput(
+                "vibrance must be in 0.0..=100.0".into(),
+            ));
+        }
+        if !(0.0..=359.0).contains(&input.hue_deg) {
+            return Err(StoreError::InvalidInput(
+                "hue_deg must be in 0.0..=359.0".into(),
+            ));
+        }
 
         // Handle optional ICC import (new path provided) or keep existing
         let (icc_hash, icc_filename) = if let Some(ref src) = input.icc_path {
@@ -218,6 +249,8 @@ impl Store {
             contrast: input.contrast,
             rgb_gains: input.rgb_gains,
             gamma: input.gamma,
+            vibrance: input.vibrance,
+            hue_deg: input.hue_deg,
         };
 
         self.presets[idx] = updated.clone();
@@ -369,6 +402,8 @@ mod tests {
             contrast: 0.8,
             rgb_gains: [1.0, 1.0, 1.0],
             gamma: 2.2,
+            vibrance: 50.0,
+            hue_deg: 0.0,
         }
     }
 
@@ -443,6 +478,8 @@ mod tests {
                     contrast: 0.3,
                     rgb_gains: [0.8, 0.9, 1.0],
                     gamma: 2.0,
+                    vibrance: 50.0,
+                    hue_deg: 0.0,
                 },
             )
             .unwrap();
@@ -561,6 +598,8 @@ mod tests {
                     contrast: 0.6,
                     rgb_gains: [0.5, 0.5, 0.5],
                     gamma: 2.5,
+                    vibrance: 50.0,
+                    hue_deg: 0.0,
                 })
                 .unwrap();
             assert_eq!(store.list_presets().len(), 2);
@@ -577,5 +616,42 @@ mod tests {
 
         // Cleanup
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ── nvapi fields: vibrance + hue_deg ─────────────────────────────────────
+
+    #[test]
+    fn old_json_without_nvapi_fields_gets_neutral_defaults() {
+        let json = r#"{"id":"x","name":"Old","edid_id":"E","icc_hash":"","icc_filename":"","brightness":0.5,"contrast":0.5,"rgb_gains":[1.0,1.0,1.0],"gamma":2.2}"#;
+        let preset: Preset = serde_json::from_str(json).unwrap();
+        assert_eq!(preset.vibrance, 50.0);
+        assert_eq!(preset.hue_deg, 0.0);
+    }
+
+    #[test]
+    fn create_preset_rejects_bad_vibrance() {
+        let mut input = minimal_input();
+        input.vibrance = 101.0;
+        let err = test_store().create_preset(input).unwrap_err();
+        assert!(err.to_string().contains("vibrance"));
+    }
+
+    #[test]
+    fn create_preset_rejects_bad_hue() {
+        let mut input = minimal_input();
+        input.hue_deg = 360.0;
+        let err = test_store().create_preset(input).unwrap_err();
+        assert!(err.to_string().contains("hue_deg"));
+    }
+
+    #[test]
+    fn create_preset_carries_vibrance_and_hue() {
+        let mut store = test_store();
+        let mut input = minimal_input();
+        input.vibrance = 75.0;
+        input.hue_deg = 120.0;
+        let preset = store.create_preset(input).unwrap();
+        assert_eq!(preset.vibrance, 75.0);
+        assert_eq!(preset.hue_deg, 120.0);
     }
 }

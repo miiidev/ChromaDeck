@@ -495,6 +495,8 @@ mod tests {
             contrast: 0.8,
             rgb_gains: [1.0, 1.0, 1.0],
             gamma: 2.2,
+            vibrance: 50.0,
+            hue_deg: 0.0,
         }
     }
 
