@@ -202,6 +202,21 @@ impl ColorApi for RealColorApi {
 ///   with_brightness = contrasted * brightness
 ///   output = with_brightness * gain
 ///   ramp[i] = clamp(output, 0, 1) * 65535
+/// Minimum per-channel peak (index 255) accepted by display drivers.
+///
+/// Observed on NVIDIA (RTX 3050, Windows 11, `\\.\DISPLAY5`): `CreateDCW`
+/// succeeds and full-range ramps apply fine, but `SetDeviceGammaRamp`
+/// returns FALSE whenever any channel's last entry is below ~0x7F00–0x7FFF
+/// (probed: 30720 rejected, 32767 accepted). Dim presets whose
+/// brightness × contrast compress white below half (e.g. 0.5 × 0.75 = 0.375
+/// → 24576) were therefore rejected with "SetDeviceGammaRamp failed".
+/// Rescaling such channels so the peak reaches this floor yields the
+/// closest ramp the driver accepts (linear rescale: shape and order
+/// preserved, no clipping possible since the peak lands exactly on the
+/// floor). Channels already at/above the floor, and all-zero ramps
+/// (brightness 0), are left untouched.
+const MIN_CHANNEL_PEAK: u16 = 0x8000;
+
 fn build_gamma_ramp(
     brightness: f64,
     contrast: f64,
@@ -230,6 +245,18 @@ fn build_gamma_ramp(
         ramp[i] = ((base as f64 * rgb_gains[0]).round() as u16).min(65535);
         ramp[256 + i] = ((base as f64 * rgb_gains[1]).round() as u16).min(65535);
         ramp[512 + i] = ((base as f64 * rgb_gains[2]).round() as u16).min(65535);
+    }
+
+    // Enforce the driver-accepted peak floor per channel (see above).
+    for ch in 0..3 {
+        let peak = ramp[ch * 256 + 255];
+        if peak > 0 && peak < MIN_CHANNEL_PEAK {
+            let scale = MIN_CHANNEL_PEAK as f64 / peak as f64;
+            for i in 0..256 {
+                ramp[ch * 256 + i] =
+                    ((ramp[ch * 256 + i] as f64 * scale).round() as u16).min(65535);
+            }
+        }
     }
 
     ramp
@@ -532,5 +559,70 @@ mod tests {
         assert_eq!(ramp[255], 32768, "red gain 0.5 gives half"); // 65535*0.5=32767.5 rounded
         assert_eq!(ramp[511], 65535, "green gain 1.0 gives full");
         assert_eq!(ramp[767], 65535, "blue gain 2.0 clamped to 65535");
+    }
+
+    // ── Driver peak floor (regression: "SetDeviceGammaRamp failed") ────
+
+    /// The exact preset that failed on hardware (brightness 0.5,
+    /// contrast 0.5, gamma 1.25 → raw peak 24576 < 0x8000, rejected by the
+    /// driver). The builder must raise the peak to the accepted floor.
+    #[test]
+    fn dim_preset_peak_is_raised_to_driver_floor() {
+        let ramp = build_gamma_ramp(0.5, 0.5, [1.0, 1.0, 1.0], 1.25);
+        for ch in 0..3 {
+            assert_eq!(
+                ramp[ch * 256 + 255],
+                MIN_CHANNEL_PEAK,
+                "channel {ch} peak must land exactly on the driver floor"
+            );
+        }
+    }
+
+    /// Rescaling is linear: each entry is the raw formula output scaled by
+    /// floor/raw_peak, so the curve shape is preserved and the ramp stays
+    /// non-decreasing (no banding cliffs introduced).
+    #[test]
+    fn dim_preset_shape_preserved_after_floor_rescale() {
+        let ramp = build_gamma_ramp(0.5, 0.5, [1.0, 1.0, 1.0], 1.25);
+        // Raw (pre-floor) formula output, computed independently here.
+        fn raw(i: u32) -> f64 {
+            let mut v = i as f64 / 255.0;
+            v = v.powf(1.25);
+            v = (v - 0.5) * 0.5 + 0.5;
+            v *= 0.5;
+            v.clamp(0.0, 1.0) * 65535.0
+        }
+        let raw_peak = raw(255) as u16; // truncated like the builder
+        assert!(raw_peak > 0 && raw_peak < MIN_CHANNEL_PEAK);
+        let scale = MIN_CHANNEL_PEAK as f64 / raw_peak as f64;
+        for &i in &[0u32, 1, 64, 128, 200, 254, 255] {
+            let expected = ((raw(i) as u16 as f64 * scale).round() as u16).min(65535);
+            assert_eq!(ramp[i as usize], expected, "index {i} must be linearly rescaled");
+        }
+        for ch in 0..3 {
+            let base = ch * 256;
+            for i in 1..256 {
+                assert!(
+                    ramp[base + i] >= ramp[base + i - 1],
+                    "channel {ch} must stay non-decreasing at index {i}"
+                );
+            }
+        }
+    }
+
+    /// Full-range ramps must pass through untouched (no-op path).
+    #[test]
+    fn full_range_ramp_untouched_by_floor() {
+        let ramp = build_gamma_ramp(1.0, 1.0, [1.0, 1.0, 1.0], 1.0);
+        assert_eq!(ramp[0], 0);
+        assert_eq!(ramp[255], 65535);
+    }
+
+    /// Brightness 0 yields an all-zero ramp; the floor logic must skip it
+    /// (no divide-by-zero) and leave it zero.
+    #[test]
+    fn zero_brightness_ramp_stays_zero() {
+        let ramp = build_gamma_ramp(0.0, 0.5, [1.0, 1.0, 1.0], 2.2);
+        assert!(ramp.iter().all(|&v| v == 0));
     }
 }
