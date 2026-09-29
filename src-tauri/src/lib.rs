@@ -1,6 +1,11 @@
 mod monitor;
+mod store;
 
 use monitor::list_monitors_cmd;
+use store::{
+    create_preset_cmd, delete_preset_cmd, import_icc_cmd, list_presets_cmd,
+    update_preset_cmd, AppStore,
+};
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -10,9 +15,23 @@ fn greet(name: &str) -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let store_path = store::default_store_path();
+    let app_store = AppStore(std::sync::Mutex::new(
+        store::Store::new(store_path).expect("failed to initialise preset store"),
+    ));
+
     tauri::Builder::default()
+        .manage(app_store)
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet, list_monitors_cmd])
+        .invoke_handler(tauri::generate_handler![
+            greet,
+            list_monitors_cmd,
+            list_presets_cmd,
+            create_preset_cmd,
+            update_preset_cmd,
+            delete_preset_cmd,
+            import_icc_cmd,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
