@@ -2,7 +2,7 @@
 // Mirror the Rust backend commands defined in src-tauri/src/monitor.rs and store.rs.
 
 import { invoke } from "@tauri-apps/api/core";
-import type { Monitor, Preset, PresetInput } from "./types";
+import type { ApplyResult, Monitor, Preset, PresetInput } from "./types";
 
 /** Fetch the list of connected monitors with their EDID identifiers. */
 export async function listMonitors(): Promise<Monitor[]> {
@@ -40,4 +40,14 @@ export async function deletePreset(id: string): Promise<Preset> {
  */
 export async function importIcc(srcPath: string): Promise<string> {
   return invoke<string>("import_icc_cmd", { srcPath });
+}
+
+// ── Preset apply ───────────────────────────────────────────────────────────
+
+/**
+ * Apply a colour preset to its target monitor.
+ * Returns an ApplyResult indicating which steps succeeded.
+ */
+export async function applyPreset(id: string): Promise<ApplyResult> {
+  return invoke<ApplyResult>("apply_preset_cmd", { id });
 }

@@ -25,6 +25,7 @@ pub struct Monitor {
     pub model: String,
     pub serial: String,
     pub connected: bool,
+    pub device_name: String, // e.g. "\\.\DISPLAY1"
 }
 
 // ── EDID parsing ───────────────────────────────────────────────────────────
@@ -178,8 +179,12 @@ fn enum_setupapi_monitors() -> Result<Vec<Monitor>, windows::core::Error> {
             model,
             serial,
             connected: true, // DIGCF_PRESENT already filters to present
+            device_name: String::new(),
         });
     }
+
+    // Cross-reference with EnumDisplayDevices to populate device_name
+    enrich_with_device_names(&mut monitors);
 
     // SAFETY: Destroy the device info set.
     unsafe { SetupDiDestroyDeviceInfoList(dev_info_set)? };
@@ -290,6 +295,33 @@ fn read_edid_registry(instance_id: &str) -> Option<Vec<u8>> {
 
 // ── EnumDisplayDevices fallback ──────────────────────────────────────────
 
+/// Cross‑reference monitors from SetupAPI with EnumDisplayDevices to get
+/// the user‑mode display device name (e.g. `\\.\DISPLAY1`) needed for
+/// CreateDC / SetDeviceGammaRamp.
+fn enrich_with_device_names(monitors: &mut Vec<Monitor>) {
+    for disp_index in 0.. {
+        let mut dev = DISPLAY_DEVICEW::default();
+        dev.cb = std::mem::size_of::<DISPLAY_DEVICEW>() as u32;
+
+        let ok = unsafe { EnumDisplayDevicesW(None, disp_index, &mut dev, 0) };
+        if !ok.as_bool() {
+            break;
+        }
+
+        let device_id = wide_to_string(&dev.DeviceID);
+        if device_id.is_empty() {
+            continue;
+        }
+
+        // Match by EDID device ID
+        for mon in monitors.iter_mut() {
+            if mon.device_name.is_empty() && mon.edid_id == device_id {
+                mon.device_name = wide_to_string(&dev.DeviceName);
+            }
+        }
+    }
+}
+
 fn enum_fallback_displays() -> Vec<Monitor> {
     let mut monitors = Vec::new();
 
@@ -305,7 +337,7 @@ fn enum_fallback_displays() -> Vec<Monitor> {
 
         let device_id = wide_to_string(&dev.DeviceID);
         let device_string = wide_to_string(&dev.DeviceString);
-        let _device_name = wide_to_string(&dev.DeviceName);
+        let device_name = wide_to_string(&dev.DeviceName);
 
         if device_id.is_empty() {
             continue;
@@ -319,6 +351,7 @@ fn enum_fallback_displays() -> Vec<Monitor> {
             model: device_string,
             serial: String::new(),
             connected,
+            device_name: device_name,
         });
     }
 
