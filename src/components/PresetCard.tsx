@@ -97,8 +97,29 @@ export default function PresetCard({ preset, monitor, onEdit, onRefreshParent, i
     );
   };
 
+  const canApply = monitor.connected && !applying;
+
   return (
-    <div className="w-72 shrink-0 border-2 border-neutral-200 bg-neutral-900 shadow-[4px_4px_0px_#e5e7eb] motion-reduce:shadow-[2px_2px_0px_#e5e7eb]">
+    <div className="border-2 border-neutral-200 bg-neutral-900 shadow-[4px_4px_0px_#e5e7eb] motion-reduce:shadow-[2px_2px_0px_#e5e7eb] flex flex-col min-h-44">
+      {/* Pad face — tap to apply */}
+      <div
+        role="button"
+        tabIndex={canApply ? 0 : undefined}
+        aria-disabled={!canApply}
+        aria-label={`Apply preset ${preset.name}`}
+        onClick={() => {
+          if (canApply) void handleApply();
+        }}
+        onKeyDown={(e) => {
+          if (canApply && (e.key === "Enter" || e.key === " ")) {
+            e.preventDefault();
+            void handleApply();
+          }
+        }}
+        className={`flex-1 select-none focus-visible:outline-2 focus-visible:outline-lime-400 focus-visible:outline-offset-2 ${
+          canApply ? "cursor-pointer hover:bg-neutral-800/60" : "cursor-not-allowed"
+        }`}
+      >
       {/* Card body — stacked info */}
       <div className="p-3 space-y-2">
         {/* Name + badges row */}
@@ -132,6 +153,7 @@ export default function PresetCard({ preset, monitor, onEdit, onRefreshParent, i
 
         {/* Apply result feedback */}
         {getApplyResultDisplay()}
+      </div>
       </div>
 
       {/* Action buttons row — wrap, brutalist */}

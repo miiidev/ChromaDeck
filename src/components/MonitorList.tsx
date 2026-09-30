@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import type { Monitor, Preset } from "../lib/types";
 import { resetMonitor, setMonitorName, unpinMonitor } from "../lib/tauri";
 import PresetCard from "./PresetCard";
@@ -180,7 +180,6 @@ function MonitorResetButton({ edidId, onPinChange }: { edidId: string; onPinChan
 }
 
 export default function MonitorList({ monitors, presets, loading, onEdit, onRefresh, onCreateNew, pins, onPinChange }: Props) {
-  const carouselRef = useRef<HTMLDivElement>(null);
 
   // ── Derived data (runs every render, cheap — needed by hooks below) ──
   const monitorMap = new Map<string, Monitor>();
@@ -226,12 +225,6 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
       setSelectedId(firstConnected?.edid_id ?? visibleMonitors[0]?.edid_id ?? "");
     }
   }, [monitors, presets]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const scrollCarousel = useCallback((dir: "left" | "right") => {
-    if (!carouselRef.current) return;
-    const amount = dir === "left" ? -300 : 300;
-    carouselRef.current.scrollBy({ left: amount, behavior: "smooth" });
-  }, []);
 
   const selectedMonitor = monitorMap.get(selectedId) ?? visibleMonitors[0] ?? null;
   const selectedPresets = selectedId ? grouped.get(selectedId) ?? [] : [];
@@ -343,39 +336,21 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
           </button>
         </div>
       ) : (
-        <div className="relative">
-          {/* Scroll arrows */}
-          <button
-            onClick={() => scrollCarousel("left")}
-            className="brutalist-btn absolute left-0 top-1/2 -translate-y-1/2 -translate-x-3 z-10 w-8 h-8 flex items-center justify-center border-2 border-neutral-200 shadow-[2px_2px_0px_#e5e7eb] active:translate-y-0.5 active:shadow-none motion-reduce:active:translate-y-0 bg-neutral-900 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200"
-            aria-label="Previous presets"
-          >
-            ‹
-          </button>
-          <button
-            onClick={() => scrollCarousel("right")}
-            className="brutalist-btn absolute right-0 top-1/2 -translate-y-1/2 translate-x-3 z-10 w-8 h-8 flex items-center justify-center border-2 border-neutral-200 shadow-[2px_2px_0px_#e5e7eb] active:translate-y-0.5 active:shadow-none motion-reduce:active:translate-y-0 bg-neutral-900 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200"
-            aria-label="Next presets"
-          >
-            ›
-          </button>
-
-          {/* Carousel track */}
-          <div
-            ref={carouselRef}
-            className="flex gap-4 overflow-x-auto snap-x snap-mandatory carousel-scroll px-4 py-1"
-          >
+        <div>
+          <h3 className="mb-2 text-[11px] font-medium uppercase tracking-widest text-neutral-500">
+            Preset deck
+          </h3>
+          <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(15rem,1fr))]">
             {selectedPresets.map((preset) => (
-              <div key={preset.id} className="snap-start shrink-0">
-                <PresetCard
-                  preset={preset}
-                  monitor={selectedMonitor!}
-                  onEdit={onEdit}
-                  onRefreshParent={onRefresh}
-                  isPinned={pins[preset.edid_id] === preset.id}
-                  onPinChange={onPinChange}
-                />
-              </div>
+              <PresetCard
+                key={preset.id}
+                preset={preset}
+                monitor={selectedMonitor!}
+                onEdit={onEdit}
+                onRefreshParent={onRefresh}
+                isPinned={pins[preset.edid_id] === preset.id}
+                onPinChange={onPinChange}
+              />
             ))}
           </div>
         </div>
