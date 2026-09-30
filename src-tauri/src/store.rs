@@ -155,9 +155,6 @@ impl Store {
         };
 
         // ── Legacy migration: NVCP-scale preset upgrade ─────────────────────
-        // If any preset has color_model == "gain-v1", back up presets.json,
-        // reset brightness/contrast to 50.0 (neutral), stamp nvcp-v1, flush.
-        let needs_migration = presets.iter().any(|p| p.color_model == "gain-v1");
         let mut store = Store {
             data_dir: data_dir.clone(),
             presets_path: presets_path.clone(),
@@ -166,6 +163,27 @@ impl Store {
             pins_path,
             pinned,
         };
+
+        // ── Monitor-enumeration generation wipe (one-shot, user-approved)
+        // First run under real-monitor identities: back up legacy data,
+        // then start empty. Sentinel makes it exactly-once.
+        if !data_dir.join(".monitor-enumeration-v2").exists() {
+            if !store.presets.is_empty() {
+                let bak = format!("presets.json.bak-{}", local_timestamp());
+                let _ = std::fs::copy(&store.presets_path, store.data_dir.join(&bak));
+                store.presets = Vec::new();
+                store.flush()?;
+            }
+            if !store.pinned.is_empty() {
+                let bak = format!("pins.json.bak-{}", local_timestamp());
+                let _ = std::fs::copy(&store.pins_path, store.data_dir.join(&bak));
+                store.pinned = HashMap::new();
+                store.flush_pins()?;
+            }
+            let _ = std::fs::write(data_dir.join(".monitor-enumeration-v2"), b"");
+        }
+
+        let needs_migration = store.presets.iter().any(|p| p.color_model == "gain-v1");
         if needs_migration {
             // Backup with local-timestamped filename
             let bak_name = format!("presets.json.bak-{}", local_timestamp());
@@ -838,6 +856,8 @@ mod tests {
             r#"[{"id":"a","name":"Old","edid_id":"E","icc_hash":"","icc_filename":"","brightness":0.55,"contrast":0.5,"rgb_gains":[1.0,1.0,1.0],"gamma":1.25,"vibrance":100.0,"hue_deg":0.0}]"#,
         )
         .unwrap();
+        // Sentinel present → skip the v2 wipe so migration can be tested.
+        std::fs::write(dir.join(".monitor-enumeration-v2"), b"").unwrap();
         let store = Store::new(dir.clone()).unwrap();
         let p = &store.list_presets()[0];
         assert_eq!((p.brightness, p.contrast), (50.0, 50.0));
@@ -909,5 +929,38 @@ mod tests {
         drop(store);
         let reopened = Store::new(dir).unwrap();
         assert_eq!(reopened.list_pins().get("EDID-001"), Some(&preset.id));
+    }
+
+    // ── monitor-enumeration wipe (backup + sentinel) ──────────────────────
+
+    #[test]
+    fn first_run_backs_up_and_wipes_legacy_data() {
+        let dir = test_store_dir_unique();
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("presets.json"),
+            r#"[{"id":"a","name":"Old","edid_id":"PCI\\VEN_10DE&DEV_1","icc_hash":"","icc_filename":"","brightness":55.0,"contrast":60.0,"rgb_gains":[1.0,1.0,1.0],"gamma":1.0,"vibrance":100.0,"hue_deg":0.0,"color_model":"nvcp-v1"}]"#,
+        )
+        .unwrap();
+        std::fs::write(dir.join("pins.json"), r#"{"PCI\\VEN_X":"a"}"#).unwrap();
+        let store = Store::new(dir.clone()).unwrap();
+        assert!(store.list_presets().is_empty());
+        assert!(store.list_pins().is_empty());
+        let mut bak_presets = false;
+        let mut bak_pins = false;
+        for e in std::fs::read_dir(&dir).unwrap() {
+            let n = e.unwrap().file_name().to_string_lossy().into_owned();
+            if n.starts_with("presets.json.bak-") {
+                bak_presets = true;
+            }
+            if n.starts_with("pins.json.bak-") {
+                bak_pins = true;
+            }
+        }
+        assert!(bak_presets && bak_pins, "both backups must exist");
+        assert!(dir.join(".monitor-enumeration-v2").exists());
+        // Second open: sentinel respected, no duplicate wipe activity.
+        let store2 = Store::new(dir).unwrap();
+        assert!(store2.list_presets().is_empty());
     }
 }
