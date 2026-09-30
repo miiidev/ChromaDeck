@@ -164,11 +164,11 @@ export default function PresetEditor({ monitors, editPreset, defaultMonitorId, o
   const connectedMonitors = monitors.filter((m) => m.connected);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-950/80">
-      <div className="w-full max-w-lg mx-4 border-2 border-neutral-200 bg-neutral-900 shadow-[6px_6px_0px_#a3e635] motion-reduce:shadow-[3px_3px_0px_#a3e635]">
+    <div className="fixed inset-0 z-50 flex overflow-y-auto bg-neutral-950/80 p-4">
+      <div className="m-auto w-full max-w-lg border-2 border-neutral-200 bg-neutral-900 shadow-[6px_6px_0px_#a3e635] motion-reduce:shadow-[3px_3px_0px_#a3e635]">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b-2 border-neutral-200">
-          <h2 className="text-base font-semibold text-neutral-200">
+          <h2 className="min-w-0 flex-1 truncate text-base font-semibold text-neutral-200">
             {isEditing ? `EDIT: ${editPreset?.name}` : "CREATE PRESET"}
           </h2>
           <button
@@ -389,7 +389,7 @@ export default function PresetEditor({ monitors, editPreset, defaultMonitorId, o
           </div>
 
           {/* Actions */}
-          <div className="flex items-center justify-end gap-3 pt-2">
+          <div className="flex flex-wrap items-center justify-end gap-3 pt-2">
             <button
               type="button"
               onClick={onClose}
