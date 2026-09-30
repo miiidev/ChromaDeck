@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Monitor, Preset } from "../lib/types";
-import { resetMonitor, unpinMonitor } from "../lib/tauri";
+import { resetMonitor, setMonitorName, unpinMonitor } from "../lib/tauri";
 import PresetCard from "./PresetCard";
 
 interface Props {
@@ -47,9 +47,82 @@ function EmptyState({ onCreateNew }: { onCreateNew: () => void }) {
   );
 }
 
+/** Inline monitor rename (pencil toggle in the group header) */
+function MonitorNameEditor({ monitor, onRefreshParent }: { monitor: Monitor; onRefreshParent: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(monitor.alias);
+  const [saving, setSaving] = useState(false);
+
+  const displayName = monitor.alias || monitor.model || monitor.device_name || monitor.edid_id.slice(0, 16);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await setMonitorName(monitor.edid_id, draft);
+      setEditing(false);
+      onRefreshParent();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!editing) {
+    return (
+      <span className="inline-flex items-center gap-2">
+        <h3 className="text-sm font-medium text-neutral-200">{displayName}</h3>
+        {monitor.alias && (
+          <span className="text-xs text-neutral-600">{monitor.model}</span>
+        )}
+        <button
+          onClick={() => {
+            setDraft(monitor.alias);
+            setEditing(true);
+          }}
+          className="px-1 py-0.5 text-xs rounded text-neutral-600 hover:text-neutral-200 hover:bg-neutral-700 transition-colors"
+          title="Rename monitor"
+        >
+          ✎
+        </button>
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex items-center gap-2">
+      <input
+        type="text"
+        value={draft}
+        autoFocus
+        maxLength={64}
+        placeholder={monitor.model}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") void save();
+          else if (e.key === "Escape") setEditing(false);
+        }}
+        disabled={saving}
+        className="px-2 py-1 text-sm rounded-md border border-neutral-700 bg-neutral-800 text-neutral-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 disabled:opacity-50"
+      />
+      <button
+        onClick={() => void save()}
+        disabled={saving}
+        className="px-2 py-1 text-xs font-medium rounded-md bg-indigo-600 hover:bg-indigo-500 text-white transition-colors disabled:opacity-50"
+      >
+        {saving ? "…" : "Save"}
+      </button>
+      <button
+        onClick={() => setEditing(false)}
+        disabled={saving}
+        className="px-2 py-1 text-xs font-medium rounded-md text-neutral-500 hover:text-neutral-300"
+      >
+        Cancel
+      </button>
+    </span>
+  );
+}
+
 /** Per-monitor reset-to-default button with inline result feedback */
-function MonitorResetButton({ edidId, onPinChange }: { edidId: string; onPinChange: () => void }) {
-  const [resetting, setResetting] = useState(false);
+function MonitorResetButton({ edidId, onPinChange }: { edidId: string; onPinChange: () => void }) {  const [resetting, setResetting] = useState(false);
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
 
   const handleReset = async () => {
@@ -125,6 +198,7 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
         serial: "",
         connected: false,
         device_name: "",
+        alias: "",
       });
     }
   }
@@ -195,9 +269,7 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
             {/* Monitor header */}
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-3">
-                <h3 className="text-sm font-medium text-neutral-200">
-                  {monitor.model || monitor.device_name || monitor.edid_id.slice(0, 16)}
-                </h3>
+                <MonitorNameEditor monitor={monitor} onRefreshParent={onRefresh} />
                 {monitor.serial && (
                   <span className="text-xs text-neutral-600 font-mono">{monitor.serial}</span>
                 )}

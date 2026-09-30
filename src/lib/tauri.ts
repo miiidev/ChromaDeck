@@ -87,6 +87,11 @@ export async function listPins(): Promise<Record<string, string>> {
   return invoke<Record<string, string>>("list_pins_cmd");
 }
 
+/** Set a monitor's display name (empty clears back to default). */
+export async function setMonitorName(edidId: string, alias: string): Promise<void> {
+  return invoke<void>("set_monitor_name_cmd", { edidId, alias });
+}
+
 /** Force a full enforce pass now; returns per-pin outcomes. */
 export async function reapplyNow(): Promise<EnforceEvent[]> {
   return invoke<EnforceEvent[]>("reapply_now_cmd");

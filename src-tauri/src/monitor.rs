@@ -23,6 +23,7 @@ pub struct Monitor {
     pub serial: String,
     pub connected: bool,
     pub device_name: String, // e.g. "\\.\DISPLAY1"
+    pub alias: String,       // user display name; empty = use model
 }
 
 // ── EDID parsing ───────────────────────────────────────────────────────────
@@ -145,6 +146,7 @@ fn enum_gdi_monitors() -> Vec<Monitor> {
                 serial,
                 connected: adapter_attached,
                 device_name: adapter_name.clone(),
+                alias: String::new(),
             });
         }
     }
@@ -272,8 +274,17 @@ fn base_block(blob: Vec<u8>) -> Option<[u8; 128]> {
 // ── Tauri command ──────────────────────────────────────────────────────────
 
 #[tauri::command]
-pub fn list_monitors_cmd() -> Vec<Monitor> {
-    list_monitors()
+pub fn list_monitors_cmd(state: tauri::State<'_, crate::store::AppStore>) -> Vec<Monitor> {
+    let mut monitors = list_monitors();
+    if let Ok(store) = state.0.lock() {
+        let names = store.list_monitor_names();
+        for m in &mut monitors {
+            if let Some(alias) = names.get(&m.edid_id) {
+                m.alias = alias.clone();
+            }
+        }
+    }
+    monitors
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────

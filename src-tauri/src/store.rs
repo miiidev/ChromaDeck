@@ -129,6 +129,8 @@ pub struct Store {
     presets: Vec<Preset>,
     pins_path: PathBuf,
     pinned: HashMap<String, String>, // edid_id -> preset_id
+    names_path: PathBuf,
+    monitor_names: HashMap<String, String>, // edid_id -> user alias
 }
 
 impl Store {
@@ -154,6 +156,14 @@ impl Store {
             HashMap::new()
         };
 
+        let names_path = data_dir.join("monitor_names.json");
+        let monitor_names: HashMap<String, String> = if names_path.exists() {
+            let content = std::fs::read_to_string(&names_path)?;
+            serde_json::from_str(&content).unwrap_or_default()
+        } else {
+            HashMap::new()
+        };
+
         // ── Legacy migration: NVCP-scale preset upgrade ─────────────────────
         let mut store = Store {
             data_dir: data_dir.clone(),
@@ -162,6 +172,8 @@ impl Store {
             presets,
             pins_path,
             pinned,
+            names_path,
+            monitor_names,
         };
 
         // ── Monitor-enumeration generation wipe (one-shot, user-approved)
@@ -445,6 +457,39 @@ impl Store {
         self.pinned.clone()
     }
 
+    /// Set (or clear, when the trimmed alias is empty) a monitor's display
+    /// name. Rejects aliases longer than 64 characters.
+    pub fn set_monitor_name(&mut self, edid_id: &str, alias: &str) -> Result<(), StoreError> {
+        let trimmed = alias.trim();
+        if trimmed.chars().count() > 64 {
+            return Err(StoreError::InvalidInput(
+                "monitor name must be 64 characters or fewer".into(),
+            ));
+        }
+        if trimmed.is_empty() {
+            if self.monitor_names.remove(edid_id).is_some() {
+                let _ = self.flush_names();
+            }
+            return Ok(());
+        }
+        self.monitor_names.insert(edid_id.into(), trimmed.into());
+        self.flush_names()
+    }
+
+    /// Return a copy of the monitor alias map (edid_id -> alias).
+    pub fn list_monitor_names(&self) -> HashMap<String, String> {
+        self.monitor_names.clone()
+    }
+
+    /// Atomically persist the alias map to `monitor_names.json`.
+    fn flush_names(&self) -> Result<(), StoreError> {
+        let json = serde_json::to_string_pretty(&self.monitor_names)?;
+        let tmp = self.data_dir.join("monitor_names.json.tmp");
+        std::fs::write(&tmp, &json)?;
+        std::fs::rename(&tmp, &self.names_path)?;
+        Ok(())
+    }
+
     /// Atomically persist the pin map to `pins.json`.
     fn flush_pins(&self) -> Result<(), StoreError> {
         let json = serde_json::to_string_pretty(&self.pinned)?;
@@ -537,6 +582,16 @@ pub fn list_pins_cmd(
 ) -> Result<HashMap<String, String>, String> {
     let store = state.0.lock().map_err(|e| e.to_string())?;
     Ok(store.list_pins())
+}
+
+#[tauri::command]
+pub fn set_monitor_name_cmd(
+    state: tauri::State<'_, AppStore>,
+    edid_id: String,
+    alias: String,
+) -> Result<(), String> {
+    let mut store = state.0.lock().map_err(|e| e.to_string())?;
+    store.set_monitor_name(&edid_id, &alias).map_err(|e| e.to_string())
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────
@@ -962,5 +1017,43 @@ mod tests {
         // Second open: sentinel respected, no duplicate wipe activity.
         let store2 = Store::new(dir).unwrap();
         assert!(store2.list_presets().is_empty());
+    }
+
+    // ── monitor display names ─────────────────────────────────────────────
+
+    #[test]
+    fn monitor_name_set_get_and_clear() {
+        let mut store = test_store();
+        assert!(store.list_monitor_names().is_empty());
+        store.set_monitor_name("EDID-001", "Main").unwrap();
+        assert_eq!(
+            store.list_monitor_names().get("EDID-001"),
+            Some(&"Main".to_string())
+        );
+        // Empty (or whitespace) clears back to default.
+        store.set_monitor_name("EDID-001", "   ").unwrap();
+        assert!(store.list_monitor_names().is_empty());
+    }
+
+    #[test]
+    fn monitor_name_rejects_overlong_alias() {
+        let mut store = test_store();
+        let long = "x".repeat(65);
+        let err = store.set_monitor_name("EDID-001", &long).unwrap_err();
+        assert!(err.to_string().contains("64 characters"));
+        assert!(store.list_monitor_names().is_empty());
+    }
+
+    #[test]
+    fn monitor_names_persist_across_reopen() {
+        let dir = test_store_dir_unique();
+        let mut store = test_store_at(dir.clone());
+        store.set_monitor_name("EDID-001", "Main").unwrap();
+        drop(store);
+        let reopened = Store::new(dir).unwrap();
+        assert_eq!(
+            reopened.list_monitor_names().get("EDID-001"),
+            Some(&"Main".to_string())
+        );
     }
 }

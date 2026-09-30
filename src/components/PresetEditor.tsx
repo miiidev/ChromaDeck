@@ -211,7 +211,7 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
                 <option value="">— Select monitor —</option>
                 {connectedMonitors.map((m) => (
                   <option key={m.edid_id} value={m.edid_id}>
-                    {m.model || m.device_name} {m.serial ? `(${m.serial})` : ""}
+                    {m.alias || m.model || m.device_name} {m.serial ? `(${m.serial})` : ""}
                   </option>
                 ))}
               </select>

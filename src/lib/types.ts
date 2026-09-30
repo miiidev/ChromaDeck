@@ -7,6 +7,7 @@ export interface Monitor {
   serial: string;
   connected: boolean;
   device_name: string;
+  alias: string; // user display name; empty = use model
 }
 
 export interface GammaRamp {
