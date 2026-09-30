@@ -35,7 +35,7 @@
 - Modify: `src-tauri/src/monitor.rs` (only file)
 
 **Interfaces:**
-- Consumes: `DISPLAY_DEVICEW`, `EnumDisplayDevicesW`, `DISPLAY_DEVICE_ATTACHED_TO_DESKTOP` (all via existing `Gdi::*` import); `read_edid_registry`, `parse_edid_serial`, `parse_edid_model_name`, `wide_to_string` (kept as-is).
+- Consumes: `DISPLAY_DEVICEW`, `EnumDisplayDevicesW`, `DISPLAY_DEVICE_ATTACHED_TO_DESKTOP` (all via existing `Gdi::*` import); `parse_edid_serial`, `parse_edid_model_name`, `wide_to_string`, `EdidBlob`, `winreg` key iteration (`enum_keys`) — all kept; new `read_edid_for_monitor` defined in this task.
 - Produces:
   - `fn enum_gdi_monitors() -> Vec<Monitor>` (private)
   - `fn identify_monitor(edid: Option<&[u8; 128]>, instance_id: &str, device_string: &str) -> (String, String, String)` — returns `(edid_id, model, serial)`; pure, no Win32
@@ -97,6 +97,28 @@
         assert_eq!(id, "MONITOR\\FOO\\1");
         assert_eq!(model, "MONITOR\\FOO\\1");
     }
+
+    #[test]
+    fn manufacturer_decodes_three_letters() {
+        let mut buf = Box::new([0u8; 128]);
+        buf[8] = 0x04;
+        buf[9] = 0x43; // 0x0443 → A=1, B=2, C=3
+        assert_eq!(parse_edid_manufacturer(&buf), "ABC");
+    }
+
+    #[test]
+    fn identify_constructs_name_without_descriptor() {
+        let mut buf = Box::new([0u8; 128]);
+        buf[0..8].copy_from_slice(&[0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00]);
+        buf[8] = 0x04;
+        buf[9] = 0x43;
+        buf[10] = 0x34;
+        buf[11] = 0x12; // product 0x1234
+        let (id, model, serial) = identify_monitor(Some(&*buf), "MONITOR\\X\\0", "GDI Name");
+        assert_eq!(id, "EDID:0443-1234-00000000");
+        assert_eq!(model, "ABC 1234");
+        assert_eq!(serial, "");
+    }
 ```
 
 - [ ] **Step 2: Run to verify they fail**
@@ -106,13 +128,39 @@ Expected: compile FAIL (`identify_monitor` undefined — red state).
 
 - [ ] **Step 3: Implement**
 
-(a) Add the pure identity function (exact — place after `wide_to_string`):
+(a) Add the pure identity functions (exact — place after `wide_to_string`):
 
 ```rust
+/// Manufacturer 3-letter code from EDID bytes 8–9 (big-endian 5-bit packed,
+/// A=1). Used for constructed display names on nameless panels.
+fn parse_edid_manufacturer(edid: &[u8; 128]) -> String {
+    let raw = u16::from_be_bytes([edid[8], edid[9]]);
+    [(raw >> 10) & 0x1F, (raw >> 5) & 0x1F, raw & 0x1F]
+        .iter()
+        .map(|&c| (b'A' + c as u8 - 1) as char)
+        .collect()
+}
+
+/// Best display name when the EDID name descriptor is absent: a constructed
+/// `MFR PRODUCT` tag (laptop panels typically carry no name). `None` when
+/// the EDID carries no manufacturer (blank block).
+fn constructed_model(ed: &[u8; 128]) -> Option<String> {
+    if ed[8] == 0 && ed[9] == 0 {
+        return None;
+    }
+    Some(format!(
+        "{} {:04X}",
+        parse_edid_manufacturer(ed),
+        u16::from_le_bytes([ed[10], ed[11]])
+    ))
+}
+
 /// Resolve stable identity + display name from EDID (when available),
 /// instance path, and GDI device string. Pure function — fully testable.
 ///
 /// Chain: EDID serial → manufacturer+product+numeric serial → instance path.
+/// Name chain: EDID name → constructed MFR+product → device string →
+/// instance path.
 fn identify_monitor(
     edid: Option<&[u8; 128]>,
     instance_id: &str,
@@ -120,12 +168,13 @@ fn identify_monitor(
 ) -> (String, String, String) {
     if let Some(ed) = edid {
         let serial = parse_edid_serial(ed).unwrap_or_default();
-        let name = parse_edid_model_name(ed).unwrap_or_default();
-        let model = if name.is_empty() {
-            device_string.to_string()
-        } else {
-            name
-        };
+        let mut model = parse_edid_model_name(ed).unwrap_or_default();
+        if model.is_empty() {
+            model = constructed_model(ed).unwrap_or_default();
+        }
+        if model.is_empty() {
+            model = device_string.to_string();
+        }
         if !serial.is_empty() {
             return (serial.clone(), model, serial);
         }
@@ -201,7 +250,7 @@ fn enum_gdi_monitors() -> Vec<Monitor> {
                 continue;
             }
             let device_string = wide_to_string(&child.DeviceString);
-            let edid: Option<[u8; 128]> = read_edid_registry(&instance_id)
+            let edid: Option<[u8; 128]> = read_edid_for_monitor(&instance_id)
                 .and_then(|b| b.as_slice().try_into().ok().copied());
             let (edid_id, model, serial) =
                 identify_monitor(edid.as_ref(), &instance_id, &device_string);
@@ -218,12 +267,42 @@ fn enum_gdi_monitors() -> Vec<Monitor> {
 }
 ```
 
-(c) Imports: delete `use windows::Win32::Devices::DeviceAndDriverInstallation::*;` and the `GUID_DEVINTERFACE_MONITOR` const (lines 14, 17–19); add `use windows::core::PCWSTR;`. Keep `serde`, `OsString`/`OsStringExt`, `io`, `winreg::*`, `Gdi::*`, `parse_*`, `read_edid_registry`, `wide_to_string`, struct, command, all 7 existing tests untouched. Update the file header comment to describe the tree walk (replace lines 1–3 comment, keep code identical elsewhere).
+(c) Imports + helper swap: delete `use windows::Win32::Devices::DeviceAndDriverInstallation::*;` and the `GUID_DEVINTERFACE_MONITOR` const (lines 14, 17–19); add `use windows::core::PCWSTR;`. DELETE the old `read_edid_registry(instance_id)` fn (its `Enum\<instance_id>` path cannot work — no `Enum\MONITOR` key exists) and add its replacement below. Keep `serde`, `OsString`/`OsStringExt`, `io`, `winreg::*`, `Gdi::*`, `parse_*`, `wide_to_string`, `EdidBlob`, struct, command, all 7 existing tests untouched. Update the file header comment to describe the tree walk (replace lines 1–3 comment, keep code identical elsewhere).
+
+Replacement EDID reader (exact — hardware root cause, 2026-09-30: the `MONITOR\...` DeviceID namespace has no `Enum\MONITOR` registry key, so direct lookup always missed; monitor EDIDs live under `Enum\DISPLAY\<model>\<instance>\Device Parameters\EDID`):
+
+```rust
+/// Read the EDID blob for a monitor DeviceID (`MONITOR\<model>\...`).
+/// Resolves via `Enum\DISPLAY\<model>`, subkeys sorted for determinism,
+/// first blob ≥128 bytes wins. Identical-twin panels are an accepted
+/// limitation: either twin's EDID may attach (documented).
+fn read_edid_for_monitor(device_id: &str) -> Option<Vec<u8>> {
+    let model = device_id.split('\\').nth(1)?;
+    let base = RegKey::predef(HKEY_LOCAL_MACHINE)
+        .open_subkey_with_flags(
+            format!(r"SYSTEM\CurrentControlSet\Enum\DISPLAY\{model}"),
+            KEY_READ,
+        )
+        .ok()?;
+    let mut names: Vec<String> = base.enum_keys().filter_map(|k| k.ok()).collect();
+    names.sort();
+    for name in names {
+        let params = base
+            .open_subkey_with_flags(format!("{name}\\Device Parameters"), KEY_READ)
+            .ok()?;
+        let blob: EdidBlob = params.get_value("EDID").ok()?;
+        if blob.0.len() >= 128 {
+            return Some(blob.0);
+        }
+    }
+    None
+}
+```
 
 - [ ] **Step 4: Run tests**
 
 Run: `cargo test 2>&1 | Select-String "test result|FAILED"` (from `src-tauri/`)
-Expected: all pass (existing 7 EDID tests + 4 new = 11 in monitor.rs; full suite green). Then `cargo check 2>&1 | Select-String "^error|^warning"` — expect clean (no dead code: every kept helper is used).
+Expected: all pass (existing 7 EDID tests + 6 new = 13 in monitor.rs; full suite green). Then `cargo check 2>&1 | Select-String "^error|^warning"` — expect clean (no dead code: every kept helper is used; `read_edid_registry` is deleted, not left orphaned).
 
 - [ ] **Step 5: Commit**
 
@@ -332,7 +411,7 @@ Expected: all green (record exact counts in the report; monitor.rs holds 11 test
 
 - [ ] **Step 2: Real names, no GPU rows**
 
-Run: `npm run tauri dev` (repo root). Open the app → monitor list AND the preset-editor monitor dropdown must show physical panels by real model names (e.g. AOC + laptop panel). Zero entries named like a GPU ("NVIDIA GeForce…", "Intel … Graphics"). Screenshot or transcribe the list into the report.
+Run: `npm run tauri dev` (repo root). Open the app → monitor list AND the preset-editor monitor dropdown must show physical panels by real names: the external panel by its EDID name (observed `24B36XE`-class on this hardware), the laptop panel by its constructed `MFR PRODUCT` tag (it carries no EDID name — `Generic PnP Monitor` must NOT appear where EDID data exists). Zero entries named like a GPU ("NVIDIA GeForce…", "Intel … Graphics"). Screenshot or transcribe the list into the report.
 
 - [ ] **Step 3: ID stability across Refresh**
 
