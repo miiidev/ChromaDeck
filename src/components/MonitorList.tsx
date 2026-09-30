@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import type { Monitor, Preset } from "../lib/types";
 import { resetMonitor, setMonitorName, unpinMonitor } from "../lib/tauri";
 import PresetCard from "./PresetCard";
@@ -9,45 +9,47 @@ interface Props {
   loading: boolean;
   onEdit: (preset: Preset) => void;
   onRefresh: () => void;
-  onCreateNew: () => void;
+  onCreateNew: (edidId: string) => void;
   pins: Record<string, string>;
   onPinChange: () => void;
 }
 
-/** Loading skeleton rows */
+/** Loading skeleton */
 function SkeletonRow() {
   return (
-    <div className="animate-pulse rounded-lg border border-neutral-800 bg-neutral-900/50 p-4 space-y-3">
-      <div className="h-4 bg-neutral-800 rounded w-1/3" />
-      <div className="h-3 bg-neutral-800 rounded w-1/2" />
+    <div className="animate-pulse border-2 border-neutral-700 bg-neutral-900 p-4 space-y-3">
+      <div className="h-4 bg-neutral-800 w-1/3" />
+      <div className="h-3 bg-neutral-800 w-1/2" />
     </div>
   );
 }
 
-/** Empty state when no monitors or presets exist */
-function EmptyState({ onCreateNew }: { onCreateNew: () => void }) {
+/** Full empty state */
+function EmptyState({ onCreateNew, monitors }: { onCreateNew: (edidId: string) => void; monitors: Monitor[] }) {
+  const firstConnected = monitors.find((m) => m.connected);
+  const targetId = firstConnected?.edid_id ?? "";
   return (
     <div className="flex flex-col items-center justify-center py-16 text-center space-y-4">
-      <div className="w-16 h-16 rounded-full bg-neutral-900 border border-neutral-800 flex items-center justify-center">
-        <svg className="w-8 h-8 text-neutral-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <div className="border-2 border-neutral-600 bg-neutral-900 p-5">
+        <svg className="w-10 h-10 text-neutral-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25m18 0A2.25 2.25 0 0018.75 3H5.25A2.25 2.25 0 003 5.25m18 0V12a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 12V5.25" />
         </svg>
       </div>
-      <h3 className="text-sm font-medium text-neutral-400">No presets yet</h3>
+      <h3 className="text-sm font-medium text-neutral-400 uppercase tracking-widest">No presets yet</h3>
       <p className="text-xs text-neutral-600 max-w-xs">
         Create your first colour preset to apply an ICC profile and gamma adjustment to a monitor.
       </p>
       <button
-        onClick={onCreateNew}
-        className="px-4 py-2 text-sm font-medium rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white transition-colors"
+        onClick={() => onCreateNew(targetId)}
+        className="brutalist-btn px-4 py-2 text-sm font-medium border-2 border-lime-400 shadow-[2px_2px_0px_#a3e635] active:translate-y-0.5 active:shadow-none motion-reduce:active:translate-y-0 bg-lime-400 text-black hover:bg-lime-300"
       >
-        Create Preset
+        CREATE PRESET
       </button>
     </div>
   );
 }
 
-/** Inline monitor rename (pencil toggle in the group header) */
+/** Monitor name editor (inline) */
 function MonitorNameEditor({ monitor, onRefreshParent }: { monitor: Monitor; onRefreshParent: () => void }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(monitor.alias);
@@ -71,14 +73,14 @@ function MonitorNameEditor({ monitor, onRefreshParent }: { monitor: Monitor; onR
       <span className="inline-flex items-center gap-2">
         <h3 className="text-sm font-medium text-neutral-200">{displayName}</h3>
         {monitor.alias && (
-          <span className="text-xs text-neutral-600">{monitor.model}</span>
+          <span className="text-xs text-neutral-500">{monitor.model}</span>
         )}
         <button
           onClick={() => {
             setDraft(monitor.alias);
             setEditing(true);
           }}
-          className="px-1 py-0.5 text-xs rounded text-neutral-600 hover:text-neutral-200 hover:bg-neutral-700 transition-colors"
+          className="brutalist-btn px-1.5 py-0.5 text-xs border border-neutral-600 bg-neutral-800 text-neutral-500 hover:bg-neutral-700 hover:text-neutral-200"
           title="Rename monitor"
         >
           ✎
@@ -101,28 +103,29 @@ function MonitorNameEditor({ monitor, onRefreshParent }: { monitor: Monitor; onR
           else if (e.key === "Escape") setEditing(false);
         }}
         disabled={saving}
-        className="px-2 py-1 text-sm rounded-md border border-neutral-700 bg-neutral-800 text-neutral-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 disabled:opacity-50"
+        className="px-2 py-1 text-sm border-2 border-neutral-200 bg-neutral-800 text-neutral-200 placeholder-neutral-500 focus-visible:outline-2 focus-visible:outline-lime-400 focus-visible:outline-offset-2 disabled:opacity-50"
       />
       <button
         onClick={() => void save()}
         disabled={saving}
-        className="px-2 py-1 text-xs font-medium rounded-md bg-indigo-600 hover:bg-indigo-500 text-white transition-colors disabled:opacity-50"
+        className="brutalist-btn px-2 py-1 text-xs font-medium border-2 border-lime-400 shadow-[2px_2px_0px_#a3e635] active:translate-y-0.5 active:shadow-none motion-reduce:active:translate-y-0 bg-lime-400 text-black hover:bg-lime-300 disabled:opacity-50"
       >
-        {saving ? "…" : "Save"}
+        {saving ? "…" : "SAVE"}
       </button>
       <button
         onClick={() => setEditing(false)}
         disabled={saving}
-        className="px-2 py-1 text-xs font-medium rounded-md text-neutral-500 hover:text-neutral-300"
+        className="brutalist-btn px-2 py-1 text-xs font-medium border-2 border-neutral-200 bg-neutral-800 text-neutral-400 hover:text-neutral-200 disabled:opacity-50"
       >
-        Cancel
+        CANCEL
       </button>
     </span>
   );
 }
 
-/** Per-monitor reset-to-default button with inline result feedback */
-function MonitorResetButton({ edidId, onPinChange }: { edidId: string; onPinChange: () => void }) {  const [resetting, setResetting] = useState(false);
+/** Monitor reset button */
+function MonitorResetButton({ edidId, onPinChange }: { edidId: string; onPinChange: () => void }) {
+  const [resetting, setResetting] = useState(false);
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
 
   const handleReset = async () => {
@@ -130,9 +133,9 @@ function MonitorResetButton({ edidId, onPinChange }: { edidId: string; onPinChan
     setMessage(null);
     try {
       try {
-        await unpinMonitor(edidId); // no-op when unpinned; Reset always disarms
+        await unpinMonitor(edidId);
       } catch {
-        // ignore — reset proceeds regardless
+        // ignore
       }
       try {
         const result = await resetMonitor(edidId);
@@ -163,31 +166,23 @@ function MonitorResetButton({ edidId, onPinChange }: { edidId: string; onPinChan
       <button
         onClick={handleReset}
         disabled={resetting}
-        className={`px-2 py-1 text-xs font-medium rounded-md transition-colors ${
+        className={`brutalist-btn px-2 py-1 text-xs font-medium border-2 border-neutral-200 shadow-[2px_2px_0px_#e5e7eb] active:translate-y-0.5 active:shadow-none motion-reduce:active:translate-y-0 ${
           resetting
-            ? "text-neutral-500 cursor-wait"
-            : "text-neutral-500 hover:text-neutral-200 hover:bg-neutral-700"
+            ? "bg-neutral-700 text-neutral-500 cursor-wait"
+            : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700 hover:text-neutral-200"
         }`}
         title="Reset this monitor to default colours (identity gamma)"
       >
-        {resetting ? "Resetting…" : "Reset"}
+        {resetting ? "RESETTING…" : "RESET"}
       </button>
     </span>
   );
 }
 
 export default function MonitorList({ monitors, presets, loading, onEdit, onRefresh, onCreateNew, pins, onPinChange }: Props) {
-  if (loading) {
-    return (
-      <section className="flex-1 p-6 space-y-4">
-        <div className="h-6 bg-neutral-800 rounded w-20 mb-6 animate-pulse" />
-        <SkeletonRow />
-        <SkeletonRow />
-      </section>
-    );
-  }
+  const carouselRef = useRef<HTMLDivElement>(null);
 
-  // Build a complete monitor map from monitors list + any edid_ids referenced by presets
+  // ── Derived data (runs every render, cheap — needed by hooks below) ──
   const monitorMap = new Map<string, Monitor>();
   for (const m of monitors) monitorMap.set(m.edid_id, m);
   for (const p of presets) {
@@ -203,116 +198,191 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
     }
   }
 
-  // Group presets by edid_id
   const grouped = new Map<string, Preset[]>();
   for (const p of presets) {
     if (!grouped.has(p.edid_id)) grouped.set(p.edid_id, []);
     grouped.get(p.edid_id)!.push(p);
   }
 
-  // Sort monitors: connected first, then by model name
   const sortedMonitors = Array.from(monitorMap.values()).sort((a, b) => {
     if (a.connected !== b.connected) return a.connected ? -1 : 1;
     return a.model.localeCompare(b.model);
   });
 
-  // Filter to only show monitors that either are connected or have presets
   const visibleMonitors = sortedMonitors.filter(
     (m) => m.connected || (grouped.get(m.edid_id)?.length ?? 0) > 0,
   );
 
+  // ── Hooks (unconditional — must be before any early return) ──────────
+  const [selectedId, setSelectedId] = useState<string>(() => {
+    const firstConnected = visibleMonitors.find((m) => m.connected);
+    return firstConnected?.edid_id ?? visibleMonitors[0]?.edid_id ?? "";
+  });
+
+  // Sync selected when monitors change and current selection no longer valid
+  useEffect(() => {
+    if (!selectedId || !visibleMonitors.some((m) => m.edid_id === selectedId)) {
+      const firstConnected = visibleMonitors.find((m) => m.connected);
+      setSelectedId(firstConnected?.edid_id ?? visibleMonitors[0]?.edid_id ?? "");
+    }
+  }, [monitors, presets]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const scrollCarousel = useCallback((dir: "left" | "right") => {
+    if (!carouselRef.current) return;
+    const amount = dir === "left" ? -300 : 300;
+    carouselRef.current.scrollBy({ left: amount, behavior: "smooth" });
+  }, []);
+
+  const selectedMonitor = monitorMap.get(selectedId) ?? visibleMonitors[0] ?? null;
+  const selectedPresets = selectedId ? grouped.get(selectedId) ?? [] : [];
+  const pinnedId = selectedId ? pins[selectedId] : undefined;
+
+  // ── Early return when loading ────────────────────────────────────────
+  if (loading) {
+    return (
+      <section className="flex-1 p-6 space-y-4">
+        <div className="h-6 bg-neutral-800 w-20 mb-6 animate-pulse" />
+        <SkeletonRow />
+        <SkeletonRow />
+      </section>
+    );
+  }
+
+  // Full empty state
   if (visibleMonitors.length === 0 && presets.length === 0) {
     return (
       <section className="flex-1 p-6 space-y-6">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-medium text-neutral-300">Library</h2>
+          <h2 className="text-sm font-medium text-neutral-400 uppercase tracking-widest">Library</h2>
           <button
-            onClick={onCreateNew}
-            className="px-4 py-2 text-sm font-medium rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white transition-colors"
+            onClick={() => onCreateNew("")}
+            className="brutalist-btn px-4 py-2 text-sm font-medium border-2 border-lime-400 shadow-[2px_2px_0px_#a3e635] active:translate-y-0.5 active:shadow-none motion-reduce:active:translate-y-0 bg-lime-400 text-black hover:bg-lime-300"
           >
-            Create Preset
+            + CREATE
           </button>
         </div>
-        <EmptyState onCreateNew={onCreateNew} />
+        <EmptyState onCreateNew={onCreateNew} monitors={monitors} />
       </section>
     );
   }
 
   return (
-    <section className="flex-1 p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-medium text-neutral-300">Library</h2>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={onRefresh}
-            className="px-3 py-1.5 text-xs font-medium rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 transition-colors"
-            title="Refresh monitors and presets"
-          >
-            Refresh
-          </button>
-          <button
-            onClick={onCreateNew}
-            className="px-4 py-1.5 text-sm font-medium rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white transition-colors"
-          >
-            + Create
-          </button>
-        </div>
+    <section className="flex-1 p-6 space-y-5">
+      {/* ── Monitor selector pills ──────────────────────────────────────── */}
+      <div className="flex items-center gap-2 overflow-x-auto carousel-scroll pb-1">
+        {visibleMonitors.map((m) => {
+          const count = grouped.get(m.edid_id)?.length ?? 0;
+          const isSelected = m.edid_id === selectedId;
+          return (
+            <button
+              key={m.edid_id}
+              onClick={() => setSelectedId(m.edid_id)}
+              className={`brutalist-btn shrink-0 flex items-center gap-2 px-3 py-1.5 text-xs font-medium border-2 active:translate-y-0.5 active:shadow-none motion-reduce:active:translate-y-0 ${
+                isSelected
+                  ? "border-lime-400 bg-lime-400 text-black shadow-[2px_2px_0px_#a3e635]"
+                  : "border-neutral-200 bg-neutral-900 text-neutral-400 shadow-[2px_2px_0px_#e5e7eb] hover:bg-neutral-800"
+              }`}
+            >
+              <span className={`w-2 h-2 ${m.connected ? "bg-emerald-400" : "bg-neutral-600"}`} />
+              <span className="truncate max-w-[120px]">{m.alias || m.model || m.device_name}</span>
+              <span className="font-mono text-[10px] opacity-70">{count}</span>
+            </button>
+          );
+        })}
       </div>
 
-      {visibleMonitors.map((monitor) => {
-        const monitorPresets = grouped.get(monitor.edid_id) || [];
-        return (
-          <div
-            key={monitor.edid_id}
-            className="rounded-lg border border-neutral-800 bg-neutral-900/50 p-4"
-          >
-            {/* Monitor header */}
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-3">
-                <MonitorNameEditor monitor={monitor} onRefreshParent={onRefresh} />
-                {monitor.serial && (
-                  <span className="text-xs text-neutral-600 font-mono">{monitor.serial}</span>
-                )}
-              </div>
-              {monitor.connected ? (
-                <div className="flex items-center gap-2">
-                  <MonitorResetButton edidId={monitor.edid_id} onPinChange={onPinChange} />
-                  <span className="inline-flex items-center gap-1.5 text-xs text-emerald-400">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                    Connected
-                  </span>
-                </div>
+      {/* ── Selected monitor header block ───────────────────────────────── */}
+      {selectedMonitor && (
+        <div className="border-2 border-neutral-200 bg-neutral-900 p-4">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-3 flex-wrap">
+              <MonitorNameEditor monitor={selectedMonitor} onRefreshParent={onRefresh} />
+              {selectedMonitor.serial && (
+                <span className="text-xs text-neutral-500 font-mono">{selectedMonitor.serial}</span>
+              )}
+              <MonitorResetButton edidId={selectedMonitor.edid_id} onPinChange={onPinChange} />
+            </div>
+            <div className="flex items-center gap-2">
+              {selectedMonitor.connected ? (
+                <span className="inline-flex items-center gap-1.5 text-[10px] font-medium text-emerald-400 border-2 border-emerald-400 px-2 py-0.5 uppercase tracking-widest">
+                  <span className="w-1.5 h-1.5 bg-emerald-400" />
+                  CONNECTED
+                </span>
               ) : (
-                <span className="inline-flex items-center gap-1.5 text-xs text-neutral-500">
-                  <span className="w-1.5 h-1.5 rounded-full bg-neutral-600" />
-                  Offline — kept
+                <span className="inline-flex items-center gap-1.5 text-[10px] font-medium text-neutral-500 border-2 border-neutral-600 px-2 py-0.5 uppercase tracking-widest">
+                  <span className="w-1.5 h-1.5 bg-neutral-600" />
+                  OFFLINE
+                </span>
+              )}
+              {pinnedId && (
+                <span className="text-[10px] font-medium text-lime-400 border-2 border-lime-400 px-2 py-0.5 uppercase tracking-widest">
+                  ENFORCED
                 </span>
               )}
             </div>
-
-            {/* Presets for this monitor */}
-            {monitorPresets.length === 0 ? (
-              <p className="text-xs text-neutral-500 italic">
-                No presets yet. Click Create to add one.
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {monitorPresets.map((preset) => (
-                  <PresetCard
-                    key={preset.id}
-                    preset={preset}
-                    monitor={monitor}
-                    onEdit={onEdit}
-                    onRefreshParent={onRefresh}
-                    isPinned={pins[monitor.edid_id] === preset.id}
-                    onPinChange={onPinChange}
-                  />
-                ))}
-              </div>
-            )}
           </div>
-        );
-      })}
+        </div>
+      )}
+
+      {/* ── Preset carousel ─────────────────────────────────────────────── */}
+      {selectedPresets.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-12 text-center space-y-3 border-2 border-dashed border-neutral-700 bg-neutral-900/50">
+          <p className="text-xs text-neutral-500">No presets for this monitor</p>
+          <button
+            onClick={() => onCreateNew(selectedId)}
+            className="brutalist-btn px-4 py-2 text-sm font-medium border-2 border-lime-400 shadow-[2px_2px_0px_#a3e635] active:translate-y-0.5 active:shadow-none motion-reduce:active:translate-y-0 bg-lime-400 text-black hover:bg-lime-300"
+          >
+            CREATE PRESET
+          </button>
+        </div>
+      ) : (
+        <div className="relative">
+          {/* Scroll arrows */}
+          <button
+            onClick={() => scrollCarousel("left")}
+            className="brutalist-btn absolute left-0 top-1/2 -translate-y-1/2 -translate-x-3 z-10 w-8 h-8 flex items-center justify-center border-2 border-neutral-200 shadow-[2px_2px_0px_#e5e7eb] active:translate-y-0.5 active:shadow-none motion-reduce:active:translate-y-0 bg-neutral-900 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200"
+            aria-label="Previous presets"
+          >
+            ‹
+          </button>
+          <button
+            onClick={() => scrollCarousel("right")}
+            className="brutalist-btn absolute right-0 top-1/2 -translate-y-1/2 translate-x-3 z-10 w-8 h-8 flex items-center justify-center border-2 border-neutral-200 shadow-[2px_2px_0px_#e5e7eb] active:translate-y-0.5 active:shadow-none motion-reduce:active:translate-y-0 bg-neutral-900 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200"
+            aria-label="Next presets"
+          >
+            ›
+          </button>
+
+          {/* Carousel track */}
+          <div
+            ref={carouselRef}
+            className="flex gap-4 overflow-x-auto snap-x snap-mandatory carousel-scroll px-4 py-1"
+          >
+            {selectedPresets.map((preset) => (
+              <div key={preset.id} className="snap-start shrink-0">
+                <PresetCard
+                  preset={preset}
+                  monitor={selectedMonitor!}
+                  onEdit={onEdit}
+                  onRefreshParent={onRefresh}
+                  isPinned={pins[preset.edid_id] === preset.id}
+                  onPinChange={onPinChange}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Create button (always visible) ──────────────────────────────── */}
+      <div className="flex justify-center pt-1">
+        <button
+          onClick={() => onCreateNew(selectedId)}
+          className="brutalist-btn px-5 py-2 text-sm font-medium border-2 border-lime-400 shadow-[2px_2px_0px_#a3e635] active:translate-y-0.5 active:shadow-none motion-reduce:active:translate-y-0 bg-lime-400 text-black hover:bg-lime-300"
+        >
+          + CREATE PRESET
+        </button>
+      </div>
     </section>
   );
 }

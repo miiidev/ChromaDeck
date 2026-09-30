@@ -22,8 +22,8 @@ function AutostartToggle() {
   };
   return (
     <label className="inline-flex items-center gap-1.5 text-xs text-neutral-500 cursor-pointer">
-      <input type="checkbox" checked={on ?? false} onChange={toggle} className="accent-indigo-500" />
-      Start with Windows
+      <input type="checkbox" checked={on ?? false} onChange={toggle} className="accent-lime-400" />
+      <span className="uppercase tracking-widest text-[10px]">Start with Windows</span>
     </label>
   );
 }
@@ -37,6 +37,7 @@ function App() {
   const [showEditor, setShowEditor] = useState(false);
   const [pins, setPins] = useState<Record<string, string>>({});
   const [reapplyMsg, setReapplyMsg] = useState<string | null>(null);
+  const [createForMonitorId, setCreateForMonitorId] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -63,43 +64,49 @@ function App() {
 
   const handleEdit = (preset: Preset) => {
     setEditingPreset(preset);
+    setCreateForMonitorId(null);
     setShowEditor(true);
   };
 
-  const handleCreateNew = () => {
+  const handleCreateNew = (edidId: string) => {
     setEditingPreset(null);
+    setCreateForMonitorId(edidId);
     setShowEditor(true);
   };
 
   const handleEditorClose = () => {
     setShowEditor(false);
     setEditingPreset(null);
+    setCreateForMonitorId(null);
   };
 
   const handleEditorSaved = () => {
     setShowEditor(false);
     setEditingPreset(null);
+    setCreateForMonitorId(null);
     fetchData();
   };
 
   return (
     <main className="min-h-screen bg-neutral-950 text-neutral-100 flex flex-col">
-      {/* Header */}
-      <header className="border-b border-neutral-800 px-6 py-4">
+      {/* ── Header ──────────────────────────────────────────────────────── */}
+      <header className="border-b-2 border-neutral-200 px-6 py-4">
         <div className="flex items-center gap-3">
-          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center">
-            <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <div className="w-7 h-7 border-2 border-neutral-200 bg-gradient-to-br from-lime-400 to-lime-500 flex items-center justify-center">
+            <svg className="w-4 h-4 text-neutral-950" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25m18 0A2.25 2.25 0 0018.75 3H5.25A2.25 2.25 0 003 5.25m18 0V12a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 12V5.25" />
             </svg>
           </div>
           <h1 className="text-xl font-semibold tracking-tight">ChromaDeck</h1>
-          <span className="text-xs text-neutral-600 font-mono">v0.1.0</span>
+          <span className="border-2 border-neutral-200 px-1.5 py-0.5 font-mono text-xs text-neutral-500">
+            v0.1.0
+          </span>
         </div>
       </header>
 
-      {/* Error banner */}
+      {/* ── Error banner ────────────────────────────────────────────────── */}
       {error && (
-        <div className="mx-6 mt-4 px-4 py-3 rounded-lg bg-red-950/40 border border-red-900/50 flex items-center justify-between">
+        <div className="mx-6 mt-4 px-4 py-3 border-2 border-red-400 bg-red-950/40 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <svg className="w-4 h-4 text-red-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
@@ -108,14 +115,14 @@ function App() {
           </div>
           <button
             onClick={fetchData}
-            className="text-xs text-red-400 hover:text-red-300 underline"
+            className="brutalist-btn px-2 py-1 text-xs font-medium border-2 border-neutral-200 shadow-[2px_2px_0px_#e5e7eb] active:translate-y-0.5 active:shadow-none motion-reduce:active:translate-y-0 bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
           >
-            Retry
+            RETRY
           </button>
         </div>
       )}
 
-      {/* Library view */}
+      {/* ── Library view ────────────────────────────────────────────────── */}
       <MonitorList
         monitors={monitors}
         presets={presets}
@@ -127,16 +134,16 @@ function App() {
         onPinChange={fetchData}
       />
 
-      {/* Status bar */}
-      <footer className="border-t border-neutral-800 px-6 py-2 flex items-center justify-between text-xs text-neutral-600">
-        <span>
-          {loading ? "Loading…" : `${presets.length} preset${presets.length !== 1 ? "s" : ""} · ${monitors.filter((m) => m.connected).length} monitor${monitors.filter((m) => m.connected).length !== 1 ? "s" : ""} connected · ${Object.keys(pins).length} pinned`}
+      {/* ── Footer / status bar ─────────────────────────────────────────── */}
+      <footer className="border-t-2 border-neutral-200 px-6 py-3 flex items-center justify-between text-xs text-neutral-500">
+        <span className="uppercase tracking-widest">
+          {loading ? "LOADING…" : `${presets.length} PRESET${presets.length !== 1 ? "S" : ""} · ${monitors.filter((m) => m.connected).length} MONITOR${monitors.filter((m) => m.connected).length !== 1 ? "S" : ""} CONNECTED · ${Object.keys(pins).length} PINNED`}
         </span>
         <span className="inline-flex items-center gap-3">
           {reapplyMsg && <span className="text-neutral-400">{reapplyMsg}</span>}
           {!loading && (
-            <span>
-              Last refresh: {new Date().toLocaleTimeString()}
+            <span className="font-mono">
+              {new Date().toLocaleTimeString()}
             </span>
           )}
           <button
@@ -152,20 +159,21 @@ function App() {
               setTimeout(() => setReapplyMsg(null), 5000);
               fetchData();
             }}
-            className="px-2 py-1 text-xs rounded-md text-neutral-500 hover:text-neutral-200 hover:bg-neutral-700 transition-colors"
+            className="brutalist-btn px-2 py-1 text-xs font-medium border-2 border-neutral-200 shadow-[2px_2px_0px_#e5e7eb] active:translate-y-0.5 active:shadow-none motion-reduce:active:translate-y-0 bg-neutral-900 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200"
             title="Re-run enforcement now"
           >
-            Reapply now
+            REAPPLY
           </button>
           <AutostartToggle />
         </span>
       </footer>
 
-      {/* Editor modal */}
+      {/* ── Editor modal ────────────────────────────────────────────────── */}
       {showEditor && (
         <PresetEditor
           monitors={monitors}
           editPreset={editingPreset}
+          defaultMonitorId={createForMonitorId}
           onClose={handleEditorClose}
           onSaved={handleEditorSaved}
         />

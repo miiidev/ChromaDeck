@@ -7,7 +7,8 @@ import { open } from "@tauri-apps/plugin-dialog";
 
 interface Props {
   monitors: Monitor[];
-  editPreset: Preset | null; // null = create new, non-null = editing
+  editPreset: Preset | null;
+  defaultMonitorId?: string | null;
   onClose: () => void;
   onSaved: () => void;
 }
@@ -23,7 +24,7 @@ const DEFAULT_INPUT: PresetInput = {
   hue_deg: 0,
 };
 
-export default function PresetEditor({ monitors, editPreset, onClose, onSaved }: Props) {
+export default function PresetEditor({ monitors, editPreset, defaultMonitorId, onClose, onSaved }: Props) {
   const isEditing = editPreset !== null;
   const [form, setForm] = useState<PresetInput>(DEFAULT_INPUT);
   const [errors, setErrors] = useState<ValidationErrors>({});
@@ -52,15 +53,18 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
     } else {
       setForm(DEFAULT_INPUT);
       setIccStatus(null);
-      // Pre-select first connected monitor
-      const firstConnected = monitors.find((m) => m.connected);
-      if (firstConnected) {
-        setForm((prev) => ({ ...prev, edid_id: firstConnected.edid_id }));
+      // Pre-select defaultMonitorId if provided, else first connected monitor
+      const targetId = defaultMonitorId || "";
+      const target = targetId
+        ? monitors.find((m) => m.edid_id === targetId)
+        : monitors.find((m) => m.connected);
+      if (target) {
+        setForm((prev) => ({ ...prev, edid_id: target.edid_id }));
       }
     }
     setErrors({});
     setIccImporting(false);
-  }, [editPreset, monitors]);
+  }, [editPreset, monitors]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Probe NVAPI vibrance/hue support when monitor selection changes
   useEffect(() => {
@@ -84,7 +88,6 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
         filters: [{ name: "ICC profiles", extensions: ["icc", "icm"] }],
       });
       if (!selected) {
-        // User cancelled — reset importing state, no error
         setIccImporting(false);
         return;
       }
@@ -118,7 +121,6 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
         gamma: state.gamma,
         vibrance: state.vibrance,
         hue_deg: state.hue_deg,
-        // rgb_gains intentionally untouched
       }));
     } catch (err) {
       setErrors((prev) => ({ ...prev, nvcp: `NVCP capture failed: ${err}` }));
@@ -151,7 +153,6 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
 
   const updateField = <K extends keyof PresetInput>(key: K, value: PresetInput[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
-    // Clear error on change
     if (errors[key as keyof ValidationErrors]) {
       setErrors((prev) => {
         const { [key as keyof ValidationErrors]: _, ...rest } = prev;
@@ -163,18 +164,18 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
   const connectedMonitors = monitors.filter((m) => m.connected);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="w-full max-w-lg mx-4 rounded-xl border border-neutral-700 bg-neutral-900 shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-950/80">
+      <div className="w-full max-w-lg mx-4 border-2 border-neutral-200 bg-neutral-900 shadow-[6px_6px_0px_#a3e635] motion-reduce:shadow-[3px_3px_0px_#a3e635]">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-800">
+        <div className="flex items-center justify-between px-6 py-4 border-b-2 border-neutral-200">
           <h2 className="text-base font-semibold text-neutral-200">
-            {isEditing ? `Edit: ${editPreset?.name}` : "Create Preset"}
+            {isEditing ? `EDIT: ${editPreset?.name}` : "CREATE PRESET"}
           </h2>
           <button
             onClick={onClose}
-            className="p-1 rounded-md text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800 transition-colors"
+            className="brutalist-btn p-1.5 border-2 border-neutral-200 bg-neutral-800 text-neutral-500 hover:bg-neutral-700 hover:text-neutral-200"
           >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
@@ -184,14 +185,16 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
         <form onSubmit={handleSubmit} className="px-6 py-5 space-y-5">
           {/* Name */}
           <div>
-            <label className="block text-xs font-medium text-neutral-400 mb-1.5">Name</label>
+            <label className="block text-[10px] font-medium text-neutral-500 uppercase tracking-widest mb-1.5">
+              Name
+            </label>
             <input
               type="text"
               value={form.name}
               onChange={(e) => updateField("name", e.target.value)}
               placeholder="My color preset"
-              className={`w-full px-3 py-2 text-sm rounded-lg border bg-neutral-800 text-neutral-200 placeholder-neutral-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-colors ${
-                errors.name ? "border-red-500/50" : "border-neutral-700"
+              className={`w-full px-3 py-2 text-sm border-2 bg-neutral-800 text-neutral-200 placeholder-neutral-600 focus-visible:outline-2 focus-visible:outline-lime-400 focus-visible:outline-offset-2 ${
+                errors.name ? "border-red-400" : "border-neutral-200"
               }`}
             />
             {errors.name && <p className="mt-1 text-xs text-red-400">{errors.name}</p>}
@@ -199,16 +202,18 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
 
           {/* Monitor select + NVCP capture */}
           <div>
-            <label className="block text-xs font-medium text-neutral-400 mb-1.5">Monitor</label>
+            <label className="block text-[10px] font-medium text-neutral-500 uppercase tracking-widest mb-1.5">
+              Monitor
+            </label>
             <div className="flex items-center gap-2">
               <select
                 value={form.edid_id}
                 onChange={(e) => updateField("edid_id", e.target.value)}
-                className={`flex-1 px-3 py-2 text-sm rounded-lg border bg-neutral-800 text-neutral-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-colors ${
-                  errors.name && !form.edid_id ? "border-red-500/50" : "border-neutral-700"
+                className={`flex-1 px-3 py-2 text-sm border-2 bg-neutral-800 text-neutral-200 focus-visible:outline-2 focus-visible:outline-lime-400 focus-visible:outline-offset-2 ${
+                  errors.name && !form.edid_id ? "border-red-400" : "border-neutral-200"
                 }`}
               >
-                <option value="">— Select monitor —</option>
+                <option value="">— SELECT MONITOR —</option>
                 {connectedMonitors.map((m) => (
                   <option key={m.edid_id} value={m.edid_id}>
                     {m.alias || m.model || m.device_name} {m.serial ? `(${m.serial})` : ""}
@@ -219,9 +224,9 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
                 type="button"
                 onClick={handleCaptureNvcp}
                 disabled={!form.edid_id || nvcpImporting}
-                className="shrink-0 px-3 py-2 text-xs font-medium rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 border border-neutral-700 transition-colors disabled:opacity-50"
+                className="brutalist-btn shrink-0 px-3 py-2 text-xs font-medium border-2 border-neutral-200 shadow-[2px_2px_0px_#e5e7eb] active:translate-y-0.5 active:shadow-none motion-reduce:active:translate-y-0 bg-neutral-800 text-neutral-300 hover:bg-neutral-700 disabled:opacity-50"
               >
-                {nvcpImporting ? "Importing…" : "Import NVCP state"}
+                {nvcpImporting ? "IMPORTING…" : "IMPORT NVCP"}
               </button>
             </div>
             {errors.nvcp && <p className="mt-1 text-xs text-red-400">{errors.nvcp}</p>}
@@ -232,17 +237,17 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
 
           {/* ICC file picker */}
           <div>
-            <label className="block text-xs font-medium text-neutral-400 mb-1.5">
-              ICC Profile <span className="text-neutral-600 font-normal">(optional)</span>
+            <label className="block text-[10px] font-medium text-neutral-500 uppercase tracking-widest mb-1.5">
+              ICC Profile <span className="text-neutral-600 font-normal normal-case">(optional)</span>
             </label>
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={handleBrowseIcc}
                 disabled={iccImporting}
-                className="px-3 py-2 text-xs font-medium rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 border border-neutral-700 transition-colors disabled:opacity-50"
+                className="brutalist-btn px-3 py-2 text-xs font-medium border-2 border-neutral-200 shadow-[2px_2px_0px_#e5e7eb] active:translate-y-0.5 active:shadow-none motion-reduce:active:translate-y-0 bg-neutral-800 text-neutral-300 hover:bg-neutral-700 disabled:opacity-50"
               >
-                {iccImporting ? "Importing…" : "Browse…"}
+                {iccImporting ? "IMPORTING…" : "BROWSE…"}
               </button>
               {iccStatus ? (
                 <span className="text-xs text-emerald-400 truncate">{iccStatus.filename}</span>
@@ -256,21 +261,16 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
           {/* Gamma slider */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-medium text-neutral-400">Gamma</label>
+              <label className="text-[10px] font-medium text-neutral-500 uppercase tracking-widest">Gamma</label>
               <span className="text-xs text-neutral-500 font-mono">{form.gamma.toFixed(2)}</span>
             </div>
             <input
-              type="range"
-              min={1.0}
-              max={3.0}
-              step={0.05}
-              value={form.gamma}
+              type="range" min={1.0} max={3.0} step={0.05} value={form.gamma}
               onChange={(e) => updateField("gamma", parseFloat(e.target.value))}
-              className="w-full h-1.5 rounded-lg appearance-none cursor-pointer bg-neutral-700 accent-indigo-500"
             />
             <div className="flex justify-between text-xs text-neutral-600 mt-0.5">
-              <span>1.0 (neutral)</span>
-              <span>3.0</span>
+              <span className="font-mono">1.0</span>
+              <span className="font-mono">3.0</span>
             </div>
             {errors.gamma && <p className="mt-1 text-xs text-red-400">{errors.gamma}</p>}
           </div>
@@ -278,20 +278,17 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
           {/* Brightness slider */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-medium text-neutral-400">Brightness</label>
+              <label className="text-[10px] font-medium text-neutral-500 uppercase tracking-widest">Brightness</label>
               <span className="text-xs text-neutral-500 font-mono">{form.brightness.toFixed(0)}</span>
             </div>
             <input
-              type="range"
-              min={0}
-              max={100}
-              step={1}
-              value={form.brightness}
+              type="range" min={0} max={100} step={1} value={form.brightness}
               onChange={(e) => updateField("brightness", parseFloat(e.target.value))}
-              className="w-full h-1.5 rounded-lg appearance-none cursor-pointer bg-neutral-700 accent-indigo-500"
             />
             <div className="flex justify-between text-xs text-neutral-600 mt-0.5">
-              <span>0</span><span>50 (neutral)</span><span>100</span>
+              <span className="font-mono">0</span>
+              <span className="font-mono">50</span>
+              <span className="font-mono">100</span>
             </div>
             {errors.brightness && <p className="mt-1 text-xs text-red-400">{errors.brightness}</p>}
           </div>
@@ -299,48 +296,42 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
           {/* Contrast slider */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-medium text-neutral-400">Contrast</label>
+              <label className="text-[10px] font-medium text-neutral-500 uppercase tracking-widest">Contrast</label>
               <span className="text-xs text-neutral-500 font-mono">{form.contrast.toFixed(0)}</span>
             </div>
             <input
-              type="range"
-              min={0}
-              max={100}
-              step={1}
-              value={form.contrast}
+              type="range" min={0} max={100} step={1} value={form.contrast}
               onChange={(e) => updateField("contrast", parseFloat(e.target.value))}
-              className="w-full h-1.5 rounded-lg appearance-none cursor-pointer bg-neutral-700 accent-indigo-500"
             />
             <div className="flex justify-between text-xs text-neutral-600 mt-0.5">
-              <span>0</span><span>50 (neutral)</span><span>100</span>
+              <span className="font-mono">0</span>
+              <span className="font-mono">50</span>
+              <span className="font-mono">100</span>
             </div>
             {errors.contrast && <p className="mt-1 text-xs text-red-400">{errors.contrast}</p>}
           </div>
 
           {/* RGB gains */}
           <div>
-            <label className="block text-xs font-medium text-neutral-400 mb-2">RGB Gains <span className="text-neutral-600 font-normal">(1.0 = unchanged)</span></label>
+            <label className="block text-[10px] font-medium text-neutral-500 uppercase tracking-widest mb-2">
+              RGB Gains <span className="text-neutral-600 font-normal normal-case">(1.0 = neutral)</span>
+            </label>
             <div className="grid grid-cols-3 gap-3">
               {(["R", "G", "B"] as const).map((channel, idx) => (
                 <div key={channel}>
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs font-medium" style={{ color: channel === "R" ? "#f87171" : channel === "G" ? "#4ade80" : "#60a5fa" }}>
+                    <span className="text-xs font-mono" style={{ color: channel === "R" ? "#f87171" : channel === "G" ? "#4ade80" : "#60a5fa" }}>
                       {channel}
                     </span>
                     <span className="text-xs text-neutral-500 font-mono">{form.rgb_gains[idx].toFixed(1)}</span>
                   </div>
                   <input
-                    type="range"
-                    min={0}
-                    max={2}
-                    step={0.05}
-                    value={form.rgb_gains[idx]}
+                    type="range" min={0} max={2} step={0.05} value={form.rgb_gains[idx]}
                     onChange={(e) => {
                       const newGains = [...form.rgb_gains] as [number, number, number];
                       newGains[idx] = parseFloat(e.target.value);
                       updateField("rgb_gains", newGains);
                     }}
-                    className="w-full h-1.5 rounded-lg appearance-none cursor-pointer bg-neutral-700 accent-indigo-500"
                   />
                 </div>
               ))}
@@ -351,17 +342,18 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
           {/* Vibrance slider */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-medium text-neutral-400">Digital Vibrance</label>
+              <label className="text-[10px] font-medium text-neutral-500 uppercase tracking-widest">Digital Vibrance</label>
               <span className="text-xs text-neutral-500 font-mono">{form.vibrance.toFixed(0)}</span>
             </div>
             <input
               type="range" min={0} max={100} step={1} value={form.vibrance}
               disabled={nvSupported === false}
               onChange={(e) => updateField("vibrance", parseFloat(e.target.value))}
-              className="w-full h-1.5 rounded-lg appearance-none cursor-pointer bg-neutral-700 accent-indigo-500 disabled:opacity-40"
             />
             <div className="flex justify-between text-xs text-neutral-600 mt-0.5">
-              <span>0</span><span>50 (neutral)</span><span>100</span>
+              <span className="font-mono">0</span>
+              <span className="font-mono">50</span>
+              <span className="font-mono">100</span>
             </div>
             {errors.vibrance && <p className="mt-1 text-xs text-red-400">{errors.vibrance}</p>}
           </div>
@@ -369,17 +361,17 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
           {/* Hue slider */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-medium text-neutral-400">Hue</label>
+              <label className="text-[10px] font-medium text-neutral-500 uppercase tracking-widest">Hue</label>
               <span className="text-xs text-neutral-500 font-mono">{form.hue_deg.toFixed(0)}°</span>
             </div>
             <input
               type="range" min={0} max={359} step={1} value={form.hue_deg}
               disabled={nvSupported === false}
               onChange={(e) => updateField("hue_deg", parseFloat(e.target.value))}
-              className="w-full h-1.5 rounded-lg appearance-none cursor-pointer bg-neutral-700 accent-indigo-500 disabled:opacity-40"
             />
             <div className="flex justify-between text-xs text-neutral-600 mt-0.5">
-              <span>0 (neutral)</span><span>359</span>
+              <span className="font-mono">0</span>
+              <span className="font-mono">359</span>
             </div>
             {errors.hue_deg && <p className="mt-1 text-xs text-red-400">{errors.hue_deg}</p>}
             {nvSupported === false && (
@@ -388,9 +380,9 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
           </div>
 
           {/* Precedence hint */}
-          <div className="rounded-lg bg-indigo-950/30 border border-indigo-900/40 px-4 py-3">
-            <p className="text-xs text-indigo-300 leading-relaxed">
-              <strong>Apply precedence:</strong> ICC profile is applied first, then gamma and RGB
+          <div className="border-2 border-lime-400 px-4 py-3 bg-neutral-800">
+            <p className="text-xs text-lime-300 leading-relaxed">
+              <strong>APPLY PRECEDENCE:</strong> ICC profile is applied first, then gamma and RGB
               gains are overlaid on top. This means the gamma curve and RGB multipliers will adjust
               the image <em>after</em> the ICC profile has been installed.
             </p>
@@ -401,20 +393,20 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-sm font-medium rounded-lg text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800 transition-colors"
+              className="brutalist-btn px-4 py-2 text-sm font-medium border-2 border-neutral-200 bg-neutral-800 text-neutral-400 hover:bg-neutral-700 hover:text-neutral-200"
             >
-              Cancel
+              CANCEL
             </button>
             <button
               type="submit"
               disabled={saving}
-              className={`px-6 py-2 text-sm font-medium rounded-lg transition-colors ${
+              className={`brutalist-btn px-6 py-2 text-sm font-medium border-2 border-lime-400 shadow-[2px_2px_0px_#a3e635] active:translate-y-0.5 active:shadow-none motion-reduce:active:translate-y-0 ${
                 saving
-                  ? "bg-indigo-800 text-indigo-300 cursor-wait"
-                  : "bg-indigo-600 hover:bg-indigo-500 text-white"
+                  ? "bg-lime-800 text-lime-300 cursor-wait"
+                  : "bg-lime-400 text-black hover:bg-lime-300"
               }`}
             >
-              {saving ? "Saving…" : isEditing ? "Update" : "Create"}
+              {saving ? "SAVING…" : isEditing ? "UPDATE" : "CREATE"}
             </button>
           </div>
         </form>

@@ -24,10 +24,8 @@ export default function PresetCard({ preset, monitor, onEdit, onRefreshParent, i
       const result = await applyPreset(preset.id);
       setLastResult(result);
       if (result.error) {
-        // Auto-clear error after 6s
         setTimeout(() => setLastResult(null), 6000);
       } else {
-        // Auto-clear success after 3s
         setTimeout(() => setLastResult(null), 3000);
       }
     } catch (err) {
@@ -70,7 +68,7 @@ export default function PresetCard({ preset, monitor, onEdit, onRefreshParent, i
     if (!lastResult) return null;
     if (lastResult.error) {
       return (
-        <span className="text-xs text-red-400">
+        <span className="text-xs text-red-400 mt-1 block">
           Apply failed: {lastResult.error}
         </span>
       );
@@ -80,57 +78,62 @@ export default function PresetCard({ preset, monitor, onEdit, onRefreshParent, i
     if (lastResult.gamma_applied) parts.push("gamma applied");
     if (lastResult.vibrance_applied) parts.push("vibrance applied");
     return (
-      <span className="text-xs text-emerald-400">
+      <span className="text-xs text-emerald-400 mt-1 block">
         {parts.join(" + ") || "Applied"}
       </span>
     );
   };
 
   return (
-    <div className="flex items-center justify-between py-2 px-3 rounded-lg bg-neutral-800/40 hover:bg-neutral-800/60 transition-colors group">
-      {/* Preset info */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-neutral-200 truncate">
+    <div className="w-72 shrink-0 border-2 border-neutral-200 bg-neutral-900 shadow-[4px_4px_0px_#e5e7eb] motion-reduce:shadow-[2px_2px_0px_#e5e7eb]">
+      {/* Card body — stacked info */}
+      <div className="p-3 space-y-2">
+        {/* Name + badges row */}
+        <div className="flex items-start justify-between gap-2">
+          <span className="text-sm font-medium text-neutral-200 truncate leading-tight">
             {preset.name}
           </span>
-          {isPinned && (
-            <span className="text-[10px] font-medium text-indigo-300 bg-indigo-900/40 border border-indigo-800/50 rounded px-1.5 py-0.5">
-              Pinned
-            </span>
-          )}
-          {preset.icc_hash && (
-            <span className="text-xs text-neutral-500 truncate hidden sm:inline">
-              ICC{preset.icc_filename ? `: ${preset.icc_filename}` : ""}
-            </span>
-          )}
+          <div className="flex items-center gap-1 shrink-0">
+            {isPinned && (
+              <span className="text-[10px] font-medium text-lime-400 border border-lime-400 px-1.5 py-0.5 leading-none uppercase tracking-widest">
+                PINNED
+              </span>
+            )}
+            {preset.icc_hash && (
+              <span className="text-[10px] font-mono text-neutral-500 border border-neutral-600 px-1.5 py-0.5 leading-none truncate max-w-[72px]" title={preset.icc_filename}>
+                ICC
+              </span>
+            )}
+          </div>
         </div>
-        <div className="flex items-center gap-3 text-xs text-neutral-500 mt-0.5">
-          <span>γ {preset.gamma.toFixed(1)}</span>
-          <span>B {preset.brightness.toFixed(2)}</span>
-          <span>C {preset.contrast.toFixed(2)}</span>
-          <span className="font-mono">
-            RGB {preset.rgb_gains.map((v) => v.toFixed(1)).join("/")}
-          </span>
-          <span>V {preset.vibrance.toFixed(0)}</span>
-          <span>H {preset.hue_deg.toFixed(0)}°</span>
+
+        {/* Parameter row — mono numerals */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-neutral-500 font-mono">
+          <span>γ{preset.gamma.toFixed(1)}</span>
+          <span>B{preset.brightness.toFixed(0)}</span>
+          <span>C{preset.contrast.toFixed(0)}</span>
+          <span>RGB {preset.rgb_gains.map((v) => v.toFixed(1)).join("/")}</span>
+          <span>V{preset.vibrance.toFixed(0)}</span>
+          <span>H{preset.hue_deg.toFixed(0)}°</span>
         </div>
+
+        {/* Apply result feedback */}
         {getApplyResultDisplay()}
       </div>
 
-      {/* Actions */}
-      <div className="flex items-center gap-1 ml-4 shrink-0">
+      {/* Action buttons row — wrap, brutalist */}
+      <div className="flex flex-wrap items-center gap-1 px-3 pb-3">
         {monitor.connected && (
           <button
             onClick={handleApply}
             disabled={applying}
-            className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+            className={`brutalist-btn px-3 py-1 text-xs font-medium border-2 border-lime-400 shadow-[2px_2px_0px_#a3e635] active:translate-y-0.5 active:shadow-none motion-reduce:active:translate-y-0 ${
               applying
-                ? "bg-indigo-800 text-indigo-300 cursor-wait"
-                : "bg-indigo-600 hover:bg-indigo-500 text-white"
+                ? "bg-lime-800 text-lime-300 cursor-wait"
+                : "bg-lime-400 text-black hover:bg-lime-300"
             }`}
           >
-            {applying ? "Applying…" : "Apply"}
+            {applying ? "APPLY…" : "APPLY"}
           </button>
         )}
 
@@ -141,52 +144,56 @@ export default function PresetCard({ preset, monitor, onEdit, onRefreshParent, i
               else await pinPreset(preset.edid_id, preset.id);
               onPinChange();
             } catch {
-              // silent (matches existing card error style)
+              // silent
             }
           }}
-          className="px-2 py-1 text-xs font-medium rounded-md text-neutral-400 hover:text-neutral-200 hover:bg-neutral-700 transition-colors"
+          className={`brutalist-btn px-2 py-1 text-xs font-medium border-2 border-neutral-200 shadow-[2px_2px_0px_#e5e7eb] active:translate-y-0.5 active:shadow-none motion-reduce:active:translate-y-0 ${
+            isPinned
+              ? "bg-amber-900/40 text-amber-300 hover:bg-amber-800/60"
+              : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
+          }`}
           title={isPinned ? "Stop enforcing this preset" : "Pin as enforced default"}
         >
-          {isPinned ? "Unpin" : "Pin"}
+          {isPinned ? "UNPIN" : "PIN"}
         </button>
 
         <button
           onClick={() => onEdit(preset)}
-          className="px-2 py-1 text-xs font-medium rounded-md text-neutral-400 hover:text-neutral-200 hover:bg-neutral-700 transition-colors"
+          className="brutalist-btn px-2 py-1 text-xs font-medium border-2 border-neutral-200 shadow-[2px_2px_0px_#e5e7eb] active:translate-y-0.5 active:shadow-none motion-reduce:active:translate-y-0 bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
         >
-          Edit
+          EDIT
         </button>
 
         <button
           onClick={handleDuplicate}
-          className="px-2 py-1 text-xs font-medium rounded-md text-neutral-500 hover:text-neutral-200 hover:bg-neutral-700 transition-colors"
+          className="brutalist-btn px-2 py-1 text-xs font-medium border-2 border-neutral-200 shadow-[2px_2px_0px_#e5e7eb] active:translate-y-0.5 active:shadow-none motion-reduce:active:translate-y-0 bg-neutral-800 text-neutral-500 hover:bg-neutral-700"
           title="Duplicate preset"
         >
-          Dup
+          DUP
         </button>
 
         {confirmDelete ? (
           <div className="flex items-center gap-1">
             <button
               onClick={handleDelete}
-              className="px-2 py-1 text-xs font-medium rounded-md bg-red-700 hover:bg-red-600 text-white transition-colors"
+              className="brutalist-btn px-2 py-1 text-xs font-medium border-2 border-red-400 shadow-[2px_2px_0px_#f87171] active:translate-y-0.5 active:shadow-none motion-reduce:active:translate-y-0 bg-red-800 text-red-200 hover:bg-red-700"
             >
-              {"Delete?"}
+              DELETE?
             </button>
             <button
               onClick={() => setConfirmDelete(false)}
-              className="px-2 py-1 text-xs font-medium rounded-md text-neutral-500 hover:text-neutral-300"
+              className="brutalist-btn px-2 py-1 text-xs font-medium border-2 border-neutral-200 bg-neutral-800 text-neutral-400 hover:bg-neutral-700 hover:text-neutral-200"
             >
-              Cancel
+              NO
             </button>
           </div>
         ) : (
           <button
             onClick={() => setConfirmDelete(true)}
-            className="px-2 py-1 text-xs font-medium rounded-md text-neutral-600 hover:text-red-400 hover:bg-neutral-700 transition-colors"
+            className="brutalist-btn px-2 py-1 text-xs font-medium border-2 border-neutral-200 shadow-[2px_2px_0px_#e5e7eb] active:translate-y-0.5 active:shadow-none motion-reduce:active:translate-y-0 bg-neutral-800 text-neutral-500 hover:bg-neutral-700 hover:text-red-400"
             title="Delete preset"
           >
-            ×
+            DEL
           </button>
         )}
       </div>

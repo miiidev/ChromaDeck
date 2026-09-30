@@ -1,1 +1,80 @@
 @import "tailwindcss";
+
+/* ── Slider custom styles ──────────────────────────────────────────────── */
+/* Square lime thumbs, bordered tracks — brutalist sliders */
+
+input[type="range"] {
+  appearance: none;
+  cursor: pointer;
+  height: 8px;
+  background: #262626;
+  border: 2px solid #e5e7eb;
+  border-radius: 0;
+  outline: none;
+}
+
+/* WebKit slider thumb */
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  background: #a3e635;
+  border: 2px solid #e5e7eb;
+  border-radius: 0;
+  cursor: pointer;
+  margin-top: -7px;
+}
+
+/* Firefox slider thumb */
+input[type="range"]::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  background: #a3e635;
+  border: 2px solid #e5e7eb;
+  border-radius: 0;
+  cursor: pointer;
+}
+
+/* Firefox track */
+input[type="range"]::-moz-range-track {
+  height: 8px;
+  background: #262626;
+  border: none;
+}
+
+/* Disabled WebKit thumb */
+input[type="range"]:disabled::-webkit-slider-thumb {
+  background: #737373;
+  border-color: #525252;
+  cursor: not-allowed;
+}
+
+/* Disabled Firefox thumb */
+input[type="range"]:disabled::-moz-range-thumb {
+  background: #737373;
+  border-color: #525252;
+  cursor: not-allowed;
+}
+
+/* Disabled state */
+input[type="range"]:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Carousel - hide scrollbar, keep scrollable ────────────────────────── */
+.carousel-scroll {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.carousel-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* ── Reduced motion: disable translate on active buttons ───────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .brutalist-btn:active {
+    transform: none !important;
+  }
+}
