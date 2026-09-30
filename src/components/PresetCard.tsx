@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { Monitor, Preset, ApplyResult } from "../lib/types";
 import { applyPreset, deletePreset, createPreset, pinPreset, unpinMonitor } from "../lib/tauri";
 
@@ -14,7 +14,17 @@ interface Props {
 export default function PresetCard({ preset, monitor, onEdit, onRefreshParent, isPinned, onPinChange }: Props) {
   const [applying, setApplying] = useState(false);
   const [lastResult, setLastResult] = useState<ApplyResult | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  useEffect(() => {
+    if (!showDeleteModal) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setShowDeleteModal(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [showDeleteModal]);
 
   const handleApply = async () => {
     if (!monitor.connected) return;
@@ -55,12 +65,15 @@ export default function PresetCard({ preset, monitor, onEdit, onRefreshParent, i
   };
 
   const handleDelete = async () => {
+    setDeleting(true);
     try {
       await deletePreset(preset.id);
-      setConfirmDelete(false);
+      setShowDeleteModal(false);
       onRefreshParent();
     } catch {
-      setConfirmDelete(false);
+      setShowDeleteModal(false);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -172,31 +185,56 @@ export default function PresetCard({ preset, monitor, onEdit, onRefreshParent, i
           DUP
         </button>
 
-        {confirmDelete ? (
-          <div className="flex items-center gap-1">
-            <button
-              onClick={handleDelete}
-              className="brutalist-btn px-2 py-1 text-xs font-medium border-2 border-red-400 shadow-[2px_2px_0px_#f87171] active:translate-y-0.5 active:shadow-none motion-reduce:active:translate-y-0 bg-red-800 text-red-200 hover:bg-red-700"
-            >
-              DELETE?
-            </button>
-            <button
-              onClick={() => setConfirmDelete(false)}
-              className="brutalist-btn px-2 py-1 text-xs font-medium border-2 border-neutral-200 bg-neutral-800 text-neutral-400 hover:bg-neutral-700 hover:text-neutral-200"
-            >
-              NO
-            </button>
-          </div>
-        ) : (
-          <button
-            onClick={() => setConfirmDelete(true)}
-            className="brutalist-btn px-2 py-1 text-xs font-medium border-2 border-neutral-200 shadow-[2px_2px_0px_#e5e7eb] active:translate-y-0.5 active:shadow-none motion-reduce:active:translate-y-0 bg-neutral-800 text-neutral-500 hover:bg-neutral-700 hover:text-red-400"
-            title="Delete preset"
-          >
-            DEL
-          </button>
-        )}
+        <button
+          onClick={() => setShowDeleteModal(true)}
+          className="brutalist-btn px-2 py-1 text-xs font-medium border-2 border-red-500 shadow-[2px_2px_0px_#ef4444] active:translate-y-0.5 active:shadow-none motion-reduce:active:translate-y-0 bg-neutral-800 text-red-400 hover:bg-red-500 hover:text-black"
+          title="Delete preset"
+        >
+          DEL
+        </button>
       </div>
+
+      {/* Delete confirmation popup */}
+      {showDeleteModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+          onClick={() => {
+            if (!deleting) setShowDeleteModal(false);
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Delete preset ${preset.name}`}
+            className="w-full max-w-xs border-2 border-neutral-200 bg-neutral-900 p-4 shadow-[6px_6px_0px_#e5e7eb]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-sm font-bold uppercase tracking-widest text-neutral-100">
+              Delete preset?
+            </h3>
+            <p className="mt-2 text-xs text-neutral-400 leading-relaxed">
+              Permanently delete <span className="font-medium text-neutral-200">“{preset.name}”</span>?
+              This cannot be undone.
+            </p>
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                onClick={() => setShowDeleteModal(false)}
+                disabled={deleting}
+                className="brutalist-btn px-3 py-1.5 text-xs font-medium border-2 border-neutral-200 bg-neutral-800 text-neutral-300 hover:bg-neutral-700 disabled:opacity-50"
+              >
+                CANCEL
+              </button>
+              <button
+                onClick={() => void handleDelete()}
+                disabled={deleting}
+                className="brutalist-btn px-3 py-1.5 text-xs font-medium border-2 border-red-500 shadow-[2px_2px_0px_#ef4444] active:translate-y-0.5 active:shadow-none motion-reduce:active:translate-y-0 bg-red-600 text-white hover:bg-red-500 disabled:opacity-50 disabled:cursor-wait"
+              >
+                {deleting ? "DELETING…" : "DELETE"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
