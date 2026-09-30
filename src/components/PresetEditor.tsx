@@ -260,14 +260,17 @@ export default function PresetEditor({ monitors, editPreset, defaultMonitorId, o
 
           {/* Gamma slider */}
           <div>
-            <div className="flex items-center justify-between mb-1.5">
+            <div className="mb-1.5">
               <label className="text-[10px] font-medium text-neutral-500 uppercase tracking-widest">Gamma</label>
-              <span className="text-xs text-neutral-500 font-mono">{form.gamma.toFixed(2)}</span>
             </div>
-            <input
-              type="range" min={1.0} max={3.0} step={0.05} value={form.gamma}
-              onChange={(e) => updateField("gamma", parseFloat(e.target.value))}
-            />
+            <div className="flex items-center gap-3">
+              <input
+                type="range" min={1.0} max={3.0} step={0.05} value={form.gamma}
+                onChange={(e) => updateField("gamma", parseFloat(e.target.value))}
+                className="min-w-0 flex-1"
+              />
+              <span className="w-12 shrink-0 text-right text-xs text-neutral-300 font-mono">{form.gamma.toFixed(2)}</span>
+            </div>
             <div className="flex justify-between text-xs text-neutral-600 mt-0.5">
               <span className="font-mono">1.0</span>
               <span className="font-mono">3.0</span>
@@ -277,14 +280,17 @@ export default function PresetEditor({ monitors, editPreset, defaultMonitorId, o
 
           {/* Brightness slider */}
           <div>
-            <div className="flex items-center justify-between mb-1.5">
+            <div className="mb-1.5">
               <label className="text-[10px] font-medium text-neutral-500 uppercase tracking-widest">Brightness</label>
-              <span className="text-xs text-neutral-500 font-mono">{form.brightness.toFixed(0)}</span>
             </div>
-            <input
-              type="range" min={0} max={100} step={1} value={form.brightness}
-              onChange={(e) => updateField("brightness", parseFloat(e.target.value))}
-            />
+            <div className="flex items-center gap-3">
+              <input
+                type="range" min={0} max={100} step={1} value={form.brightness}
+                onChange={(e) => updateField("brightness", parseFloat(e.target.value))}
+                className="min-w-0 flex-1"
+              />
+              <span className="w-12 shrink-0 text-right text-xs text-neutral-300 font-mono">{form.brightness.toFixed(0)}</span>
+            </div>
             <div className="flex justify-between text-xs text-neutral-600 mt-0.5">
               <span className="font-mono">0</span>
               <span className="font-mono">50</span>
@@ -295,14 +301,17 @@ export default function PresetEditor({ monitors, editPreset, defaultMonitorId, o
 
           {/* Contrast slider */}
           <div>
-            <div className="flex items-center justify-between mb-1.5">
+            <div className="mb-1.5">
               <label className="text-[10px] font-medium text-neutral-500 uppercase tracking-widest">Contrast</label>
-              <span className="text-xs text-neutral-500 font-mono">{form.contrast.toFixed(0)}</span>
             </div>
-            <input
-              type="range" min={0} max={100} step={1} value={form.contrast}
-              onChange={(e) => updateField("contrast", parseFloat(e.target.value))}
-            />
+            <div className="flex items-center gap-3">
+              <input
+                type="range" min={0} max={100} step={1} value={form.contrast}
+                onChange={(e) => updateField("contrast", parseFloat(e.target.value))}
+                className="min-w-0 flex-1"
+              />
+              <span className="w-12 shrink-0 text-right text-xs text-neutral-300 font-mono">{form.contrast.toFixed(0)}</span>
+            </div>
             <div className="flex justify-between text-xs text-neutral-600 mt-0.5">
               <span className="font-mono">0</span>
               <span className="font-mono">50</span>
@@ -319,20 +328,23 @@ export default function PresetEditor({ monitors, editPreset, defaultMonitorId, o
             <div className="grid grid-cols-3 gap-3">
               {(["R", "G", "B"] as const).map((channel, idx) => (
                 <div key={channel}>
-                  <div className="flex items-center justify-between mb-1">
+                  <div className="mb-1">
                     <span className="text-xs font-mono" style={{ color: channel === "R" ? "#f87171" : channel === "G" ? "#4ade80" : "#60a5fa" }}>
                       {channel}
                     </span>
-                    <span className="text-xs text-neutral-500 font-mono">{form.rgb_gains[idx].toFixed(1)}</span>
                   </div>
-                  <input
-                    type="range" min={0} max={2} step={0.05} value={form.rgb_gains[idx]}
-                    onChange={(e) => {
-                      const newGains = [...form.rgb_gains] as [number, number, number];
-                      newGains[idx] = parseFloat(e.target.value);
-                      updateField("rgb_gains", newGains);
-                    }}
-                  />
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="range" min={0} max={2} step={0.05} value={form.rgb_gains[idx]}
+                      onChange={(e) => {
+                        const newGains = [...form.rgb_gains] as [number, number, number];
+                        newGains[idx] = parseFloat(e.target.value);
+                        updateField("rgb_gains", newGains);
+                      }}
+                      className="min-w-0 flex-1"
+                    />
+                    <span className="w-10 shrink-0 text-right text-xs text-neutral-500 font-mono">{form.rgb_gains[idx].toFixed(1)}</span>
+                  </div>
                 </div>
               ))}
             </div>
@@ -341,15 +353,18 @@ export default function PresetEditor({ monitors, editPreset, defaultMonitorId, o
 
           {/* Vibrance slider */}
           <div>
-            <div className="flex items-center justify-between mb-1.5">
+            <div className="mb-1.5">
               <label className="text-[10px] font-medium text-neutral-500 uppercase tracking-widest">Digital Vibrance</label>
-              <span className="text-xs text-neutral-500 font-mono">{form.vibrance.toFixed(0)}</span>
             </div>
-            <input
-              type="range" min={0} max={100} step={1} value={form.vibrance}
-              disabled={nvSupported === false}
-              onChange={(e) => updateField("vibrance", parseFloat(e.target.value))}
-            />
+            <div className="flex items-center gap-3">
+              <input
+                type="range" min={0} max={100} step={1} value={form.vibrance}
+                disabled={nvSupported === false}
+                onChange={(e) => updateField("vibrance", parseFloat(e.target.value))}
+                className="min-w-0 flex-1"
+              />
+              <span className="w-12 shrink-0 text-right text-xs text-neutral-300 font-mono">{form.vibrance.toFixed(0)}</span>
+            </div>
             <div className="flex justify-between text-xs text-neutral-600 mt-0.5">
               <span className="font-mono">0</span>
               <span className="font-mono">50</span>
@@ -360,15 +375,18 @@ export default function PresetEditor({ monitors, editPreset, defaultMonitorId, o
 
           {/* Hue slider */}
           <div>
-            <div className="flex items-center justify-between mb-1.5">
+            <div className="mb-1.5">
               <label className="text-[10px] font-medium text-neutral-500 uppercase tracking-widest">Hue</label>
-              <span className="text-xs text-neutral-500 font-mono">{form.hue_deg.toFixed(0)}°</span>
             </div>
-            <input
-              type="range" min={0} max={359} step={1} value={form.hue_deg}
-              disabled={nvSupported === false}
-              onChange={(e) => updateField("hue_deg", parseFloat(e.target.value))}
-            />
+            <div className="flex items-center gap-3">
+              <input
+                type="range" min={0} max={359} step={1} value={form.hue_deg}
+                disabled={nvSupported === false}
+                onChange={(e) => updateField("hue_deg", parseFloat(e.target.value))}
+                className="min-w-0 flex-1"
+              />
+              <span className="w-12 shrink-0 text-right text-xs text-neutral-300 font-mono">{form.hue_deg.toFixed(0)}°</span>
+            </div>
             <div className="flex justify-between text-xs text-neutral-600 mt-0.5">
               <span className="font-mono">0</span>
               <span className="font-mono">359</span>
