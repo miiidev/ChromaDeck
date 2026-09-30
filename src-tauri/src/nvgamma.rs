@@ -33,7 +33,7 @@ pub fn internal_to_ui(v: f64) -> f64 {
 // with x = index/1023, per-channel float 0..1.
 //
 // The spec also uses gamma_exp (exponent) directly rather than g/100.
-// We receive gamma_exp already as the UI exponent (1.0–3.0).
+// We receive gamma_exp already as the UI exponent (0.3–2.8).
 
 /// Compute a single ramp value for channel index `i` (0..1023) given
 /// internal brightness, contrast, and gamma exponent.
@@ -41,7 +41,7 @@ pub fn nvcp_ramp_value(
     index: u16,
     brightness: f64, // internal: 80–120, 100 = neutral
     contrast: f64,   // internal: 80–120, 100 = neutral
-    gamma_exp: f64,  // gamma exponent (1.0–3.0)
+    gamma_exp: f64,  // gamma exponent (0.3–2.8)
 ) -> f32 {
     let x = index as f64 / 1023.0;
     let c = (contrast - 100.0) / 100.0;

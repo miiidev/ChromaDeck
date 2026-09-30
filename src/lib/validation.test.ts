@@ -26,8 +26,13 @@ describe("validatePreset", () => {
     expect(errors.gamma).toBeUndefined();
   });
 
-  it("rejects gamma boundary low (0.9)", () => {
-    const errors = validatePreset({ gamma: 0.9 });
+  it("rejects gamma boundary low (0.2)", () => {
+    const errors = validatePreset({ gamma: 0.2 });
+    expect(errors.gamma).toBeDefined();
+  });
+
+  it("rejects gamma boundary high (2.9)", () => {
+    const errors = validatePreset({ gamma: 2.9 });
     expect(errors.gamma).toBeDefined();
   });
 
@@ -36,8 +41,8 @@ describe("validatePreset", () => {
     expect(errors.gamma).toBeUndefined();
   });
 
-  it("accepts gamma boundary high (3.0)", () => {
-    const errors = validatePreset({ gamma: 3.0 });
+  it("accepts gamma boundary high (2.8)", () => {
+    const errors = validatePreset({ gamma: 2.8 });
     expect(errors.gamma).toBeUndefined();
   });
 

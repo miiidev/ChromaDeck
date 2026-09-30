@@ -24,8 +24,8 @@ export function validatePreset(input: Partial<PresetInput>): ValidationErrors {
   }
 
   if (input.gamma !== undefined) {
-    if (typeof input.gamma !== "number" || input.gamma < 1.0 || input.gamma > 3.0) {
-      errors.gamma = "Gamma must be between 1.0 and 3.0";
+    if (typeof input.gamma !== "number" || input.gamma < 0.3 || input.gamma > 2.8) {
+      errors.gamma = "Gamma must be between 0.3 and 2.8";
     }
   }
 

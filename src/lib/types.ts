@@ -25,7 +25,7 @@ export interface Preset {
   brightness: number;   // 0–100 UI, 50 neutral
   contrast: number;     // 0–100 UI, 50 neutral
   rgb_gains: [number, number, number]; // per-channel multiplier
-  gamma: number;        // 1.0 – 3.0
+  gamma: number;        // 0.3 – 2.8 (NVCP range, 1.0 neutral)
   vibrance: number;     // 0 – 100, 50 neutral
   hue_deg: number;      // 0 – 359 degrees
 }

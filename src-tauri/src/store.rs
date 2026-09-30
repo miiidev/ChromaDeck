@@ -239,9 +239,9 @@ impl Store {
                 "contrast must be in 0.0..=100.0".into(),
             ));
         }
-        if !(1.0..=3.0).contains(&input.gamma) {
+        if !(0.3..=2.8).contains(&input.gamma) {
             return Err(StoreError::InvalidInput(
-                "gamma must be in 1.0..=3.0".into(),
+                "gamma must be in 0.3..=2.8".into(),
             ));
         }
         if !(0.0..=100.0).contains(&input.vibrance) {
@@ -318,9 +318,9 @@ impl Store {
                 "contrast must be in 0.0..=100.0".into(),
             ));
         }
-        if !(1.0..=3.0).contains(&input.gamma) {
+        if !(0.3..=2.8).contains(&input.gamma) {
             return Err(StoreError::InvalidInput(
-                "gamma must be in 1.0..=3.0".into(),
+                "gamma must be in 0.3..=2.8".into(),
             ));
         }
         if !(0.0..=100.0).contains(&input.vibrance) {
@@ -700,7 +700,7 @@ mod tests {
     fn create_preset_rejects_bad_gamma() {
         let mut store = test_store();
         let mut input = minimal_input();
-        input.gamma = 0.5;
+        input.gamma = 0.2;
         let err = store.create_preset(input).unwrap_err();
         assert!(err.to_string().contains("gamma"));
     }

@@ -265,15 +265,16 @@ export default function PresetEditor({ monitors, editPreset, defaultMonitorId, o
             </div>
             <div className="flex items-center gap-3">
               <input
-                type="range" min={1.0} max={3.0} step={0.05} value={form.gamma}
+                type="range" min={0.3} max={2.8} step={0.05} value={form.gamma}
                 onChange={(e) => updateField("gamma", parseFloat(e.target.value))}
                 className="min-w-0 flex-1"
               />
               <span className="w-12 shrink-0 text-right text-xs text-neutral-300 font-mono">{form.gamma.toFixed(2)}</span>
             </div>
             <div className="flex justify-between text-xs text-neutral-600 mt-0.5">
-              <span className="font-mono">1.0</span>
-              <span className="font-mono">3.0</span>
+              <span className="font-mono">0.3</span>
+              <span className="font-mono">1.0 (neutral)</span>
+              <span className="font-mono">2.8</span>
             </div>
             {errors.gamma && <p className="mt-1 text-xs text-red-400">{errors.gamma}</p>}
           </div>
