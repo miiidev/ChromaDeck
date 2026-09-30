@@ -106,6 +106,38 @@
         assert_eq!(parse_edid_manufacturer(&buf), "ABC");
     }
 
+```rust
+/// Take the base 128-byte EDID block from a registry blob.
+///
+/// Hardware root cause, second half (2026-09-30): real blobs are usually
+/// 256 bytes (base + extension); a direct `try_into()` to `[u8; 128]`
+/// rejects them by length, silently dropping EDIDs that parsed fine.
+/// The base block (bytes 0–127) is what every parser consumes.
+fn base_block(blob: Vec<u8>) -> Option<[u8; 128]> {
+    blob.get(..128)?.try_into().ok().copied()
+}
+```
+
+```rust
+    #[test]
+    fn base_block_accepts_256_byte_blob() {
+        // Base block carries a serial descriptor; extension half is zeros.
+        let mut blob = vec![0u8; 256];
+        blob[0..8].copy_from_slice(&[0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00]);
+        let off = 0x48;
+        blob[off] = 0x00;
+        blob[off + 1] = 0x00;
+        blob[off + 2] = 0x00;
+        blob[off + 3] = 0xFF;
+        blob[off + 4..off + 4 + 6].copy_from_slice(b"ABC123");
+        blob[off + 4 + 6] = 0x0A;
+        let base = base_block(blob).expect("first 128 bytes must parse");
+        assert_eq!(parse_edid_serial(&base).as_deref(), Some("ABC123"));
+    }
+```
+
+(Also update Step 4 counts: existing 7 EDID tests + 7 new = 14 in monitor.rs.)
+
     #[test]
     fn identify_constructs_name_without_descriptor() {
         let mut buf = Box::new([0u8; 128]);
@@ -251,7 +283,7 @@ fn enum_gdi_monitors() -> Vec<Monitor> {
             }
             let device_string = wide_to_string(&child.DeviceString);
             let edid: Option<[u8; 128]> = read_edid_for_monitor(&instance_id)
-                .and_then(|b| b.as_slice().try_into().ok().copied());
+                .and_then(base_block);
             let (edid_id, model, serial) =
                 identify_monitor(edid.as_ref(), &instance_id, &device_string);
             monitors.push(Monitor {
@@ -302,7 +334,7 @@ fn read_edid_for_monitor(device_id: &str) -> Option<Vec<u8>> {
 - [ ] **Step 4: Run tests**
 
 Run: `cargo test 2>&1 | Select-String "test result|FAILED"` (from `src-tauri/`)
-Expected: all pass (existing 7 EDID tests + 6 new = 13 in monitor.rs; full suite green). Then `cargo check 2>&1 | Select-String "^error|^warning"` — expect clean (no dead code: every kept helper is used; `read_edid_registry` is deleted, not left orphaned).
+Expected: all pass (existing 7 EDID tests + 7 new = 14 in monitor.rs; full suite green). Then `cargo check 2>&1 | Select-String "^error|^warning"` — expect clean (no dead code: every kept helper is used; `read_edid_registry` is deleted, not left orphaned).
 
 - [ ] **Step 5: Commit**
 
