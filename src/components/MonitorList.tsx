@@ -303,6 +303,13 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
               <MonitorResetButton edidId={selectedMonitor.edid_id} onPinChange={onPinChange} />
             </div>
             <div className="flex items-center gap-2">
+              <button
+                onClick={() => onCreateNew(selectedMonitor.edid_id)}
+                className="brutalist-btn px-3 py-1 text-xs font-medium border-2 border-lime-400 shadow-[2px_2px_0px_#a3e635] active:translate-y-0.5 active:shadow-none motion-reduce:active:translate-y-0 bg-lime-400 text-black hover:bg-lime-300"
+                title="Create a preset for this monitor"
+              >
+                + CREATE
+              </button>
               {selectedMonitor.connected ? (
                 <span className="inline-flex items-center gap-1.5 text-[10px] font-medium text-emerald-400 border-2 border-emerald-400 px-2 py-0.5 uppercase tracking-widest">
                   <span className="w-1.5 h-1.5 bg-emerald-400" />
@@ -326,7 +333,7 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
 
       {/* ── Preset carousel ─────────────────────────────────────────────── */}
       {selectedPresets.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-12 text-center space-y-3 border-2 border-dashed border-neutral-700 bg-neutral-900/50">
+        <div className="flex flex-col items-center justify-center flex-1 min-h-64 py-12 text-center space-y-3 border-2 border-dashed border-neutral-700 bg-neutral-900/50">
           <p className="text-xs text-neutral-500">No presets for this monitor</p>
           <button
             onClick={() => onCreateNew(selectedId)}
@@ -373,16 +380,6 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
           </div>
         </div>
       )}
-
-      {/* ── Create button (always visible) ──────────────────────────────── */}
-      <div className="flex justify-center pt-1">
-        <button
-          onClick={() => onCreateNew(selectedId)}
-          className="brutalist-btn px-5 py-2 text-sm font-medium border-2 border-lime-400 shadow-[2px_2px_0px_#a3e635] active:translate-y-0.5 active:shadow-none motion-reduce:active:translate-y-0 bg-lime-400 text-black hover:bg-lime-300"
-        >
-          + CREATE PRESET
-        </button>
-      </div>
     </section>
   );
 }
