@@ -1,4 +1,10 @@
-import { useState, useEffect, type FormEvent } from "react";
+import { useState, useEffect, type FormEvent, type CSSProperties } from "react";
+
+/** Fill-track style for range inputs: `--fill` percent + `--fill-color`. */
+function trackFill(value: number, min: number, max: number, color = "#a3e635"): CSSProperties {
+  const pct = Math.min(100, Math.max(0, ((value - min) / (max - min)) * 100));
+  return { "--fill": `${pct}%`, "--fill-color": color } as CSSProperties;
+}
 import type { Monitor, Preset, PresetInput } from "../lib/types";
 import { createPreset, updatePreset, importIcc } from "../lib/tauri";
 import { vibranceSupported, captureNvcp } from "../lib/tauri";
@@ -268,6 +274,7 @@ export default function PresetEditor({ monitors, editPreset, defaultMonitorId, o
                 type="range" min={0.3} max={2.8} step={0.05} value={form.gamma}
                 onChange={(e) => updateField("gamma", parseFloat(e.target.value))}
                 className="min-w-0 flex-1"
+                style={trackFill(form.gamma, 0.3, 2.8)}
               />
               <span className="w-12 shrink-0 text-right text-xs text-neutral-300 font-mono">{form.gamma.toFixed(2)}</span>
             </div>
@@ -289,6 +296,7 @@ export default function PresetEditor({ monitors, editPreset, defaultMonitorId, o
                 type="range" min={0} max={100} step={1} value={form.brightness}
                 onChange={(e) => updateField("brightness", parseFloat(e.target.value))}
                 className="min-w-0 flex-1"
+                style={trackFill(form.brightness, 0, 100)}
               />
               <span className="w-12 shrink-0 text-right text-xs text-neutral-300 font-mono">{form.brightness.toFixed(0)}</span>
             </div>
@@ -310,6 +318,7 @@ export default function PresetEditor({ monitors, editPreset, defaultMonitorId, o
                 type="range" min={0} max={100} step={1} value={form.contrast}
                 onChange={(e) => updateField("contrast", parseFloat(e.target.value))}
                 className="min-w-0 flex-1"
+                style={trackFill(form.contrast, 0, 100)}
               />
               <span className="w-12 shrink-0 text-right text-xs text-neutral-300 font-mono">{form.contrast.toFixed(0)}</span>
             </div>
@@ -343,6 +352,7 @@ export default function PresetEditor({ monitors, editPreset, defaultMonitorId, o
                         updateField("rgb_gains", newGains);
                       }}
                       className="min-w-0 flex-1"
+                      style={trackFill(form.rgb_gains[idx], 0, 2, ["#f87171", "#4ade80", "#60a5fa"][idx])}
                     />
                     <span className="w-10 shrink-0 text-right text-xs text-neutral-500 font-mono">{form.rgb_gains[idx].toFixed(1)}</span>
                   </div>
@@ -363,6 +373,7 @@ export default function PresetEditor({ monitors, editPreset, defaultMonitorId, o
                 disabled={nvSupported === false}
                 onChange={(e) => updateField("vibrance", parseFloat(e.target.value))}
                 className="min-w-0 flex-1"
+                style={trackFill(form.vibrance, 0, 100)}
               />
               <span className="w-12 shrink-0 text-right text-xs text-neutral-300 font-mono">{form.vibrance.toFixed(0)}</span>
             </div>
@@ -385,6 +396,7 @@ export default function PresetEditor({ monitors, editPreset, defaultMonitorId, o
                 disabled={nvSupported === false}
                 onChange={(e) => updateField("hue_deg", parseFloat(e.target.value))}
                 className="min-w-0 flex-1"
+                style={trackFill(form.hue_deg, 0, 359)}
               />
               <span className="w-12 shrink-0 text-right text-xs text-neutral-300 font-mono">{form.hue_deg.toFixed(0)}°</span>
             </div>

@@ -7,10 +7,20 @@ input[type="range"] {
   appearance: none;
   cursor: pointer;
   height: 8px;
-  background: #262626;
+  background: linear-gradient(
+    to right,
+    var(--fill-color, #a3e635) var(--fill, 50%),
+    #262626 var(--fill, 50%)
+  );
   border: 2px solid #e5e7eb;
   border-radius: 0;
   outline: none;
+}
+
+/* Focus ring (keyboard users) */
+input[type="range"]:focus-visible {
+  outline: 2px solid #a3e635;
+  outline-offset: 3px;
 }
 
 /* WebKit slider thumb */
@@ -19,21 +29,44 @@ input[type="range"]::-webkit-slider-thumb {
   appearance: none;
   width: 18px;
   height: 18px;
-  background: #a3e635;
+  background: var(--fill-color, #a3e635);
   border: 2px solid #e5e7eb;
   border-radius: 0;
   cursor: pointer;
   margin-top: -7px;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+/* Hover + focus glow on thumb */
+input[type="range"]:hover::-webkit-slider-thumb,
+input[type="range"]:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px rgba(163, 230, 53, 0.35);
+}
+input[type="range"]:active::-webkit-slider-thumb {
+  transform: scale(1.15);
 }
 
 /* Firefox slider thumb */
 input[type="range"]::-moz-range-thumb {
   width: 18px;
   height: 18px;
-  background: #a3e635;
+  background: var(--fill-color, #a3e635);
   border: 2px solid #e5e7eb;
   border-radius: 0;
   cursor: pointer;
+  transition: box-shadow 0.15s ease;
+}
+
+/* Firefox fill track */
+input[type="range"]::-moz-range-progress {
+  background: var(--fill-color, #a3e635);
+  height: 8px;
+}
+
+/* Hover + focus glow on Firefox thumb */
+input[type="range"]:hover::-moz-range-thumb,
+input[type="range"]:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 3px rgba(163, 230, 53, 0.35);
 }
 
 /* Firefox track */
