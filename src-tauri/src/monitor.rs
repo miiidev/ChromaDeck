@@ -1,22 +1,19 @@
-// ── EDID-based monitor enumeration ──────────────────────────────────────────
-// Windows-only. Uses SetupAPI + registry for canonical EDID reads, falling
-// back to EnumDisplayDevices when EDID data is unavailable (virtual displays).
+// ── EDID-based monitor enumeration via adapter→monitor tree walk ──────────
+// Windows-only. Each adapter's children are physical monitors with real names
+// from EDID. Pure identify_monitor() resolves identity without Win32 calls.
 
 use serde::Serialize;
+use std::ffi::OsStr;
 use std::ffi::OsString;
 use std::io;
+use std::os::windows::ffi::OsStrExt;
 use std::os::windows::ffi::OsStringExt;
 use winreg::enums::*;
 use winreg::RegKey;
 use winreg::types::FromRegValue;
 use winreg::RegValue;
-use windows::core::GUID;
-use windows::Win32::Devices::DeviceAndDriverInstallation::*;
+use windows::core::PCWSTR;
 use windows::Win32::Graphics::Gdi::*;
-
-/// GUID for the monitor device interface class.
-const GUID_DEVINTERFACE_MONITOR: GUID =
-    GUID::from_u128(0xE6F07B5F_EE97_4a90_A076_33F57BF4EAA7);
 
 /// A monitor identified by its stable EDID serial / product string.
 #[derive(Debug, Clone, Serialize)]
@@ -82,21 +79,79 @@ pub fn parse_edid_model_name(edid: &[u8; 128]) -> Option<String> {
     None
 }
 
-// ── Monitor enumeration ────────────────────────────────────────────────────
+// ── Monitor enumeration via adapter→monitor tree walk ─────────────────────
 
-/// Enumerate all connected monitors.  Primary path uses SetupAPI + registry
-/// to get a canonical EDID; falls back to `EnumDisplayDevicesW` when the
-/// EDID blob is missing (e.g. virtual / remote displays).
+/// Enumerate all connected monitors.  Adapter→monitor tree walk: each
+/// adapter's child entries are physical monitors with real names.
+/// Adapters without children are skipped, so GPU rows never appear.
 pub fn list_monitors() -> Vec<Monitor> {
-    // ── Attempt 1: SetupAPI + registry EDID ───────────────────────────
-    if let Ok(monitors) = enum_setupapi_monitors() {
-        if !monitors.is_empty() {
-            return monitors;
+    enum_gdi_monitors()
+}
+
+fn enum_gdi_monitors() -> Vec<Monitor> {
+    let mut monitors = Vec::new();
+    for adapter_index in 0.. {
+        let mut adapter = DISPLAY_DEVICEW::default();
+        adapter.cb = std::mem::size_of::<DISPLAY_DEVICEW>() as u32;
+        // SAFETY: EnumDisplayDevicesW with NULL enumerates adapters.
+        let ok = unsafe { EnumDisplayDevicesW(None, adapter_index, &mut adapter, 0) };
+        if !ok.as_bool() {
+            break;
+        }
+        let adapter_name = wide_to_string(&adapter.DeviceName);
+        if adapter_name.is_empty() {
+            continue;
+        }
+        // Ruling (plan refines spec §1 wording): attachment is an
+        // adapter-output property, so the adapter flag alone governs
+        // `connected`. Child entries do not reliably carry
+        // ATTACHED_TO_DESKTOP (commonly 0); requiring it would misreport
+        // live monitors as disconnected.
+        let adapter_attached = (adapter.StateFlags & DISPLAY_DEVICE_ATTACHED_TO_DESKTOP)
+            == DISPLAY_DEVICE_ATTACHED_TO_DESKTOP;
+        let wide_adapter: Vec<u16> = OsStr::new(&adapter_name)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let mut child_index = 0;
+        loop {
+            let mut child = DISPLAY_DEVICEW::default();
+            child.cb = std::mem::size_of::<DISPLAY_DEVICEW>() as u32;
+            // SAFETY: child enumeration for a valid adapter name string.
+            let ok = unsafe {
+                EnumDisplayDevicesW(
+                    PCWSTR::from_raw(wide_adapter.as_ptr()),
+                    child_index,
+                    &mut child,
+                    0,
+                )
+            };
+            if !ok.as_bool() {
+                break;
+            }
+            child_index += 1;
+            let instance_id = wide_to_string(&child.DeviceID);
+            if instance_id.is_empty() {
+                continue;
+            }
+            let device_string = wide_to_string(&child.DeviceString);
+            let edid: Option<[u8; 128]> = read_edid_registry(&instance_id)
+                .and_then(|b| {
+                    let arr: &[u8; 128] = b.as_slice().try_into().ok()?;
+                    Some(*arr)
+                });
+            let (edid_id, model, serial) =
+                identify_monitor(edid.as_ref(), &instance_id, &device_string);
+            monitors.push(Monitor {
+                edid_id,
+                model,
+                serial,
+                connected: adapter_attached,
+                device_name: adapter_name.clone(),
+            });
         }
     }
-
-    // ── Attempt 2: fallback to EnumDisplayDevices ─────────────────────
-    enum_fallback_displays()
+    monitors
 }
 
 // ── Helper: wide-char array to String ─────────────────────────────────────
@@ -108,159 +163,43 @@ fn wide_to_string(buf: &[u16]) -> String {
         .to_string()
 }
 
-// ── SetupAPI approach (primary) ───────────────────────────────────────────
+// ── Pure monitor identity resolver ────────────────────────────────────────
 
-fn enum_setupapi_monitors() -> Result<Vec<Monitor>, windows::core::Error> {
-    let mut monitors = Vec::new();
-
-    // SAFETY: SetupDiGetClassDevsW enumerates present monitor devices.
-    let dev_info_set = unsafe {
-        SetupDiGetClassDevsW(
-            Some(&GUID_DEVINTERFACE_MONITOR as *const GUID),
-            None,
-            None,
-            DIGCF_PRESENT | DIGCF_DEVICEINTERFACE,
-        )?
-    };
-
-    // Iterator over device info elements.
-    let mut dev_index: u32 = 0;
-    loop {
-        let mut dev_info_data = SP_DEVINFO_DATA::default();
-        dev_info_data.cbSize = std::mem::size_of::<SP_DEVINFO_DATA>() as u32;
-
-        // SAFETY: SetupDiEnumDeviceInfo iterates the device set.
-        let ok = unsafe {
-            SetupDiEnumDeviceInfo(dev_info_set, dev_index, &mut dev_info_data)
-        };
-        if ok.is_err() {
-            break; // no more devices
-        }
-        dev_index += 1;
-
-        // Get device instance ID — this gives the path into the registry.
-        let instance_id = match get_device_instance_id(dev_info_set, &dev_info_data) {
-            Some(id) => id,
-            None => continue,
-        };
-
-        // Read the EDID registry value.
-        let edid_bytes = match read_edid_registry(&instance_id) {
-            Some(b) => b,
-            None => continue,
-        };
-
-        // Parse as 128-byte EDID.
-        let edid: &[u8; 128] = match edid_bytes.as_slice().try_into() {
-            Ok(arr) => arr,
-            Err(_) => continue,
-        };
-
-        let serial = parse_edid_serial(edid).unwrap_or_default();
-        let model = parse_edid_model_name(edid)
-            .or_else(|| get_device_desc(dev_info_set, &dev_info_data))
-            .or_else(|| {
-                instance_id
-                    .split('\\')
-                    .nth(1)
-                    .map(|s| s.to_string())
-            })
-            .unwrap_or_else(|| instance_id.clone());
-
-        // Use EDID product serial as edid_id when available, else instance path.
-        let edid_id = if serial.is_empty() {
-            instance_id.clone()
+/// Resolve stable identity + display name from EDID (when available),
+/// instance path, and GDI device string. Pure function — fully testable.
+///
+/// Chain: EDID serial → manufacturer+product+numeric serial → instance path.
+fn identify_monitor(
+    edid: Option<&[u8; 128]>,
+    instance_id: &str,
+    device_string: &str,
+) -> (String, String, String) {
+    if let Some(ed) = edid {
+        let serial = parse_edid_serial(ed).unwrap_or_default();
+        let name = parse_edid_model_name(ed).unwrap_or_default();
+        let model = if name.is_empty() {
+            device_string.to_string()
         } else {
-            serial.clone()
+            name
         };
-
-        monitors.push(Monitor {
-            edid_id,
-            model,
-            serial,
-            connected: true, // DIGCF_PRESENT already filters to present
-            device_name: String::new(),
-        });
+        if !serial.is_empty() {
+            return (serial.clone(), model, serial);
+        }
+        let mfr = u16::from_be_bytes([ed[8], ed[9]]);
+        let prod = u16::from_le_bytes([ed[10], ed[11]]);
+        let ser = u32::from_le_bytes([ed[12], ed[13], ed[14], ed[15]]);
+        let unit = format!("EDID:{mfr:04X}-{prod:04X}-{ser:08X}");
+        return (unit, model, String::new());
     }
-
-    // Cross-reference with EnumDisplayDevices to populate device_name
-    enrich_with_device_names(&mut monitors);
-
-    // SAFETY: Destroy the device info set.
-    unsafe { SetupDiDestroyDeviceInfoList(dev_info_set)? };
-
-    Ok(monitors)
-}
-
-/// Read the device instance ID string.
-fn get_device_instance_id(
-    dev_info_set: HDEVINFO,
-    dev_info_data: &SP_DEVINFO_DATA,
-) -> Option<String> {
-    let mut buf = [0u16; 512];
-
-    // SAFETY: SetupDiGetDeviceInstanceIdW writes into the buffer.
-    let result = unsafe {
-        SetupDiGetDeviceInstanceIdW(
-            dev_info_set,
-            dev_info_data as *const SP_DEVINFO_DATA,
-            Some(&mut buf),
-            None,
-        )
-    };
-    if result.is_err() {
-        return None;
-    }
-
-    Some(wide_to_string(&buf))
-}
-
-/// Read the device description from SetupAPI.
-fn get_device_desc(
-    dev_info_set: HDEVINFO,
-    dev_info_data: &SP_DEVINFO_DATA,
-) -> Option<String> {
-    let mut buf = [0u8; 512]; // buffer in bytes
-    let mut data_type: u32 = 0;
-
-    // SAFETY: SetupDiGetDeviceRegistryPropertyW reads SPDRP_DEVICEDESC.
-    let result = unsafe {
-        SetupDiGetDeviceRegistryPropertyW(
-            dev_info_set,
-            dev_info_data as *const SP_DEVINFO_DATA,
-            SPDRP_DEVICEDESC,
-            Some(&mut data_type),
-            Some(&mut buf),
-            None,
-        )
-    };
-    if result.is_err() {
-        return None;
-    }
-
-    // The property comes back as REG_SZ (UTF-16LE), but we read it into bytes.
-    // The first null-terminated pair of bytes is our string.
-    let len = buf
-        .chunks_exact(2)
-        .position(|pair| pair[0] == 0 && pair[1] == 0)
-        .unwrap_or(buf.len() / 2);
-
-    let wide: Vec<u16> = buf[..len * 2]
-        .chunks_exact(2)
-        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
-        .collect();
-
-    let s = OsString::from_wide(&wide)
-        .to_string_lossy()
-        .to_string();
-    if s.is_empty() {
-        None
+    let model = if device_string.is_empty() {
+        instance_id.to_string()
     } else {
-        Some(s)
-    }
+        device_string.to_string()
+    };
+    (instance_id.to_string(), model, String::new())
 }
 
-/// A newtype so we can implement `FromRegValue` for raw EDID bytes.
+// ── EDID registry reader ─────────────────────────────────────────────────
 struct EdidBlob(Vec<u8>);
 
 impl FromRegValue for EdidBlob {
@@ -291,71 +230,6 @@ fn read_edid_registry(instance_id: &str) -> Option<Vec<u8>> {
         return None;
     }
     Some(blob.0)
-}
-
-// ── EnumDisplayDevices fallback ──────────────────────────────────────────
-
-/// Cross‑reference monitors from SetupAPI with EnumDisplayDevices to get
-/// the user‑mode display device name (e.g. `\\.\DISPLAY1`) needed for
-/// CreateDC / SetDeviceGammaRamp.
-fn enrich_with_device_names(monitors: &mut Vec<Monitor>) {
-    for disp_index in 0.. {
-        let mut dev = DISPLAY_DEVICEW::default();
-        dev.cb = std::mem::size_of::<DISPLAY_DEVICEW>() as u32;
-
-        let ok = unsafe { EnumDisplayDevicesW(None, disp_index, &mut dev, 0) };
-        if !ok.as_bool() {
-            break;
-        }
-
-        let device_id = wide_to_string(&dev.DeviceID);
-        if device_id.is_empty() {
-            continue;
-        }
-
-        // Match by EDID device ID
-        for mon in monitors.iter_mut() {
-            if mon.device_name.is_empty() && mon.edid_id == device_id {
-                mon.device_name = wide_to_string(&dev.DeviceName);
-            }
-        }
-    }
-}
-
-fn enum_fallback_displays() -> Vec<Monitor> {
-    let mut monitors = Vec::new();
-
-    for disp_index in 0.. {
-        let mut dev = DISPLAY_DEVICEW::default();
-        dev.cb = std::mem::size_of::<DISPLAY_DEVICEW>() as u32;
-
-        // SAFETY: EnumDisplayDevicesW is a straightforward Win32 call.
-        let ok = unsafe { EnumDisplayDevicesW(None, disp_index, &mut dev, 0) };
-        if !ok.as_bool() {
-            break;
-        }
-
-        let device_id = wide_to_string(&dev.DeviceID);
-        let device_string = wide_to_string(&dev.DeviceString);
-        let device_name = wide_to_string(&dev.DeviceName);
-
-        if device_id.is_empty() {
-            continue;
-        }
-
-        let connected = (dev.StateFlags & DISPLAY_DEVICE_ATTACHED_TO_DESKTOP)
-            == DISPLAY_DEVICE_ATTACHED_TO_DESKTOP;
-
-        monitors.push(Monitor {
-            edid_id: device_id.clone(),
-            model: device_string,
-            serial: String::new(),
-            connected,
-            device_name: device_name,
-        });
-    }
-
-    monitors
 }
 
 // ── Tauri command ──────────────────────────────────────────────────────────
@@ -479,5 +353,58 @@ mod tests {
         let edid = fake_edid_blob_with_model("Samsung S24");
         let got = parse_edid_model_name(&edid).expect("should find model name");
         assert_eq!(got, "Samsung S24");
+    }
+
+    // ── identify_monitor ───────────────────────────────────────────────
+
+    #[test]
+    fn identify_prefers_serial_and_edid_name() {
+        let mut buf = fake_edid_blob("ABC123");
+        buf[0x36] = 0x00;
+        buf[0x36 + 1] = 0x00;
+        buf[0x36 + 2] = 0x00;
+        buf[0x36 + 3] = 0xFC;
+        buf[0x36 + 4..0x36 + 4 + 7].copy_from_slice(b"MyPanel");
+        buf[0x36 + 4 + 7] = 0x0A;
+        let (id, model, serial) =
+            identify_monitor(Some(&*buf), "MONITOR\\X\\0", "GDI Name");
+        assert_eq!(id, "ABC123");
+        assert_eq!(model, "MyPanel");
+        assert_eq!(serial, "ABC123");
+    }
+
+    #[test]
+    fn identify_falls_back_to_unit_id_without_serial() {
+        let mut buf = Box::new([0u8; 128]);
+        buf[0..8].copy_from_slice(&[0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00]);
+        buf[8] = 0x04;
+        buf[9] = 0x41; // mfr 0x0441
+        buf[10] = 0x34;
+        buf[11] = 0x12; // product LE 0x1234
+        buf[12] = 0x78;
+        buf[13] = 0x56;
+        buf[14] = 0x34;
+        buf[15] = 0x12; // serial LE 0x12345678
+        let (id, model, serial) =
+            identify_monitor(Some(&*buf), "MONITOR\\X\\0", "GDI Name");
+        assert_eq!(id, "EDID:0441-1234-12345678");
+        assert_eq!(model, "GDI Name");
+        assert_eq!(serial, "");
+    }
+
+    #[test]
+    fn identify_without_edid_uses_instance_path() {
+        let (id, model, serial) =
+            identify_monitor(None, "MONITOR\\FOO\\1&2&3", "Generic Monitor");
+        assert_eq!(id, "MONITOR\\FOO\\1&2&3");
+        assert_eq!(model, "Generic Monitor");
+        assert_eq!(serial, "");
+    }
+
+    #[test]
+    fn identify_empty_device_string_falls_back_to_instance() {
+        let (id, model, _) = identify_monitor(None, "MONITOR\\FOO\\1", "");
+        assert_eq!(id, "MONITOR\\FOO\\1");
+        assert_eq!(model, "MONITOR\\FOO\\1");
     }
 }
