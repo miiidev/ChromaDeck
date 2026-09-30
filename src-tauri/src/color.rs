@@ -467,11 +467,12 @@ pub fn apply_color(
         }
     }
 
-    // Step 2 — NVAPI vibrance/hue overlay (last; skipped when neutral so
-    // pre-existing presets behave exactly as before).
-    if preset.vibrance != crate::nvapi::VIBRANCE_NEUTRAL
-        || preset.hue_deg != crate::nvapi::HUE_NEUTRAL
-    {
+    // Step 2 — NVAPI vibrance/hue overlay (last; always written when
+    // supported so neutral presets fully restore prior state; skipped
+    // silently only where NVAPI reports unsupported).
+    let neutral = preset.vibrance == crate::nvapi::VIBRANCE_NEUTRAL
+        && preset.hue_deg == crate::nvapi::HUE_NEUTRAL;
+    if !neutral || nv.supported(&preset.edid_id) {
         match nv.set(&preset.edid_id, preset.vibrance, preset.hue_deg) {
             Ok(()) => vibrance_applied = true,
             Err(e) => {
@@ -1076,13 +1077,29 @@ mod tests {
     use crate::nvapi::MockNvapi;
 
     #[test]
-    fn neutral_preset_issues_zero_nvapi_calls() {
+    fn neutral_preset_writes_vibrance_when_supported() {
         let color = TestRecorder::new(true);
         let nv = MockNvapi::new(true);
         let preset = fake_preset(); // vibrance 50.0, hue_deg 0.0
         let result = apply_preset(&color, &nv, &preset, "profiles");
+        assert_eq!(
+            *nv.calls.lock().unwrap(),
+            vec![("set".to_string(), 50.0, 0.0)],
+            "neutral presets must still restore vibrance/hue"
+        );
+        assert!(result.vibrance_applied);
+        assert!(result.error.is_none());
+    }
+
+    #[test]
+    fn neutral_preset_skips_vibrance_silently_when_unsupported() {
+        let color = TestRecorder::new(true);
+        let nv = MockNvapi::new(false);
+        let preset = fake_preset(); // vibrance 50.0, hue_deg 0.0
+        let result = apply_preset(&color, &nv, &preset, "profiles");
         assert!(nv.calls.lock().unwrap().is_empty());
         assert!(!result.vibrance_applied);
+        assert!(result.gamma_applied);
         assert!(result.error.is_none());
     }
 

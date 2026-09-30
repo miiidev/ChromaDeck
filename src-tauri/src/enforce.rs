@@ -80,8 +80,11 @@ pub fn check_once(
 
         let drifted = force
             || match reader.engine(edid_id) {
-                crate::color::GammaEngine::Nvapi => nvapi_drifted(preset, reader, edid_id),
-                crate::color::GammaEngine::Gdi => lut_drifted(preset, reader, edid_id) || color_drifted(preset, reader, edid_id),
+                crate::color::GammaEngine::Nvapi => nvapi_drifted(preset, nv, reader, edid_id),
+                crate::color::GammaEngine::Gdi => {
+                    lut_drifted(preset, reader, edid_id)
+                        || color_drifted(preset, nv, reader, edid_id)
+                }
             };
 
         if !drifted {
@@ -119,11 +122,16 @@ fn lut_drifted(preset: &crate::store::Preset, reader: &dyn StateReader, edid_id:
     }
 }
 
-fn color_drifted(preset: &crate::store::Preset, reader: &dyn StateReader, edid_id: &str) -> bool {
-    if preset.vibrance == crate::nvapi::VIBRANCE_NEUTRAL
-        && preset.hue_deg == crate::nvapi::HUE_NEUTRAL
-    {
-        return false; // unmanaged when neutral (mirrors apply skip rule)
+fn color_drifted(
+    preset: &crate::store::Preset,
+    nv: &dyn crate::nvapi::NvColorApi,
+    reader: &dyn StateReader,
+    edid_id: &str,
+) -> bool {
+    let neutral = preset.vibrance == crate::nvapi::VIBRANCE_NEUTRAL
+        && preset.hue_deg == crate::nvapi::HUE_NEUTRAL;
+    if neutral && !nv.supported(edid_id) {
+        return false; // unmanaged where unsupported: silent, no error
     }
     match reader.read_color(edid_id) {
         Ok((v, h)) => v != preset.vibrance || h != preset.hue_deg,
@@ -136,7 +144,12 @@ fn color_drifted(preset: &crate::store::Preset, reader: &dyn StateReader, edid_i
 /// the identity ramp — exclusive-fullscreen games clobber only the GDI LUT
 /// while leaving the NVAPI registry untouched, so registry-match alone would
 /// miss the canonical evaporation case. Vibrance/hue are also checked.
-fn nvapi_drifted(preset: &crate::store::Preset, reader: &dyn StateReader, edid_id: &str) -> bool {
+fn nvapi_drifted(
+    preset: &crate::store::Preset,
+    nv: &dyn crate::nvapi::NvColorApi,
+    reader: &dyn StateReader,
+    edid_id: &str,
+) -> bool {
     // Registry compare: B/C/G internal must equal preset's converted values.
     // Registry values are DWORDs written with rounding.  Compare rounded-to-u32
     // on both sides to avoid false-drift from f64 truncation (e.g. UI 37 →
@@ -170,7 +183,7 @@ fn nvapi_drifted(preset: &crate::store::Preset, reader: &dyn StateReader, edid_i
     };
 
     // Vibrance/hue check (same logic as GDI branch).
-    color_drifted(preset, reader, edid_id)
+    color_drifted(preset, nv, reader, edid_id)
 }
 
 /// Background task: check every 10s.  Spawned once from setup (Task 4).
@@ -356,10 +369,10 @@ mod tests {
         );
     }
 
-    // ── Test 3: drifted_lut_reapplies_gamma_only_when_neutral ────────────
+    // ── Test 3: drifted LUT restores gamma AND neutral vibrance ──────
 
     #[test]
-    fn drifted_lut_reapplies_gamma_only_when_neutral() {
+    fn drifted_lut_reapplies_gamma_and_neutral_vibrance() {
         let color = TestRecorder::new(true);
         let nv = MockNvapi::new(true);
         let preset = p("p1", "E", 0.5, 50.0, 0.0); // non-default brightness, neutral v/h
@@ -377,9 +390,10 @@ mod tests {
         let calls = color.calls.lock().unwrap();
         assert_eq!(*calls, vec!["gamma"], "gamma must be called");
 
-        assert!(
-            nv.calls.lock().unwrap().is_empty(),
-            "no nv calls for neutral vibrance"
+        assert_eq!(
+            *nv.calls.lock().unwrap(),
+            vec![("set".to_string(), 50.0, 0.0)],
+            "neutral vibrance is still restored when supported"
         );
     }
 
