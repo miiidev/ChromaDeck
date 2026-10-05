@@ -2,18 +2,18 @@
 
 Per-monitor display color profile manager for Windows. Save color presets per monitor — brightness, contrast, gamma, RGB gains, digital vibrance, hue, and ICC profiles — and apply, pin, or enforce them from a single deck-style UI.
 
-![Preset editor](docs/screenshots/editor.png)
+![Preset editor](docs/screenshots/editor-bauhaus.png)
 
 ## Features
 
-- **Per-monitor presets** — every preset belongs to one physical display, identified by EDID (stable across docking, reconnects, and reboots), with user-renamable monitors.
+- **Global presets, per-monitor pins** — presets are monitor-agnostic and apply to any display (identified by EDID, stable across docking, reconnects, and reboots); pin one preset per monitor for enforcement. Monitors are user-renamable.
 - **NVCP-native color engine** — brightness/contrast/gamma use NVIDIA's own transfer math, driver API, and registry persistence, so results match the NVIDIA Control Panel exactly. Automatic GDI fallback on non-NVIDIA displays.
 - **Digital vibrance & hue** — driven through the NVIDIA driver (same control as NVCP), with per-display support detection.
 - **ICC profiles** — bundle `.icc`/`.icm` files into presets and associate them per monitor.
 - **Pin & enforce** — pin a preset per monitor and a background loop restores it if anything (games, HDR toggles, driver updates) stomps it. Tray-resident with autostart and single-instance.
 - **Reset, duplicate, delete** — full-default reset (gamma + vibrance + hue), one-click duplicate, delete with confirmation.
 - **Import NVCP state** — capture the driver's live color state straight into a new preset.
-- **Preset deck UI** — dark neobrutalist theme, tap-to-apply pads, monitor pills, support for offline monitors.
+- **Preset deck UI** — Bauhaus design system with light/dark toggle, shape-coded controls, tap-to-apply deck, monitor sidebar, support for offline monitors.
 
 ## Installation (Windows 10/11 x64)
 
@@ -29,7 +29,7 @@ Requirements: Windows 10/11 x64 and the WebView2 runtime (preinstalled on Window
 
 ## Usage
 
-1. Launch ChromaDeck — your connected monitors appear as pills up top.
+1. Launch ChromaDeck — your connected monitors appear in the sidebar; presets live in the library deck.
 2. Select a monitor, then **+ Create** (or the big button in the empty state) to build a preset: name it, tweak sliders, optionally attach an ICC profile or import the live NVCP state.
 3. Click a preset pad (or **Apply**) to set it on that monitor.
 4. **Pin** a preset to keep it enforced; **Reset** returns the monitor to full defaults; rename any monitor with the ✎ button.
@@ -38,7 +38,7 @@ All values show their neutral points in the editor (e.g. brightness/contrast 50,
 
 ## How it works
 
-- **Frontend:** React + Vite + Tailwind CSS v4, dark-neobrutalist design system.
+- **Frontend:** React + Vite + Tailwind CSS v4, Bauhaus design system (light/dark themes, see `DESIGN.md`).
 - **Backend:** Rust via Tauri v2. `monitor.rs` enumerates displays as an adapter→monitor tree with EDID identity; `store.rs` persists presets/pins/aliases as JSON; `color.rs` applies ICC + gamma ramps; `nvgamma.rs` + `nvapi.rs` implement the NVCP transfer math (reimplemented from observed driver behavior), 1024-entry float ramps, and driver-registry persistence; `enforce.rs` runs the 10-second drift-check loop.
 - **Data lives in** `%APPDATA%\ChromaDeck\` (`presets.json`, `pins.json`, `monitor_names.json`, `profiles\`, plus timestamped `.bak-*` backups before migrations).
 
