@@ -1,0 +1,12 @@
+<svg width="30" height="30" viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="Small-size mark" clip-path="url(#clip0_0_4)">
+<rect id="Deck step" x="10" y="16.25" width="12.5" height="3.125" rx="1.25" fill="#35BDF5"/>
+<rect id="Deck step_2" x="10" y="10" width="7.5" height="3.125" rx="1.25" fill="#35BDF5"/>
+<path id="Display frame" d="M33.75 3.75H13.75C7.75 3.75 3.75 7.08333 3.75 12.0833V25.4167C3.75 30.4167 7.75 33.75 13.75 33.75H33.75" stroke="#35BDF5" stroke-width="2.75" stroke-linecap="round"/>
+</g>
+<defs>
+<clipPath id="clip0_0_4">
+<rect width="30" height="30" fill="white"/>
+</clipPath>
+</defs>
+</svg>

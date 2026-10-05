@@ -12,6 +12,7 @@
 | Red | `#E30613` | `#E30613` | APPLY / destructive / error |
 | Blue | `#0066B3` | `#0066B3` | EDIT / info / connected |
 | Yellow | `#FFCC00` | `#FFCC00` | Warning / brightness / UNPIN |
+| Green | `#A3E635` | `#A3E635` | In-use card rail |
 
 ## Grid & Spacing
 
@@ -51,6 +52,7 @@
 | Connected dot | `●` blue |
 | Pinned dot | `■` red |
 | Warning | `▲` yellow |
+| Card rail | green = in use (pinned to a connected monitor or applied this session), red = pinned (monitor offline), blue = default |
 
 ## Slider Thumb Shapes
 
@@ -73,7 +75,18 @@
 ## Header Layout
 
 ```
-[28px-square split red/blue/yellow + circle + triangle SVG]  ChromaDeck  [v0.1.0 badge]  [●/◐ LIGHT|DARK]
+[theme-aware logo PNG]  ChromaDeck  [v0.2.0 badge]  [●/◐ LIGHT|DARK]
 ```
 
-Asymmetric grid: left cluster (logo + title + version), right cluster (theme toggle).
+Single row (`flex justify-between`): left cluster (logo + title + version), right cluster (theme toggle).
+
+## Logo Assets
+
+| File | Use |
+|------|-----|
+| `src/assets/logo-lockup-lm.png` | Header logo on light theme (240×220) |
+| `src/assets/logo-lockup-dm.png` | Header logo on dark theme (240×220) |
+| `public/logo.svg` | Browser favicon (`index.html`) |
+
+`App.tsx` `LogoMark` picks the asset matching the active theme. Title is an
+`h1` wordmark (Inter 16px, bold `C`/`k`, `letter-spacing: -0.024em`).

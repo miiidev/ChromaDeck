@@ -21,6 +21,7 @@
   --red: #e30613;
   --blue: #0066b3;
   --yellow: #ffcc00;
+  --green: #a3e635;
 
   /* ── Shadows ─────────────────────────────────────────────────────────── */
   --shadow-clr: #111111;
@@ -274,13 +275,12 @@ h6 {
   font-family: var(--font-heading);
 }
 
-/* Bauhaus logo mark — base style for the 28px square */
-.logo-mark {
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+/* Product lockup — fixed height, width scales (560×168 source) */
+.logo-lockup {
+  height: 32px;
+  width: auto;
+  display: block;
+  flex-shrink: 0;
 }
 
 /* Theme toggle button */
@@ -317,10 +317,24 @@ h6 {
 }
 
 /* Preset card left rail */
+.card-rail-active {
+  width: 6px;
+  background-color: var(--green);
+  flex-shrink: 0;
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+}
+
 .card-rail-pinned {
   width: 6px;
   background-color: var(--red);
   flex-shrink: 0;
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
 }
 
 .card-rail-default {

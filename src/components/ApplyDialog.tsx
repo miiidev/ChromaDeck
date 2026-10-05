@@ -8,7 +8,7 @@ interface Props {
   pins: Record<string, string>;
   initialEdid?: string | null;
   onClose: () => void;
-  onApplied: () => void;
+  onApplied: (info: { presetId: string; edid: string } | null) => void;
 }
 
 // In-session memory: reuse the last-selected target per preset
@@ -55,11 +55,13 @@ export default function ApplyDialog({ preset, monitors, pins, initialEdid, onClo
     if (!selectedEdid || applying) return;
     setApplying(true);
     setLastResult(null);
+    let applied: { presetId: string; edid: string } | null = null;
     try {
       const result = await applyPreset(preset.id, selectedEdid);
       setLastResult(result);
 
       if (!result.error) {
+        applied = { presetId: preset.id, edid: selectedEdid };
         // Pin / unpin based on toggle
         const wasPinned = pins[selectedEdid] === preset.id;
         if (pinToggle && !wasPinned) {
@@ -79,7 +81,7 @@ export default function ApplyDialog({ preset, monitors, pins, initialEdid, onClo
       });
     } finally {
       setApplying(false);
-      onApplied(); // refresh data without closing
+      onApplied(applied); // report result, refresh data without closing
     }
   };
 

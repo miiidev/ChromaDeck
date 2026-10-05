@@ -11,6 +11,7 @@ interface Props {
   pins: Record<string, string>;
   onPinChange: () => void;
   onApply: (preset: Preset) => void;
+  appliedMap: Record<string, string>;
 }
 
 /** Loading skeleton */
@@ -48,7 +49,7 @@ function EmptyState({ onCreateNew }: { onCreateNew: () => void }) {
   );
 }
 
-export default function MonitorList({ monitors, presets, loading, onEdit, onRefresh, onCreateNew, pins, onPinChange, onApply }: Props) {
+export default function MonitorList({ monitors, presets, loading, onEdit, onRefresh, onCreateNew, pins, onPinChange, onApply, appliedMap }: Props) {
   // ── Early return when loading ───────────────────────────────────
   if (loading) {
     return (
@@ -117,6 +118,7 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
               onRefreshParent={onRefresh}
               onPinChange={onPinChange}
               onApply={onApply}
+              appliedMap={appliedMap}
             />
           ))}
         </div>

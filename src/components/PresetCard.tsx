@@ -10,9 +10,10 @@ interface Props {
   onRefreshParent: () => void;
   onPinChange: () => void;
   onApply: (preset: Preset) => void;
+  appliedMap: Record<string, string>;
 }
 
-export default function PresetCard({ preset, monitors, pins, onEdit, onRefreshParent, onPinChange, onApply }: Props) {
+export default function PresetCard({ preset, monitors, pins, onEdit, onRefreshParent, onPinChange, onApply, appliedMap }: Props) {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -60,6 +61,14 @@ export default function PresetCard({ preset, monitors, pins, onEdit, onRefreshPa
     .filter(([, pid]) => pid === preset.id)
     .map(([edid]) => edid);
   const isPinned = pinnedEdidList.length > 0;
+  const isConnected = (edid: string) =>
+    monitors.find((m) => m.edid_id === edid)?.connected ?? false;
+  // In use = pinned to a connected monitor, or applied this session
+  const isActive =
+    pinnedEdidList.some(isConnected) ||
+    Object.entries(appliedMap).some(
+      ([edid, pid]) => pid === preset.id && isConnected(edid),
+    );
   const pinnedMonitorNames = pinnedEdidList.map((edid) => {
     const m = monitors.find((m) => m.edid_id === edid);
     return m?.alias || m?.model || edid.slice(0, 12);
@@ -67,9 +76,11 @@ export default function PresetCard({ preset, monitors, pins, onEdit, onRefreshPa
 
   return (
     <div className="border-2 border-ink bg-surface shadow-card motion-reduce:shadow-[2px_2px_0px_var(--shadow-clr)] flex flex-col min-h-44 relative">
-      {/* 6px left rail: red if pinned else blue */}
-      {isPinned ? (
-        <div className="card-rail-pinned" />
+      {/* 6px left rail: green if in use, red if pinned, blue otherwise */}
+      {isActive ? (
+        <div className="card-rail-active" title="Currently in use" />
+      ) : isPinned ? (
+        <div className="card-rail-pinned" title="Pinned (monitor offline)" />
       ) : (
         <div className="card-rail-default" />
       )}

@@ -3,6 +3,8 @@ import "./App.css";
 import { listMonitors, listPresets, listPins, reapplyNow } from "./lib/tauri";
 import type { Monitor, Preset, EnforceEvent } from "./lib/types";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
+import logoLockupLight from "./assets/logo-lockup-lm.png";
+import logoLockupDark from "./assets/logo-lockup-dm.png";
 import { useTheme } from "./lib/theme";
 import MonitorList from "./components/MonitorList";
 import MonitorSidebar from "./components/MonitorSidebar";
@@ -42,6 +44,8 @@ function App() {
   const [reapplyMsg, setReapplyMsg] = useState<string | null>(null);
   const [applyingPreset, setApplyingPreset] = useState<Preset | null>(null);
   const [applyTargetEdid, setApplyTargetEdid] = useState<string | null>(null);
+  // Last-applied preset per monitor this session (edid_id -> preset.id)
+  const [appliedMap, setAppliedMap] = useState<Record<string, string>>({});
   const { theme, toggle: toggleTheme } = useTheme();
 
   const fetchData = useCallback(async () => {
@@ -88,20 +92,15 @@ function App() {
     fetchData();
   };
 
-  /** Bauhaus logo mark: 28px square split red/blue/yellow + circle + triangle SVG */
+  /** Theme-aware product mark: light deck on light theme, dark deck on dark. */
   function LogoMark() {
+    const light = theme === "bauhaus-light";
     return (
-      <svg className="logo-mark" viewBox="0 0 28 28" fill="none" stroke="none">
-        {/* Top-left red quadrant */}
-        <rect x="0" y="0" width="14" height="14" fill="#E30613" />
-        {/* Top-right blue quadrant */}
-        <rect x="14" y="0" width="14" height="14" fill="#0066B3" />
-        {/* Bottom-left yellow quadrant */}
-        <rect x="0" y="14" width="14" height="14" fill="#FFCC00" />
-        {/* Bottom-right: circle + triangle */}
-        <circle cx="21" cy="21" r="4" fill="none" stroke="#111" strokeWidth={1.5} />
-        <polygon points="18,24 22,20 26,24" fill="#111" />
-      </svg>
+      <img
+        src={light ? logoLockupLight : logoLockupDark}
+        className="logo-lockup"
+        alt="ChromaDeck logo"
+      />
     );
   }
 
@@ -109,15 +108,19 @@ function App() {
     <main className="min-h-screen bg-paper text-ink flex flex-col">
       {/* ── Header — asymmetric grid ─────────────────────────────────────── */}
       <header className="border-b-2 border-ink px-6 py-4">
-        <div className="grid grid-cols-[auto_1fr_auto] items-center gap-x-4">
+        <div className="flex items-center justify-between gap-x-4">
           {/* Left cluster: logo mark + title + version */}
-          <LogoMark />
+          <div className="flex min-w-0 items-center gap-x-4">
+            <LogoMark />
 
-          <h1 className="text-xl font-semibold tracking-[0.12em] text-ink font-heading">ChromaDeck</h1>
+            <h1 className="truncate text-[16px] text-ink" style={{ letterSpacing: "-0.024em" }}>
+              <span className="font-bold">C</span>hromaDec<span className="font-bold">k</span>
+            </h1>
 
-          <span className="border-2 border-ink px-1.5 py-0.5 text-xs text-secondary font-mono">
-            v0.2.0
-          </span>
+            <span className="shrink-0 border-2 border-ink px-1.5 py-0.5 text-xs text-secondary font-mono">
+              v0.2.0
+            </span>
+          </div>
 
           {/* Right cluster: theme toggle */}
           <button
@@ -172,6 +175,7 @@ function App() {
           onCreateNew={handleCreateNew}
           pins={pins}
           onPinChange={fetchData}
+          appliedMap={appliedMap}
           onApply={(preset) => { setApplyTargetEdid(null); setApplyingPreset(preset); }}
         />
       </div>
@@ -213,7 +217,12 @@ function App() {
           pins={pins}
           initialEdid={applyTargetEdid}
           onClose={() => { setApplyingPreset(null); setApplyTargetEdid(null); }}
-          onApplied={() => { fetchData(); }}
+          onApplied={(info) => {
+            if (info) {
+              setAppliedMap((prev) => ({ ...prev, [info.edid]: info.presetId }));
+            }
+            fetchData();
+          }}
         />
       )}
 

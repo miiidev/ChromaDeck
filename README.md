@@ -2,7 +2,7 @@
 
 Per-monitor display color profile manager for Windows. Save color presets per monitor — brightness, contrast, gamma, RGB gains, digital vibrance, hue, and ICC profiles — and apply, pin, or enforce them from a single deck-style UI.
 
-![Preset editor](docs/screenshots/editor-bauhaus.png)
+![Preset library](docs/screenshots/library.png)
 
 ## Features
 
@@ -13,7 +13,7 @@ Per-monitor display color profile manager for Windows. Save color presets per mo
 - **Pin & enforce** — pin a preset per monitor and a background loop restores it if anything (games, HDR toggles, driver updates) stomps it. Tray-resident with autostart and single-instance.
 - **Reset, duplicate, delete** — full-default reset (gamma + vibrance + hue), one-click duplicate, delete with confirmation.
 - **Import NVCP state** — capture the driver's live color state straight into a new preset.
-- **Preset deck UI** — Bauhaus design system with light/dark toggle, shape-coded controls, tap-to-apply deck, monitor sidebar, support for offline monitors.
+- **Preset deck UI** — Bauhaus design system with light/dark toggle, theme-aware logo, shape-coded controls, tap-to-apply deck, in-use highlighting on preset cards, monitor sidebar, support for offline monitors.
 
 ## Installation (Windows 10/11 x64)
 
