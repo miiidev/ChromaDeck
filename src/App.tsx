@@ -3,7 +3,10 @@ import "./App.css";
 import { listMonitors, listPresets, listPins, reapplyNow } from "./lib/tauri";
 import type { Monitor, Preset, EnforceEvent } from "./lib/types";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
+import { useTheme } from "./lib/theme";
 import MonitorList from "./components/MonitorList";
+import MonitorSidebar from "./components/MonitorSidebar";
+import ApplyDialog from "./components/ApplyDialog";
 import PresetEditor from "./components/PresetEditor";
 
 function AutostartToggle() {
@@ -21,9 +24,9 @@ function AutostartToggle() {
     }
   };
   return (
-    <label className="inline-flex items-center gap-1.5 text-xs text-neutral-500 cursor-pointer">
-      <input type="checkbox" checked={on ?? false} onChange={toggle} className="accent-lime-400" />
-      <span className="uppercase tracking-widest text-[10px]">Start with Windows</span>
+    <label className="inline-flex items-center gap-1.5 text-xs cursor-pointer">
+      <input type="checkbox" checked={on ?? false} onChange={toggle} className="accent-blue" />
+      <span className="text-secondary uppercase tracking-widest text-[10px]">Start with Windows</span>
     </label>
   );
 }
@@ -37,7 +40,9 @@ function App() {
   const [showEditor, setShowEditor] = useState(false);
   const [pins, setPins] = useState<Record<string, string>>({});
   const [reapplyMsg, setReapplyMsg] = useState<string | null>(null);
-  const [createForMonitorId, setCreateForMonitorId] = useState<string | null>(null);
+  const [applyingPreset, setApplyingPreset] = useState<Preset | null>(null);
+  const [applyTargetEdid, setApplyTargetEdid] = useState<string | null>(null);
+  const { theme, toggle: toggleTheme } = useTheme();
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -64,88 +69,120 @@ function App() {
 
   const handleEdit = (preset: Preset) => {
     setEditingPreset(preset);
-    setCreateForMonitorId(null);
     setShowEditor(true);
   };
 
-  const handleCreateNew = (edidId: string) => {
+  const handleCreateNew = () => {
     setEditingPreset(null);
-    setCreateForMonitorId(edidId);
     setShowEditor(true);
   };
 
   const handleEditorClose = () => {
     setShowEditor(false);
     setEditingPreset(null);
-    setCreateForMonitorId(null);
   };
 
   const handleEditorSaved = () => {
     setShowEditor(false);
     setEditingPreset(null);
-    setCreateForMonitorId(null);
     fetchData();
   };
 
+  /** Bauhaus logo mark: 28px square split red/blue/yellow + circle + triangle SVG */
+  function LogoMark() {
+    return (
+      <svg className="logo-mark" viewBox="0 0 28 28" fill="none" stroke="none">
+        {/* Top-left red quadrant */}
+        <rect x="0" y="0" width="14" height="14" fill="#E30613" />
+        {/* Top-right blue quadrant */}
+        <rect x="14" y="0" width="14" height="14" fill="#0066B3" />
+        {/* Bottom-left yellow quadrant */}
+        <rect x="0" y="14" width="14" height="14" fill="#FFCC00" />
+        {/* Bottom-right: circle + triangle */}
+        <circle cx="21" cy="21" r="4" fill="none" stroke="#111" strokeWidth={1.5} />
+        <polygon points="18,24 22,20 26,24" fill="#111" />
+      </svg>
+    );
+  }
+
   return (
-    <main className="min-h-screen bg-neutral-950 text-neutral-100 flex flex-col">
-      {/* ── Header ──────────────────────────────────────────────────────── */}
-      <header className="border-b-2 border-neutral-200 px-6 py-4">
-        <div className="flex items-center gap-3">
-          <div className="w-7 h-7 border-2 border-neutral-200 bg-gradient-to-br from-lime-400 to-lime-500 flex items-center justify-center">
-            <svg className="w-4 h-4 text-neutral-950" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25m18 0A2.25 2.25 0 0018.75 3H5.25A2.25 2.25 0 003 5.25m18 0V12a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 12V5.25" />
-            </svg>
-          </div>
-          <h1 className="text-xl font-semibold tracking-tight">ChromaDeck</h1>
-          <span className="border-2 border-neutral-200 px-1.5 py-0.5 font-mono text-xs text-neutral-500">
+    <main className="min-h-screen bg-paper text-ink flex flex-col">
+      {/* ── Header — asymmetric grid ─────────────────────────────────────── */}
+      <header className="border-b-2 border-ink px-6 py-4">
+        <div className="grid grid-cols-[auto_1fr_auto] items-center gap-x-4">
+          {/* Left cluster: logo mark + title + version */}
+          <LogoMark />
+
+          <h1 className="text-xl font-semibold tracking-[0.12em] text-ink font-heading">ChromaDeck</h1>
+
+          <span className="border-2 border-ink px-1.5 py-0.5 text-xs text-secondary font-mono">
             v0.1.0
           </span>
+
+          {/* Right cluster: theme toggle */}
+          <button
+            onClick={toggleTheme}
+            className="bauhaus-btn px-3 py-1.5 text-xs font-medium border-2 border-ink bg-surface text-ink hover:bg-surface-hover shadow-btn"
+            aria-label={`Switch to ${theme === "bauhaus-light" ? "dark" : "light"} theme`}
+            title={`Current: ${theme === "bauhaus-light" ? "Light" : "Dark"} — click to toggle`}
+          >
+            <span className="inline-flex items-center gap-1.5">
+              <span className="text-base leading-none">{theme === "bauhaus-light" ? "◐" : "●"}</span>
+              <span className="uppercase tracking-widest text-[10px]">{theme === "bauhaus-light" ? "LIGHT" : "DARK"}</span>
+            </span>
+          </button>
         </div>
       </header>
 
-      {/* ── Error banner ────────────────────────────────────────────────── */}
+      {/* ── Error banner — ink-bordered block with red header bar ─────────── */}
       {error && (
-        <div className="mx-6 mt-4 px-4 py-3 border-2 border-red-400 bg-red-950/40 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <svg className="w-4 h-4 text-red-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
-            </svg>
-            <span className="text-sm text-red-300">Failed to load: {error}</span>
+        <div className="mx-6 mt-4 border-2 border-ink bg-surface shadow-btn motion-reduce:shadow-none">
+          <div className="bg-primary-red px-4 py-1.5">
+            <span className="text-xs font-medium text-ink" style={{ color: "white" }}>
+              Failed to load: {error}
+            </span>
           </div>
-          <button
-            onClick={fetchData}
-            className="brutalist-btn px-2 py-1 text-xs font-medium border-2 border-neutral-200 shadow-[2px_2px_0px_#e5e7eb] active:translate-y-0.5 active:shadow-none motion-reduce:active:translate-y-0 bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
-          >
-            RETRY
-          </button>
+          <div className="flex items-center justify-end px-4 py-2">
+            <button
+              onClick={fetchData}
+              className="bauhaus-btn px-2 py-1 text-xs font-medium border-2 border-ink bg-surface text-secondary hover:bg-surface-hover shadow-btn"
+            >
+              RETRY
+            </button>
+          </div>
         </div>
       )}
 
-      {/* ── Library view ────────────────────────────────────────────────── */}
-      <MonitorList
-        monitors={monitors}
-        presets={presets}
-        loading={loading}
-        onEdit={handleEdit}
-        onRefresh={fetchData}
-        onCreateNew={handleCreateNew}
-        pins={pins}
-        onPinChange={fetchData}
-      />
+      {/* ── Content row: sidebar + library ──────────────────────────── */}
+      <div className="flex-1 flex flex-col md:flex-row gap-5 items-start p-6">
+        <MonitorSidebar
+          monitors={monitors}
+          presets={presets}
+          pins={pins}
+          onRefresh={fetchData}
+          onPinChange={fetchData}
+          onApplyFor={(preset, edidId) => { setApplyTargetEdid(edidId); setApplyingPreset(preset); }}
+        />
+        <MonitorList
+          monitors={monitors}
+          presets={presets}
+          loading={loading}
+          onEdit={handleEdit}
+          onRefresh={fetchData}
+          onCreateNew={handleCreateNew}
+          pins={pins}
+          onPinChange={fetchData}
+          onApply={(preset) => { setApplyTargetEdid(null); setApplyingPreset(preset); }}
+        />
+      </div>
 
       {/* ── Footer / status bar ─────────────────────────────────────────── */}
-      <footer className="border-t-2 border-neutral-200 px-6 py-3 flex items-center justify-between text-xs text-neutral-500">
-        <span className="uppercase tracking-widest">
+      <footer className="border-t-2 border-ink px-6 py-3 flex flex-col sm:flex-row items-center sm:items-center justify-between text-xs gap-1">
+        <span className="text-secondary uppercase tracking-widest">
           {loading ? "LOADING…" : `${presets.length} PRESET${presets.length !== 1 ? "S" : ""} · ${monitors.filter((m) => m.connected).length} MONITOR${monitors.filter((m) => m.connected).length !== 1 ? "S" : ""} CONNECTED · ${Object.keys(pins).length} PINNED`}
         </span>
         <span className="inline-flex items-center gap-3">
-          {reapplyMsg && <span className="text-neutral-400">{reapplyMsg}</span>}
-          {!loading && (
-            <span className="font-mono">
-              {new Date().toLocaleTimeString()}
-            </span>
-          )}
+          {reapplyMsg && <span className="text-muted">{reapplyMsg}</span>}
           <button
             onClick={async () => {
               try {
@@ -159,7 +196,7 @@ function App() {
               setTimeout(() => setReapplyMsg(null), 5000);
               fetchData();
             }}
-            className="brutalist-btn px-2 py-1 text-xs font-medium border-2 border-neutral-200 shadow-[2px_2px_0px_#e5e7eb] active:translate-y-0.5 active:shadow-none motion-reduce:active:translate-y-0 bg-neutral-900 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200"
+            className="bauhaus-btn px-2 py-1 text-xs font-medium border-2 border-ink bg-surface text-secondary hover:bg-surface-hover shadow-btn"
             title="Re-run enforcement now"
           >
             REAPPLY
@@ -168,12 +205,23 @@ function App() {
         </span>
       </footer>
 
+      {/* ── Apply dialog ──────────────────────────────────────────────── */}
+      {applyingPreset && (
+        <ApplyDialog
+          preset={applyingPreset}
+          monitors={monitors}
+          pins={pins}
+          initialEdid={applyTargetEdid}
+          onClose={() => { setApplyingPreset(null); setApplyTargetEdid(null); }}
+          onApplied={() => { fetchData(); }}
+        />
+      )}
+
       {/* ── Editor modal ────────────────────────────────────────────────── */}
       {showEditor && (
         <PresetEditor
           monitors={monitors}
           editPreset={editingPreset}
-          defaultMonitorId={createForMonitorId}
           onClose={handleEditorClose}
           onSaved={handleEditorSaved}
         />

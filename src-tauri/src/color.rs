@@ -358,8 +358,9 @@ pub fn apply_color(
     api: &dyn ColorApi,
     nv: &dyn crate::nvapi::NvColorApi,
     preset: &crate::store::Preset,
+    target_edid: &str,
 ) -> ApplyResult {
-    if !api.is_connected(&preset.edid_id) {
+    if !api.is_connected(target_edid) {
         return ApplyResult::offline();
     }
 
@@ -368,7 +369,7 @@ pub fn apply_color(
     let mut error: Option<String> = None;
 
     // Step 1 — Gamma / RGB overlay (engine-branched)
-    let engine = gamma_engine(&preset.edid_id);
+    let engine = gamma_engine(target_edid);
     match engine {
         GammaEngine::Nvapi => {
             // Stage-purity: reset GDI LUT to identity before the NVAPI
@@ -377,14 +378,14 @@ pub fn apply_color(
             // the NVAPI path owns the full pipeline on every apply.
             // Best-effort — failure appends error but does NOT block NVAPI.
             let gdi_purge_err = api.set_gamma_ramp(
-                &preset.edid_id, 1.0, 1.0, [1.0, 1.0, 1.0], 1.0,
+                target_edid, 1.0, 1.0, [1.0, 1.0, 1.0], 1.0,
             ).err().map(|e| format!("gdi-purge: {e}"));
 
             // NVAPI path: NVCP transfer math + set_target_gamma + persist
             let nvapi_result = (|| -> Result<(), String> {
                 let fns = fns().ok_or_else(|| "NVAPI unavailable".to_string())?;
-                let device_name = resolve_device_name(&preset.edid_id)
-                    .ok_or_else(|| format!("no display device found for EDID {}", preset.edid_id))?;
+                let device_name = resolve_device_name(target_edid)
+                    .ok_or_else(|| format!("no display device found for EDID {target_edid}"))?;
                 let display_id = display_id_for_device(fns, &device_name)?;
 
                 let b_int = ui_to_internal(preset.brightness);
@@ -449,7 +450,7 @@ pub fn apply_color(
             let b_gain = 0.8 + 0.004 * preset.brightness;
             let c_gain = 0.8 + 0.004 * preset.contrast;
             match api.set_gamma_ramp(
-                &preset.edid_id,
+                target_edid,
                 b_gain,
                 c_gain,
                 preset.rgb_gains,
@@ -472,8 +473,8 @@ pub fn apply_color(
     // silently only where NVAPI reports unsupported).
     let neutral = preset.vibrance == crate::nvapi::VIBRANCE_NEUTRAL
         && preset.hue_deg == crate::nvapi::HUE_NEUTRAL;
-    if !neutral || nv.supported(&preset.edid_id) {
-        match nv.set(&preset.edid_id, preset.vibrance, preset.hue_deg) {
+    if !neutral || nv.supported(target_edid) {
+        match nv.set(target_edid, preset.vibrance, preset.hue_deg) {
             Ok(()) => vibrance_applied = true,
             Err(e) => {
                 let nv_err = format!("vibrance: {e}");
@@ -495,7 +496,7 @@ pub fn apply_color(
 
 // ── apply_preset (ICC + shared apply_color) ─────────────────────────────────
 
-/// Apply a preset to its target monitor.
+/// Apply a preset to a target monitor.
 ///
 /// Precedence: ICC first, then gamma/RGB overlay on top.
 /// Returns an `ApplyResult` summarising what succeeded / failed.
@@ -503,10 +504,11 @@ pub fn apply_preset(
     api: &dyn ColorApi,
     nv: &dyn crate::nvapi::NvColorApi,
     preset: &crate::store::Preset,
+    target_edid: &str,
     store_profiles_dir: &str,
 ) -> ApplyResult {
     // Step 1 — monitor connectivity check
-    if !api.is_connected(&preset.edid_id) {
+    if !api.is_connected(target_edid) {
         return ApplyResult::offline();
     }
 
@@ -517,7 +519,7 @@ pub fn apply_preset(
     if !preset.icc_hash.is_empty() {
         let profile_path = RealColorApi::profile_path(store_profiles_dir, &preset.icc_filename);
         let profile_path_str = profile_path.to_string_lossy().to_string();
-        match api.associate_icc(&preset.edid_id, &profile_path_str) {
+        match api.associate_icc(target_edid, &profile_path_str) {
             Ok(()) => icc_applied = true,
             Err(e) => {
                 icc_error = Some(format!("ICC: {e}"));
@@ -526,7 +528,7 @@ pub fn apply_preset(
     }
 
     // Step 3 — gamma + vibrance via shared core
-    let mut result = apply_color(api, nv, preset);
+    let mut result = apply_color(api, nv, preset, target_edid);
     result.icc_applied = icc_applied;
     result.error = match (icc_error, result.error) {
         (Some(a), Some(b)) => Some(format!("{a}; {b}")),
@@ -697,6 +699,7 @@ impl ColorApi for TestRecorder {
 pub fn apply_preset_cmd(
     state: tauri::State<'_, crate::store::AppStore>,
     id: String,
+    target_edid: String,
 ) -> ApplyResult {
     // Read the preset from the store
     let store = match state.0.lock() {
@@ -732,7 +735,7 @@ pub fn apply_preset_cmd(
 
     let api = RealColorApi;
     let nv = crate::nvapi::RealNvapi;
-    apply_preset(&api, &nv, &preset, &profiles_dir_str)
+    apply_preset(&api, &nv, &preset, &target_edid, &profiles_dir_str)
 }
 
 #[tauri::command]
@@ -761,7 +764,6 @@ mod tests {
         Preset {
             id: "test-id".into(),
             name: "Test".into(),
-            edid_id: "EDID-001".into(),
             icc_hash: "abc123".into(),
             icc_filename: "abc123.icc".into(),
             brightness: 0.5,
@@ -790,7 +792,7 @@ mod tests {
         let nv = MockNvapi::new(true);
         let preset = fake_preset();
 
-        let _result = apply_preset(&recorder, &nv, &preset, "profiles");
+        let _result = apply_preset(&recorder, &nv, &preset, "EDID-001", "profiles");
 
         let calls = recorder.calls.lock().unwrap();
         assert_eq!(
@@ -808,7 +810,7 @@ mod tests {
         let nv = MockNvapi::new(true);
         let preset = fake_preset();
 
-        let result = apply_preset(&recorder, &nv, &preset, "profiles");
+        let result = apply_preset(&recorder, &nv, &preset, "EDID-001", "profiles");
         assert!(!result.icc_applied);
         assert!(!result.gamma_applied);
         assert!(result.error.is_some());
@@ -829,7 +831,7 @@ mod tests {
         preset.icc_filename = "nonexistent.icc".into();
 
         // With a recorder that always succeeds, both should be applied.
-        let result = apply_preset(&recorder, &nv, &preset, "profiles");
+        let result = apply_preset(&recorder, &nv, &preset, "EDID-001", "profiles");
 
         assert!(result.icc_applied);
         assert!(result.gamma_applied);
@@ -844,7 +846,7 @@ mod tests {
         let nv = MockNvapi::new(true);
         let preset = preset_no_icc();
 
-        let _result = apply_preset(&recorder, &nv, &preset, "profiles");
+        let _result = apply_preset(&recorder, &nv, &preset, "EDID-001", "profiles");
 
         let calls = recorder.calls.lock().unwrap();
         assert_eq!(*calls, vec!["gamma"], "without ICC, only gamma is applied");
@@ -859,7 +861,7 @@ mod tests {
         recorder.icc_should_fail = true;
         let preset = fake_preset();
 
-        let result = apply_preset(&recorder, &nv, &preset, "profiles");
+        let result = apply_preset(&recorder, &nv, &preset, "EDID-001", "profiles");
 
         let calls = recorder.calls.lock().unwrap();
         assert_eq!(*calls, vec!["icc", "gamma"], "both are attempted");
@@ -1081,7 +1083,7 @@ mod tests {
         let color = TestRecorder::new(true);
         let nv = MockNvapi::new(true);
         let preset = fake_preset(); // vibrance 50.0, hue_deg 0.0
-        let result = apply_preset(&color, &nv, &preset, "profiles");
+        let result = apply_preset(&color, &nv, &preset, "EDID-001", "profiles");
         assert_eq!(
             *nv.calls.lock().unwrap(),
             vec![("set".to_string(), 50.0, 0.0)],
@@ -1096,7 +1098,7 @@ mod tests {
         let color = TestRecorder::new(true);
         let nv = MockNvapi::new(false);
         let preset = fake_preset(); // vibrance 50.0, hue_deg 0.0
-        let result = apply_preset(&color, &nv, &preset, "profiles");
+        let result = apply_preset(&color, &nv, &preset, "EDID-001", "profiles");
         assert!(nv.calls.lock().unwrap().is_empty());
         assert!(!result.vibrance_applied);
         assert!(result.gamma_applied);
@@ -1110,7 +1112,7 @@ mod tests {
         let mut preset = fake_preset();
         preset.vibrance = 75.0;
         preset.hue_deg = 120.0;
-        let result = apply_preset(&color, &nv, &preset, "profiles");
+        let result = apply_preset(&color, &nv, &preset, "EDID-001", "profiles");
         assert_eq!(
             *nv.calls.lock().unwrap(),
             vec![("set".to_string(), 75.0, 120.0)]
@@ -1126,9 +1128,14 @@ mod tests {
         nv.fail_set = true;
         let mut preset = fake_preset();
         preset.vibrance = 75.0;
-        let result = apply_preset(&color, &nv, &preset, "profiles");
+        let result = apply_preset(&color, &nv, &preset, "EDID-001", "profiles");
         assert!(result.gamma_applied);
         assert!(!result.vibrance_applied);
         assert!(result.error.as_ref().unwrap().contains("vibrance"));
     }
+}
+
+#[cfg(test)]
+mod nvcp_tests {
+    // Placeholder for future NVCP-specific tests
 }

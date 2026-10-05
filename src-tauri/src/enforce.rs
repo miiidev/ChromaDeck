@@ -61,13 +61,10 @@ pub fn check_once(
 ) -> Vec<EnforceEvent> {
     let mut events = Vec::new();
     for (edid_id, preset_id) in pins {
-        let preset = match presets.iter().find(|p| &p.id == preset_id) {
+let preset = match presets.iter().find(|p| &p.id == preset_id) {
             Some(p) => p,
             None => continue, // stale pin (preset gone without cascade): skip
         };
-        if preset.edid_id != *edid_id {
-            continue; // pin/preset mismatch: skip, never apply cross-monitor
-        }
         if !api.is_connected(edid_id) {
             events.push(EnforceEvent {
                 edid_id: edid_id.clone(),
@@ -97,7 +94,7 @@ pub fn check_once(
             continue;
         }
 
-        let result = crate::color::apply_color(api, nv, preset);
+        let result = crate::color::apply_color(api, nv, preset, edid_id);
         events.push(EnforceEvent {
             edid_id: edid_id.clone(),
             preset_id: preset_id.clone(),
@@ -292,11 +289,10 @@ mod tests {
     }
 
     /// Build a minimal preset for tests.
-    fn p(id: &str, edid: &str, brightness: f64, vibrance: f64, hue: f64) -> crate::store::Preset {
+fn p(id: &str, _edid: &str, brightness: f64, vibrance: f64, hue: f64) -> crate::store::Preset {
         crate::store::Preset {
             id: id.into(),
             name: "test".into(),
-            edid_id: edid.into(),
             icc_hash: String::new(),
             icc_filename: String::new(),
             brightness,

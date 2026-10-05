@@ -19,7 +19,6 @@ export interface GammaRamp {
 export interface Preset {
   id: string;
   name: string;
-  edid_id: string;
   icc_hash: string;
   icc_filename: string;
   brightness: number;   // 0–100 UI, 50 neutral
@@ -32,7 +31,6 @@ export interface Preset {
 
 export interface PresetInput {
   name: string;
-  edid_id: string;
   icc_path?: string;
   brightness: number;
   contrast: number;

@@ -52,12 +52,11 @@ fn is_leap(y: i64) -> bool {
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-/// A saved colour preset for one monitor.
+/// A saved colour preset (global, not tied to one monitor).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Preset {
     pub id: String,
     pub name: String,
-    pub edid_id: String,
     pub icc_hash: String,
     pub icc_filename: String,
     pub brightness: f64,
@@ -76,7 +75,6 @@ pub struct Preset {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PresetInput {
     pub name: String,
-    pub edid_id: String,
     pub icc_path: Option<String>,
     pub brightness: f64,
     pub contrast: f64,
@@ -212,6 +210,20 @@ impl Store {
             store.flush()?;
         }
 
+        // ── Global-presets migration: strip edid_id from stored presets ─────
+        // serde silently ignores the edid_id field in old data, so this
+        // migration re-serialises every preset to drop the field from disk.
+        if !data_dir.join(".global-presets-v1").exists() {
+            if !store.presets.is_empty() {
+                let bak = format!("presets.json.bak-{}", local_timestamp());
+                let _ = std::fs::copy(&store.presets_path, store.data_dir.join(&bak));
+                store.flush()?;
+            }
+            // Also clean pin ownership guard — pins are now just edid→preset
+            // without cross-checking preset.edid_id (handled in pin_preset).
+            let _ = std::fs::write(data_dir.join(".global-presets-v1"), b"");
+        }
+
         Ok(store)
     }
 
@@ -225,9 +237,6 @@ impl Store {
         // Validate
         if input.name.trim().is_empty() {
             return Err(StoreError::InvalidInput("name cannot be empty".into()));
-        }
-        if input.edid_id.trim().is_empty() {
-            return Err(StoreError::InvalidInput("edid_id cannot be empty".into()));
         }
         if !(0.0..=100.0).contains(&input.brightness) {
             return Err(StoreError::InvalidInput(
@@ -276,7 +285,6 @@ impl Store {
         let preset = Preset {
             id,
             name: input.name,
-            edid_id: input.edid_id,
             icc_hash,
             icc_filename,
             brightness: input.brightness,
@@ -349,7 +357,6 @@ impl Store {
         let updated = Preset {
             id: self.presets[idx].id.clone(),
             name: input.name,
-            edid_id: input.edid_id,
             icc_hash,
             icc_filename,
             brightness: input.brightness,
@@ -428,19 +435,13 @@ impl Store {
         Ok(())
     }
 
-    /// Pin a preset to a monitor. Returns error when preset does not exist
-    /// or does not belong to the given monitor.
+    /// Pin a preset to a monitor. Returns error when preset does not exist.
     pub fn pin_preset(&mut self, edid_id: &str, preset_id: &str) -> Result<(), StoreError> {
-        let preset = self
+        let _ = self
             .presets
             .iter()
             .find(|p| p.id == preset_id)
             .ok_or_else(|| StoreError::NotFound(preset_id.into()))?;
-        if preset.edid_id != edid_id {
-            return Err(StoreError::InvalidInput(
-                "preset does not belong to this monitor".into(),
-            ));
-        }
         self.pinned.insert(edid_id.into(), preset_id.into());
         self.flush_pins()
     }
@@ -630,7 +631,6 @@ mod tests {
     fn minimal_input() -> PresetInput {
         PresetInput {
             name: "Test Preset".into(),
-            edid_id: "EDID-001".into(),
             icc_path: None,
             brightness: 55.0,
             contrast: 60.0,
@@ -662,7 +662,6 @@ mod tests {
             .create_preset(minimal_input())
             .expect("create should succeed");
         assert_eq!(preset.name, "Test Preset");
-        assert_eq!(preset.edid_id, "EDID-001");
         assert!(!preset.id.is_empty(), "preset must have a UUID id");
         assert!(preset.icc_hash.is_empty(), "no ICC imported");
         assert!(preset.icc_filename.is_empty());
@@ -717,7 +716,6 @@ mod tests {
                 &preset.id,
                 PresetInput {
                     name: "Updated".into(),
-                    edid_id: preset.edid_id.clone(),
                     icc_path: None,
                     brightness: 55.0,
                     contrast: 60.0,
@@ -837,7 +835,6 @@ mod tests {
             let _p2 = store
                 .create_preset(PresetInput {
                     name: "Second".into(),
-                    edid_id: "EDID-002".into(),
                     icc_path: None,
                     brightness: 30.0,
                     contrast: 60.0,
@@ -867,7 +864,7 @@ mod tests {
 
     #[test]
     fn old_json_without_nvapi_fields_gets_neutral_defaults() {
-        let json = r#"{"id":"x","name":"Old","edid_id":"E","icc_hash":"","icc_filename":"","brightness":0.5,"contrast":0.5,"rgb_gains":[1.0,1.0,1.0],"gamma":2.2}"#;
+        let json = r#"{"id":"x","name":"Old","icc_hash":"","icc_filename":"","brightness":0.5,"contrast":0.5,"rgb_gains":[1.0,1.0,1.0],"gamma":2.2}"#;
         let preset: Preset = serde_json::from_str(json).unwrap();
         assert_eq!(preset.vibrance, 50.0);
         assert_eq!(preset.hue_deg, 0.0);
@@ -959,11 +956,12 @@ mod tests {
     }
 
     #[test]
-    fn pin_rejects_wrong_monitor_preset() {
+    fn pin_allows_cross_monitor() {
         let mut store = test_store();
-        let preset = store.create_preset(minimal_input()).unwrap(); // edid EDID-001
-        let err = store.pin_preset("EDID-999", &preset.id).unwrap_err();
-        assert!(err.to_string().contains("does not belong"));
+        let preset = store.create_preset(minimal_input()).unwrap(); // global preset
+        // Cross-monitor pin is now allowed since presets are global
+        store.pin_preset("EDID-999", &preset.id).unwrap();
+        assert_eq!(store.list_pins().get("EDID-999"), Some(&preset.id));
     }
 
     #[test]

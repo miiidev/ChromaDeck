@@ -84,9 +84,5 @@ export function validatePresetForm(
 
   Object.assign(errors, all);
 
-  if (!input.edid_id) {
-    errors.name = "Monitor is required";
-  }
-
   return Object.keys(errors).length === 0;
 }

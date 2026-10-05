@@ -45,11 +45,11 @@ export async function importIcc(srcPath: string): Promise<string> {
 // ── Preset apply ───────────────────────────────────────────────────────────
 
 /**
- * Apply a colour preset to its target monitor.
+ * Apply a colour preset to a target monitor.
  * Returns an ApplyResult indicating which steps succeeded.
  */
-export async function applyPreset(id: string): Promise<ApplyResult> {
-  return invoke<ApplyResult>("apply_preset_cmd", { id });
+export async function applyPreset(id: string, targetEdid: string): Promise<ApplyResult> {
+  return invoke<ApplyResult>("apply_preset_cmd", { id, targetEdid });
 }
 
 /**

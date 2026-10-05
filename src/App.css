@@ -1,7 +1,125 @@
 @import "tailwindcss";
 
-/* ── Slider custom styles ──────────────────────────────────────────────── */
-/* Square lime thumbs, bordered tracks — brutalist sliders */
+/* ═══════════════════════════════════════════════════════════════════════════
+   Bauhaus Dual-Theme Design
+   Light — `:root` defaults
+   Dark  — `[data-theme="bauhaus-dark"]` overrides
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ── Surfaces ────────────────────────────────────────────────────────── */
+  --paper: #f4f1ea;         /* page background */
+  --surface: #ede9dd;       /* card / section surface */
+  --surface-hover: #e0dccf; /* hovered surface */
+
+  /* ── Ink (text + borders) ────────────────────────────────────────────── */
+  --ink: #111111;
+  --ink-secondary: #555555;
+  --ink-muted: #999999;
+
+  /* ── Primary accents ─────────────────────────────────────────────────── */
+  --red: #e30613;
+  --blue: #0066b3;
+  --yellow: #ffcc00;
+
+  /* ── Shadows ─────────────────────────────────────────────────────────── */
+  --shadow-clr: #111111;
+  --shadow: 4px 4px 0 var(--shadow-clr);
+  --shadow-sm: 2px 2px 0 var(--shadow-clr);
+  --shadow-lg: 6px 6px 0 var(--shadow-clr);
+
+  /* ── Typography ──────────────────────────────────────────────────────── */
+  --font-heading: "Archivo", "Inter", system-ui, sans-serif;
+  --font-body: "Inter", system-ui, sans-serif;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Dark theme
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+[data-theme="bauhaus-dark"] {
+  --paper: #141414;
+  --surface: #1e1e1e;
+  --surface-hover: #252525;
+  --ink: #f4f1ea;
+  --ink-secondary: #c0bba0;
+  --ink-muted: #8a8678;
+  --shadow-clr: #000000;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Utility classes — surface hierarchy
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.bg-paper { background-color: var(--paper); }
+.bg-surface { background-color: var(--surface); }
+.bg-surface-hover:hover { background-color: var(--surface-hover); }
+.bg-ink { background-color: var(--ink); }
+
+/* Primary action backgrounds */
+.bg-primary-red { background-color: var(--red); }
+.bg-primary-blue { background-color: var(--blue); }
+.bg-primary-yellow { background-color: var(--yellow); }
+
+/* Ink-on-yellow: yellow bg with ink text */
+.bg-primary-yellow\:ink-text {
+  background-color: var(--yellow);
+  color: var(--ink);
+}
+
+/* Text colours */
+.text-ink { color: var(--ink); }
+.text-secondary { color: var(--ink-secondary); }
+.text-muted { color: var(--ink-muted); }
+.text-red { color: var(--red); }
+.text-blue { color: var(--blue); }
+.text-yellow { color: var(--yellow); }
+
+/* Border colours */
+.border-ink { border-color: var(--ink); }
+.border-red { border-color: var(--red); }
+.border-blue { border-color: var(--blue); }
+.border-yellow { border-color: var(--yellow); }
+
+/* Shadows */
+.shadow-card { box-shadow: var(--shadow); }
+.shadow-btn { box-shadow: var(--shadow-sm); }
+.shadow-modal { box-shadow: var(--shadow-lg); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Bauhaus button + brutalism alias
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.bauhaus-btn,
+.brutalist-btn {
+  cursor: pointer;
+  transition: box-shadow 0.12s ease, transform 0.12s ease;
+}
+
+.bauhaus-btn:active,
+.brutalist-btn:active {
+  transform: translateY(0.5px);
+  box-shadow: none !important;
+}
+
+.bauhaus-btn:disabled,
+.brutalist-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Reduced-motion: disable active transform */
+@media (prefers-reduced-motion: reduce) {
+  .bauhaus-btn:active,
+  .brutalist-btn:active {
+    transform: none !important;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Range input / slider — Bauhaus restyle
+   8px track, 2px ink border, shape-coded thumbs
+   ═══════════════════════════════════════════════════════════════════════════ */
 
 input[type="range"] {
   appearance: none;
@@ -9,105 +127,208 @@ input[type="range"] {
   height: 8px;
   background: linear-gradient(
     to right,
-    var(--fill-color, #a3e635) var(--fill, 50%),
-    #262626 var(--fill, 50%)
+    var(--fill-color, var(--ink)) var(--fill, 50%),
+    var(--paper) var(--fill, 50%)
   );
-  border: 2px solid #e5e7eb;
+  border: 2px solid var(--ink);
   border-radius: 0;
   outline: none;
 }
 
-/* Focus ring (keyboard users) */
+/* Focus ring (keyboard users) — blue outline */
 input[type="range"]:focus-visible {
-  outline: 2px solid #a3e635;
+  outline: 2px solid var(--blue);
   outline-offset: 3px;
 }
 
-/* WebKit slider thumb */
+/* ══ WebKit thumb — default square (ink) ══════════════════════════════ */
+
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
   width: 18px;
   height: 18px;
-  background: var(--fill-color, #a3e635);
-  border: 2px solid #e5e7eb;
-  border-radius: 0;
+  background: var(--fill-color, var(--ink));
+  border: 2px solid var(--ink);
+  border-radius: 0; /* square by default */
   cursor: pointer;
   margin-top: -7px;
-  transition: box-shadow 0.15s ease, transform 0.15s ease;
+  transition: box-shadow 0.12s ease, transform 0.12s ease;
 }
 
-/* Hover + focus glow on thumb */
 input[type="range"]:hover::-webkit-slider-thumb,
 input[type="range"]:focus-visible::-webkit-slider-thumb {
-  box-shadow: 0 0 0 3px rgba(163, 230, 53, 0.35);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink) 20%, transparent);
 }
+
 input[type="range"]:active::-webkit-slider-thumb {
   transform: scale(1.15);
 }
 
-/* Firefox slider thumb */
+/* ══ WebKit — circle thumb (brightness) ═══════════════════════════════ */
+
+input[data-thumb="circle"]::-webkit-slider-thumb {
+  border-radius: 9999px;
+  background: var(--yellow);
+  border: 2px solid var(--ink);
+}
+
+/* ══ WebKit — triangle thumb (contrast) ═══════════════════════════════ */
+
+input[data-thumb="triangle"]::-webkit-slider-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 0;
+  background: var(--red);
+  border: none;
+  clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+}
+
+/* ══ Firefox thumb ════════════════════════════════════════════════════ */
+
 input[type="range"]::-moz-range-thumb {
   width: 18px;
   height: 18px;
-  background: var(--fill-color, #a3e635);
-  border: 2px solid #e5e7eb;
+  background: var(--fill-color, var(--ink));
+  border: 2px solid var(--ink);
   border-radius: 0;
   cursor: pointer;
-  transition: box-shadow 0.15s ease;
+  transition: box-shadow 0.12s ease;
+}
+
+input[data-thumb="circle"]::-moz-range-thumb {
+  border-radius: 9999px;
+  background: var(--yellow);
+  border: 2px solid var(--ink);
+}
+
+input[data-thumb="triangle"]::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 0;
+  background: var(--red);
+  border: none;
+  clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
 }
 
 /* Firefox fill track */
 input[type="range"]::-moz-range-progress {
-  background: var(--fill-color, #a3e635);
+  background: var(--fill-color, var(--ink));
   height: 8px;
 }
 
-/* Hover + focus glow on Firefox thumb */
 input[type="range"]:hover::-moz-range-thumb,
 input[type="range"]:focus-visible::-moz-range-thumb {
-  box-shadow: 0 0 0 3px rgba(163, 230, 53, 0.35);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink) 20%, transparent);
 }
 
 /* Firefox track */
 input[type="range"]::-moz-range-track {
   height: 8px;
-  background: #262626;
+  background: var(--paper);
   border: none;
 }
 
-/* Disabled WebKit thumb */
-input[type="range"]:disabled::-webkit-slider-thumb {
-  background: #737373;
-  border-color: #525252;
-  cursor: not-allowed;
-}
+/* ══ Disabled state ═══════════════════════════════════════════════════ */
 
-/* Disabled Firefox thumb */
-input[type="range"]:disabled::-moz-range-thumb {
-  background: #737373;
-  border-color: #525252;
-  cursor: not-allowed;
-}
-
-/* Disabled state */
 input[type="range"]:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-/* ── Carousel - hide scrollbar, keep scrollable ────────────────────────── */
+input[type="range"]:disabled::-webkit-slider-thumb {
+  background: #777;
+  border-color: #777;
+  cursor: not-allowed;
+}
+
+input[type="range"]:disabled::-moz-range-thumb {
+  background: #777;
+  border-color: #777;
+  cursor: not-allowed;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Carousel — hide scrollbar, keep scrollable
+   ═══════════════════════════════════════════════════════════════════════════ */
+
 .carousel-scroll {
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
+
 .carousel-scroll::-webkit-scrollbar {
   display: none;
 }
 
-/* ── Reduced motion: disable translate on active buttons ───────────────── */
-@media (prefers-reduced-motion: reduce) {
-  .brutalist-btn:active {
-    transform: none !important;
-  }
+/* ═══════════════════════════════════════════════════════════════════════════
+   Heading type
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-heading);
+}
+
+/* Bauhaus logo mark — base style for the 28px square */
+.logo-mark {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Theme toggle button */
+.theme-toggle-btn {
+  font-family: var(--font-body);
+}
+
+/* Status indicator dots/shapes */
+.status-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 9999px; /* circle by default */
+  flex-shrink: 0;
+}
+
+.status-dot-connected {
+  background-color: var(--blue);
+}
+
+.status-dot-pinned {
+  background-color: var(--red);
+  border-radius: 0; /* square for pinned */
+  width: 10px;
+  height: 10px;
+}
+
+.status-dot-warning {
+  background-color: var(--yellow);
+  clip-path: polygon(50% 0%, 0% 100%, 100% 100%); /* triangle */
+  width: 10px;
+  height: 10px;
+  border-radius: 0;
+}
+
+/* Preset card left rail */
+.card-rail-pinned {
+  width: 6px;
+  background-color: var(--red);
+  flex-shrink: 0;
+}
+
+.card-rail-default {
+  width: 6px;
+  background-color: var(--blue);
+  flex-shrink: 0;
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
 }
