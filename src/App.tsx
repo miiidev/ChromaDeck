@@ -116,7 +116,7 @@ function App() {
           <h1 className="text-xl font-semibold tracking-[0.12em] text-ink font-heading">ChromaDeck</h1>
 
           <span className="border-2 border-ink px-1.5 py-0.5 text-xs text-secondary font-mono">
-            v0.1.0
+            v0.2.0
           </span>
 
           {/* Right cluster: theme toggle */}
