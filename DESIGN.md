@@ -75,7 +75,7 @@
 ## Header Layout
 
 ```
-[theme-aware logo PNG]  ChromaDeck  [v0.2.0 badge]  [●/◐ LIGHT|DARK]
+[theme-aware logo PNG]  ChromaDeck  [v0.3.0 badge]  [●/◐ LIGHT|DARK]
 ```
 
 Single row (`flex justify-between`): left cluster (logo + title + version), right cluster (theme toggle).

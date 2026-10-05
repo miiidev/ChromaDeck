@@ -118,7 +118,7 @@ function App() {
             </h1>
 
             <span className="shrink-0 border-2 border-ink px-1.5 py-0.5 text-xs text-secondary font-mono">
-              v0.2.0
+              v0.3.0
             </span>
           </div>
 
