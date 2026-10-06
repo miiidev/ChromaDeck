@@ -7,10 +7,18 @@
     <title>ChromaDeck</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;700&display=swap" rel="stylesheet" />
+    <!-- Inter (sans) + JetBrains Mono (code) -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /* Initial paint — prevents flash before CSS loads */
+      html { background-color: #08090f; color: #e8eaf0; }
+    </style>
   </head>
 
-  <body>
+  <body style="margin:0;background:#08090f">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

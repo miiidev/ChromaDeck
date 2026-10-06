@@ -1,252 +1,104 @@
 @import "tailwindcss";
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   Bauhaus Dual-Theme Design
-   Light — `:root` defaults
-   Dark  — `[data-theme="bauhaus-dark"]` overrides
+   ChromaDeck — Stock shadcn/ui Dark Theme
+   All color tokens via Tailwind v4 @theme. Dark-only.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-:root {
-  /* ── Surfaces ────────────────────────────────────────────────────────── */
-  --paper: #f4f1ea;         /* page background */
-  --surface: #ede9dd;       /* card / section surface */
-  --surface-hover: #e0dccf; /* hovered surface */
-
-  /* ── Ink (text + borders) ────────────────────────────────────────────── */
-  --ink: #111111;
-  --ink-secondary: #555555;
-  --ink-muted: #999999;
-
-  /* ── Primary accents ─────────────────────────────────────────────────── */
-  --red: #e30613;
-  --blue: #0066b3;
-  --yellow: #ffcc00;
-  --green: #a3e635;
-
-  /* ── Shadows ─────────────────────────────────────────────────────────── */
-  --shadow-clr: #111111;
-  --shadow: 4px 4px 0 var(--shadow-clr);
-  --shadow-sm: 2px 2px 0 var(--shadow-clr);
-  --shadow-lg: 6px 6px 0 var(--shadow-clr);
-
-  /* ── Typography ──────────────────────────────────────────────────────── */
-  --font-heading: "Archivo", "Inter", system-ui, sans-serif;
-  --font-body: "Inter", system-ui, sans-serif;
+@theme {
+  --color-background: #08090f;
+  --color-foreground: #e8eaf0;
+  --color-card: #10131d;
+  --color-card-foreground: #e8eaf0;
+  --color-popover: #151925;
+  --color-popover-foreground: #e8eaf0;
+  --color-primary: #22d3ee;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #1683ff;
+  --color-secondary-foreground: #ffffff;
+  --color-muted: #1a1e2a;
+  --color-muted-foreground: #8b8fa3;
+  --color-accent: #7c3aed;
+  --color-accent-foreground: #ffffff;
+  --color-destructive: #ec4899;
+  --color-destructive-foreground: #ffffff;
+  --color-border: rgba(255, 255, 255, 0.12);
+  --color-input: rgba(255, 255, 255, 0.08);
+  --color-ring: #22d3ee;
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   Dark theme
+   Typography
    ═══════════════════════════════════════════════════════════════════════════ */
 
-[data-theme="bauhaus-dark"] {
-  --paper: #141414;
-  --surface: #1e1e1e;
-  --surface-hover: #252525;
-  --ink: #f4f1ea;
-  --ink-secondary: #c0bba0;
-  --ink-muted: #8a8678;
-  --shadow-clr: #000000;
+body,
+html {
+  font-family: "Inter", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: "Inter", system-ui, sans-serif;
+}
+
+/* Mono for IDs, status, meta, parameter values */
+.mono {
+  font-family: "JetBrains Mono", "Cascadia Code", ui-monospace, monospace;
+}
+
+/* Product lockup */
+.logo-lockup {
+  height: 32px;
+  width: auto;
+  display: block;
+  flex-shrink: 0;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   Utility classes — surface hierarchy
+   Status indicators — kept for backwards compat
    ═══════════════════════════════════════════════════════════════════════════ */
 
-.bg-paper { background-color: var(--paper); }
-.bg-surface { background-color: var(--surface); }
-.bg-surface-hover:hover { background-color: var(--surface-hover); }
-.bg-ink { background-color: var(--ink); }
-
-/* Primary action backgrounds */
-.bg-primary-red { background-color: var(--red); }
-.bg-primary-blue { background-color: var(--blue); }
-.bg-primary-yellow { background-color: var(--yellow); }
-
-/* Ink-on-yellow: yellow bg with ink text */
-.bg-primary-yellow\:ink-text {
-  background-color: var(--yellow);
-  color: var(--ink);
-}
-
-/* Text colours */
-.text-ink { color: var(--ink); }
-.text-secondary { color: var(--ink-secondary); }
-.text-muted { color: var(--ink-muted); }
-.text-red { color: var(--red); }
-.text-blue { color: var(--blue); }
-.text-yellow { color: var(--yellow); }
-
-/* Border colours */
-.border-ink { border-color: var(--ink); }
-.border-red { border-color: var(--red); }
-.border-blue { border-color: var(--blue); }
-.border-yellow { border-color: var(--yellow); }
-
-/* Shadows */
-.shadow-card { box-shadow: var(--shadow); }
-.shadow-btn { box-shadow: var(--shadow-sm); }
-.shadow-modal { box-shadow: var(--shadow-lg); }
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   Bauhaus button + brutalism alias
-   ═══════════════════════════════════════════════════════════════════════════ */
-
-.bauhaus-btn,
-.brutalist-btn {
-  cursor: pointer;
-  transition: box-shadow 0.12s ease, transform 0.12s ease;
-}
-
-.bauhaus-btn:active,
-.brutalist-btn:active {
-  transform: translateY(0.5px);
-  box-shadow: none !important;
-}
-
-.bauhaus-btn:disabled,
-.brutalist-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-/* Reduced-motion: disable active transform */
-@media (prefers-reduced-motion: reduce) {
-  .bauhaus-btn:active,
-  .brutalist-btn:active {
-    transform: none !important;
-  }
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   Range input / slider — Bauhaus restyle
-   8px track, 2px ink border, shape-coded thumbs
-   ═══════════════════════════════════════════════════════════════════════════ */
-
-input[type="range"] {
-  appearance: none;
-  cursor: pointer;
-  height: 8px;
-  background: linear-gradient(
-    to right,
-    var(--fill-color, var(--ink)) var(--fill, 50%),
-    var(--paper) var(--fill, 50%)
-  );
-  border: 2px solid var(--ink);
-  border-radius: 0;
-  outline: none;
-}
-
-/* Focus ring (keyboard users) — blue outline */
-input[type="range"]:focus-visible {
-  outline: 2px solid var(--blue);
-  outline-offset: 3px;
-}
-
-/* ══ WebKit thumb — default square (ink) ══════════════════════════════ */
-
-input[type="range"]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 18px;
-  height: 18px;
-  background: var(--fill-color, var(--ink));
-  border: 2px solid var(--ink);
-  border-radius: 0; /* square by default */
-  cursor: pointer;
-  margin-top: -7px;
-  transition: box-shadow 0.12s ease, transform 0.12s ease;
-}
-
-input[type="range"]:hover::-webkit-slider-thumb,
-input[type="range"]:focus-visible::-webkit-slider-thumb {
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink) 20%, transparent);
-}
-
-input[type="range"]:active::-webkit-slider-thumb {
-  transform: scale(1.15);
-}
-
-/* ══ WebKit — circle thumb (brightness) ═══════════════════════════════ */
-
-input[data-thumb="circle"]::-webkit-slider-thumb {
+.status-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
   border-radius: 9999px;
-  background: var(--yellow);
-  border: 2px solid var(--ink);
+  flex-shrink: 0;
 }
 
-/* ══ WebKit — triangle thumb (contrast) ═══════════════════════════════ */
+.status-dot-connected {
+  background-color: var(--color-primary);
+}
 
-input[data-thumb="triangle"]::-webkit-slider-thumb {
-  width: 22px;
-  height: 22px;
+.status-dot-pinned {
+  background-color: var(--color-accent);
   border-radius: 0;
-  background: var(--red);
-  border: none;
+  width: 10px;
+  height: 10px;
+}
+
+.status-dot-warning {
+  background-color: #f5a623;
   clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
-}
-
-/* ══ Firefox thumb ════════════════════════════════════════════════════ */
-
-input[type="range"]::-moz-range-thumb {
-  width: 18px;
-  height: 18px;
-  background: var(--fill-color, var(--ink));
-  border: 2px solid var(--ink);
+  width: 10px;
+  height: 10px;
   border-radius: 0;
-  cursor: pointer;
-  transition: box-shadow 0.12s ease;
 }
 
-input[data-thumb="circle"]::-moz-range-thumb {
-  border-radius: 9999px;
-  background: var(--yellow);
-  border: 2px solid var(--ink);
-}
-
-input[data-thumb="triangle"]::-moz-range-thumb {
-  width: 22px;
-  height: 22px;
-  border-radius: 0;
-  background: var(--red);
-  border: none;
-  clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
-}
-
-/* Firefox fill track */
-input[type="range"]::-moz-range-progress {
-  background: var(--fill-color, var(--ink));
-  height: 8px;
-}
-
-input[type="range"]:hover::-moz-range-thumb,
-input[type="range"]:focus-visible::-moz-range-thumb {
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink) 20%, transparent);
-}
-
-/* Firefox track */
-input[type="range"]::-moz-range-track {
-  height: 8px;
-  background: var(--paper);
-  border: none;
-}
-
-/* ══ Disabled state ═══════════════════════════════════════════════════ */
-
-input[type="range"]:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-input[type="range"]:disabled::-webkit-slider-thumb {
-  background: #777;
-  border-color: #777;
-  cursor: not-allowed;
-}
-
-input[type="range"]:disabled::-moz-range-thumb {
-  background: #777;
-  border-color: #777;
-  cursor: not-allowed;
+.status-dot-active {
+  background-color: #4ade80;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -263,86 +115,41 @@ input[type="range"]:disabled::-moz-range-thumb {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   Heading type
+   Scrollbar styling (WebKit)
    ═══════════════════════════════════════════════════════════════════════════ */
 
-h1,
-h2,
-h3,
-h4,
-h5,
-h6 {
-  font-family: var(--font-heading);
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
 }
 
-/* Product lockup — fixed height, width scales (560×168 source) */
-.logo-lockup {
-  height: 32px;
-  width: auto;
-  display: block;
-  flex-shrink: 0;
+::-webkit-scrollbar-track {
+  background: var(--color-background);
 }
 
-/* Theme toggle button */
-.theme-toggle-btn {
-  font-family: var(--font-body);
+::-webkit-scrollbar-thumb {
+  background: var(--color-card);
+  border-radius: var(--radius-sm);
 }
 
-/* Status indicator dots/shapes */
-.status-dot {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border-radius: 9999px; /* circle by default */
-  flex-shrink: 0;
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-muted);
 }
 
-.status-dot-connected {
-  background-color: var(--blue);
+/* ═══════════════════════════════════════════════════════════════════════════
+   Placeholder styling
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+::placeholder {
+  color: var(--color-muted-foreground);
 }
 
-.status-dot-pinned {
-  background-color: var(--red);
-  border-radius: 0; /* square for pinned */
-  width: 10px;
-  height: 10px;
-}
+/* ═══════════════════════════════════════════════════════════════════════════
+   Selection accent
+   ═══════════════════════════════════════════════════════════════════════════ */
 
-.status-dot-warning {
-  background-color: var(--yellow);
-  clip-path: polygon(50% 0%, 0% 100%, 100% 100%); /* triangle */
-  width: 10px;
-  height: 10px;
-  border-radius: 0;
-}
-
-/* Preset card left rail */
-.card-rail-active {
-  width: 6px;
-  background-color: var(--green);
-  flex-shrink: 0;
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-}
-
-.card-rail-pinned {
-  width: 6px;
-  background-color: var(--red);
-  flex-shrink: 0;
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-}
-
-.card-rail-default {
-  width: 6px;
-  background-color: var(--blue);
-  flex-shrink: 0;
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
+::selection,
+::-moz-selection {
+  background-color: color-mix(in srgb, var(--color-primary) 25%, transparent);
+  color: var(--color-foreground);
 }

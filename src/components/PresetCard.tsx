@@ -1,6 +1,9 @@
 import { useState, useEffect } from "react";
 import type { Monitor, Preset } from "../lib/types";
 import { deletePreset, createPreset, unpinMonitor } from "../lib/tauri";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Check, Copy, Pencil, PinOff, Trash2 } from "lucide-react";
 
 interface Props {
   preset: Preset;
@@ -75,39 +78,30 @@ export default function PresetCard({ preset, monitors, pins, onEdit, onRefreshPa
   });
 
   return (
-    <div className="border-2 border-ink bg-surface shadow-card motion-reduce:shadow-[2px_2px_0px_var(--shadow-clr)] flex flex-col min-h-44 relative">
-      {/* 6px left rail: green if in use, red if pinned, blue otherwise */}
-      {isActive ? (
-        <div className="card-rail-active" title="Currently in use" />
-      ) : isPinned ? (
-        <div className="card-rail-pinned" title="Pinned (monitor offline)" />
-      ) : (
-        <div className="card-rail-default" />
-      )}
-
+    <div className={`flex flex-col rounded-xl bg-card text-card-foreground ring-1 ring-foreground/10 ${isActive || isPinned ? "ring-primary/30" : ""}`}>
       {/* Card body — stacked info */}
-      <div className="p-3 space-y-2">
+      <div className="px-4 py-3 space-y-2">
         {/* Name + badges row */}
         <div className="flex items-start justify-between gap-2">
-          <span className="text-sm font-medium text-ink truncate leading-tight font-body">
+          <span className="text-sm font-medium text-foreground truncate leading-tight">
             {preset.name}
           </span>
           <div className="flex items-center gap-1 shrink-0">
             {isPinned && (
-              <span className="text-[10px] font-medium text-blue border border-blue px-1.5 py-0.5 leading-none uppercase tracking-widest" title={`Pinned to ${pinnedMonitorNames.join(", ")}`}>
+              <Badge variant="outline" className="text-accent border-accent" title={`Pinned to ${pinnedMonitorNames.join(", ")}`}>
                 PINNED
-              </span>
+              </Badge>
             )}
             {preset.icc_hash && (
-              <span className="text-[10px] font-mono text-secondary border border-ink px-1.5 py-0.5 leading-none truncate max-w-[72px]" title={preset.icc_filename}>
+              <Badge variant="outline" title={preset.icc_filename}>
                 ICC
-              </span>
+              </Badge>
             )}
           </div>
         </div>
 
         {/* Parameter row — mono numerals */}
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted font-mono">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground mono">
           <span>γ{preset.gamma.toFixed(1)}</span>
           <span>B{preset.brightness.toFixed(0)}</span>
           <span>C{preset.contrast.toFixed(0)}</span>
@@ -118,26 +112,23 @@ export default function PresetCard({ preset, monitors, pins, onEdit, onRefreshPa
 
         {/* Pin target hint */}
         {pinnedMonitorNames.length > 0 && (
-          <span className="text-[10px] text-blue/70 block mt-0.5">
+          <span className="text-xs text-muted-foreground">
             → {pinnedMonitorNames.join(", ")}
           </span>
         )}
       </div>
 
       {/* Action buttons row */}
-      <div className="flex flex-wrap items-center gap-1 px-3 pb-3">
-        {/* APPLY = red bg + white text */}
-        <button
-          onClick={() => onApply(preset)}
-          className="bauhaus-btn px-3 py-1 text-xs font-medium border-2 border-red bg-primary-red shadow-btn active:translate-y-0.5 active:shadow-none motion-reduce:active:translate-y-0 hover:brightness-110"
-          style={{ color: "white" }}
-        >
-          APPLY
-        </button>
+      <div className="flex flex-wrap items-center gap-1 px-4 pb-3">
+        {/* APPLY = primary */}
+        <Button variant="default" size="icon-sm" onClick={() => onApply(preset)} title="Apply" aria-label={`Apply preset ${preset.name}`}>
+          <Check />
+        </Button>
 
         {isPinned && (
-          /* UNPIN = yellow bg + ink text */
-          <button
+          <Button
+            variant="outline"
+            size="icon-sm"
             onClick={async () => {
               try {
                 for (const edid of pinnedEdidList) {
@@ -148,80 +139,56 @@ export default function PresetCard({ preset, monitors, pins, onEdit, onRefreshPa
                 // silent
               }
             }}
-            className="bauhaus-btn px-2 py-1 text-xs font-medium border-2 border-yellow bg-primary-yellow text-ink shadow-btn active:translate-y-0.5 active:shadow-none motion-reduce:active:translate-y-0 hover:brightness-110"
             title="Unpin from all monitors"
+            aria-label={`Unpin preset ${preset.name} from all monitors`}
           >
-            UNPIN
-          </button>
+            <PinOff />
+          </Button>
         )}
 
-        {/* EDIT = blue bg + white text */}
-        <button
-          onClick={() => onEdit(preset)}
-          className="bauhaus-btn px-2 py-1 text-xs font-medium border-2 border-blue bg-primary-blue shadow-btn active:translate-y-0.5 active:shadow-none motion-reduce:active:translate-y-0 hover:brightness-110"
-          style={{ color: "white" }}
-        >
-          EDIT
-        </button>
+        {/* EDIT = secondary */}
+        <Button variant="secondary" size="icon-sm" onClick={() => onEdit(preset)} title="Edit" aria-label={`Edit preset ${preset.name}`}>
+          <Pencil />
+        </Button>
 
-        {/* DUP = paper/ink outline */}
-        <button
-          onClick={handleDuplicate}
-          className="bauhaus-btn px-2 py-1 text-xs font-medium border-2 border-ink bg-surface text-secondary hover:bg-surface-hover shadow-btn"
-          title="Duplicate preset"
-        >
-          DUP
-        </button>
+        {/* DUP = outline */}
+        <Button variant="outline" size="icon-sm" onClick={handleDuplicate} title="Duplicate preset" aria-label={`Duplicate preset ${preset.name}`}>
+          <Copy />
+        </Button>
 
-        {/* DEL = ink bg + red text + red border */}
-        <button
-          onClick={() => setShowDeleteModal(true)}
-          className="bauhaus-btn px-2 py-1 text-xs font-medium border-2 border-red bg-ink text-red hover:bg-red shadow-btn"
-          style={{ color: "white", backgroundColor: "var(--red)" }}
-          title="Delete preset"
-          onMouseEnter={(e) => { (e.target as HTMLElement).style.backgroundColor = "var(--red)"; (e.target as HTMLElement).style.color = "white"; }}
-          onMouseLeave={(e) => { (e.target as HTMLElement).style.backgroundColor = ""; (e.target as HTMLElement).style.color = ""; }}
-        >
-          DEL
-        </button>
+        {/* DEL = destructive */}
+        <Button variant="destructive" size="icon-sm" onClick={() => setShowDeleteModal(true)} title="Delete preset" aria-label={`Delete preset ${preset.name}`}>
+          <Trash2 />
+        </Button>
       </div>
 
       {/* Delete confirmation popup */}
       {showDeleteModal && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-ink/70 p-4"
+          className="fixed inset-0 isolate z-50 flex items-center justify-center bg-black/10 p-4"
           onClick={() => { if (!deleting) setShowDeleteModal(false); }}
         >
           <div
             role="dialog"
             aria-modal="true"
             aria-label={`Delete preset ${preset.name}`}
-            className="w-full max-w-xs border-2 border-ink bg-surface p-4 shadow-modal"
+            className="w-full max-w-xs rounded-xl bg-popover text-popover-foreground ring-1 ring-foreground/10 p-4"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-sm font-bold uppercase tracking-widest text-ink font-heading">
+            <h3 className="text-base font-medium text-foreground">
               Delete preset?
             </h3>
-            <p className="mt-2 text-xs text-muted leading-relaxed">
-              Permanently delete <span className="font-medium text-ink">"{preset.name}"</span>?
+            <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
+              Permanently delete <span className="font-medium text-foreground">"{preset.name}"</span>?
               This cannot be undone.
             </p>
             <div className="mt-4 flex items-center justify-end gap-2">
-              <button
-                onClick={() => setShowDeleteModal(false)}
-                disabled={deleting}
-                className="bauhaus-btn px-3 py-1.5 text-xs font-medium border-2 border-ink bg-surface text-secondary hover:bg-surface-hover disabled:opacity-50"
-              >
+              <Button variant="outline" size="sm" onClick={() => setShowDeleteModal(false)} disabled={deleting}>
                 CANCEL
-              </button>
-              <button
-                onClick={() => void handleDelete()}
-                disabled={deleting}
-                className="bauhaus-btn px-3 py-1.5 text-xs font-medium border-2 border-red shadow-btn active:translate-y-0.5 active:shadow-none motion-reduce:active:translate-y-0 bg-primary-red disabled:opacity-50 disabled:cursor-wait"
-                style={{ color: "white" }}
-              >
+              </Button>
+              <Button variant="destructive" size="sm" onClick={() => void handleDelete()} disabled={deleting}>
                 {deleting ? "DELETING…" : "DELETE"}
-              </button>
+              </Button>
             </div>
           </div>
         </div>

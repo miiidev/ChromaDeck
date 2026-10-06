@@ -1,92 +1,74 @@
-# ChromaDeck — Bauhaus Dual-Theme Design
+# ChromaDeck — Stock shadcn/ui Dark Theme
 
-## Tokens
+## Theme
 
-| Token | Light | Dark | Role |
-|-------|-------|------|------|
-| Paper | `#F4F1EA` | `#1E1E1E` | Card/section surfaces |
-| Page bg | `#F4F1EA` | `#141414` | Main background |
-| Ink | `#111111` | `#F4F1EA` | Text, borders, rules (inverted in dark) |
-| Ink secondary | `#555555` | `#C0BBA0` | Secondary text, labels |
-| Ink muted | `#999999` | `#8A8678` | Placeholder, disabled, hints |
-| Red | `#E30613` | `#E30613` | APPLY / destructive / error |
-| Blue | `#0066B3` | `#0066B3` | EDIT / info / connected |
-| Yellow | `#FFCC00` | `#FFCC00` | Warning / brightness / UNPIN |
-| Green | `#A3E635` | `#A3E635` | In-use card rail |
+Uses Tailwind v4 `@theme` directive in `src/App.css` with shadcn `base-nova` style.
 
-## Grid & Spacing
+| Token (--color-*) | Value | Role |
+|---|---|---|
+| `background` | `#08090F` | Page background |
+| `foreground` | `#E8EAF0` | Primary body text |
+| `card` | `#10131D` | Card/surface background |
+| `card-foreground` | `#E8EAF0` | Card text |
+| `popover` | `#151925` | Popover/dialog/section bg |
+| `popover-foreground` | `#E8EAF0` | Popover text |
+| `primary` | `#22D3EE` | Primary action accent (APPLY, focus) |
+| `primary-foreground` | `#FFFFFF` | Primary button text |
+| `secondary` | `#1683FF` | Informational accent (EDIT, info) |
+| `secondary-foreground` | `#FFFFFF` | Secondary button text |
+| `muted` | `#1A1E2A` | Muted/hover background |
+| `muted-foreground` | `#8B8FA3` | Secondary/muted text |
+| `accent` | `#7C3AED` | Pinned/attention accent |
+| `accent-foreground` | `#FFFFFF` | Accent button text |
+| `destructive` | `#EC4899` | Destructive action (DELETE) |
+| `destructive-foreground` | `#FFFFFF` | Destructive button text |
+| `border` | `rgba(255,255,255,0.12)` | Standard borders |
+| `input` | `rgba(255,255,255,0.08)` | Input border |
+| `ring` | `#22D3EE` | Focus ring |
 
-- Base grid unit: 8px
-- Content max-width: 12-column layout
-- Section gap: 20px (`gap-5` in Tailwind)
-- Container padding: `p-6` (24px)
-- Card padding: `p-3` (12px)
+## Geometry (shadcn defaults)
 
-## Typography
+| Element | Radius |
+|---|---|
+| Buttons, inputs, badges | `rounded-lg` (8px) |
+| Cards, dialogs, popovers | `rounded-xl` (12px) |
+| Badges | `rounded-4xl` (pill) |
 
-- Headings: `Archivo` weight 600/700, uppercase, `tracking-[0.12em]`
-- Body: `Inter` with system sans fallback
-- Numerals: `ui-monospace` (kept from current design)
-- Labels: `text-[10px]`, uppercase, `tracking-widest`
+## Components
 
-## Geometry
+All UI components from `src/components/ui/` are stock shadcn `base-nova` style:
+- Button, Card, Badge, Dialog, Input, Label, Select (native `<select>`), Skeleton
+- Icon library: Lucide
 
-- Blocks/cards/buttons: `border-radius: 0`
-- Circle motifs / status dots: `rounded-full`
-- Shadow light: `4px 4px 0 #111` (ink)
-- Shadow dark: `4px 4px 0 #000`
-- Small button shadow: `2px 2px 0`
+## Color Roles
 
-## Color Roles (binding — prevents Mondrian noise)
-
-| Element | Colors |
-|---------|--------|
-| APPLY button | `bg-red` + white text |
-| EDIT / CREATE button | `bg-blue` + white text |
-| DUP button | `bg-paper` + `border-ink` |
-| DEL button | `bg-ink` + `text-red` + `border-red` |
-| UNPIN button | `bg-yellow` + `text-ink` |
-| PINNED badge | `border-blue` + `text-blue` |
-| ICC badge | `border-ink` + `text-secondary` |
-| RETRY / REAPPLY | `border-ink` + `text-secondary` |
-| Connected dot | `●` blue |
-| Pinned dot | `■` red |
-| Warning | `▲` yellow |
-| Card rail | green = in use (pinned to a connected monitor or applied this session), red = pinned (monitor offline), blue = default |
-
-## Slider Thumb Shapes
-
-| Slider | Shape | Color | CSS |
-|--------|-------|-------|-----|
-| Gamma | Square | Blue | `data-thumb="square"` |
-| Brightness | Circle | Yellow | `data-thumb="circle"` |
-| Contrast | Triangle | Red | `data-thumb="triangle"` `clip-path` |
-| RGB gains | Square | Per-channel | `data-thumb="r"` / `"g"` / `"b"` |
-| Vibrance/Hue | Square | Ink | (default) |
-
-## Interaction States
-
-- `:hover` on surface → `--surface-hover` (4% darker)
-- `:focus-visible` → 2px blue outline, offset 3px
-- `:active` on button → `translate-y-0.5`, no shadow
-- `:disabled` → gray (`#777`), `opacity-0.5`, `cursor-not-allowed`
-- `prefers-reduced-motion` → disable active translate
+| Element | Classes |
+|---|---|
+| APPLY / primary action button | `bg-primary text-primary-foreground` |
+| EDIT / CREATE button | `bg-secondary text-secondary-foreground` |
+| DUP / secondary actions | `border-border text-foreground bg-card` (outline variant) |
+| DEL / destructive | `bg-destructive/10 text-destructive` (destructive variant) |
+| UNPIN | outline variant |
+| PINNED badge | outline variant with `text-accent border-accent` |
+| ICC badge | outline variant |
+| Connected dot | `●` primary |
+| Pinned / attention | `■` accent |
+| Warning / offline | `▲` amber (hardcoded) |
+| Focus ring | `ring-primary` (shadcn base-nova default) |
+| Card state | via Badge variant + Card border accent |
+| Side rail (DELETED) | State communicated via Badge + Card border |
 
 ## Header Layout
 
 ```
-[theme-aware logo PNG]  ChromaDeck  [v0.3.0 badge]  [●/◐ LIGHT|DARK]
+[logo]  ChromaDeck  [v0.4.0 badge]  [reapply] [autostart]
 ```
 
-Single row (`flex justify-between`): left cluster (logo + title + version), right cluster (theme toggle).
+Single row (`flex justify-between`): left cluster (logo + title + version), right cluster (actions). No theme toggle — dark-only.
 
-## Logo Assets
+## Typography
 
-| File | Use |
-|------|-----|
-| `src/assets/logo-lockup-lm.png` | Header logo on light theme (240×220) |
-| `src/assets/logo-lockup-dm.png` | Header logo on dark theme (240×220) |
-| `public/logo.svg` | Browser favicon (`index.html`) |
-
-`App.tsx` `LogoMark` picks the asset matching the active theme. Title is an
-`h1` wordmark (Inter 16px, bold `C`/`k`, `letter-spacing: -0.024em`).
+- Sans: `Inter` (400/500/600/700) with system-ui fallback
+- Mono: `JetBrains Mono` (400/500) for IDs, status, parameter values, meta data
+- Labels: `text-xs uppercase tracking-widest`
+- Body: `text-sm` / `text-xs` shadcn defaults

@@ -1,15 +1,11 @@
-import { useState, useEffect, type FormEvent, type CSSProperties } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 
-/** Fill-track style for range inputs: `--fill` percent + `--fill-color`. */
-function trackFill(value: number, min: number, max: number, color = "#111"): CSSProperties {
-  const pct = Math.min(100, Math.max(0, ((value - min) / (max - min)) * 100));
-  return { "--fill": `${pct}%`, "--fill-color": color } as CSSProperties;
-}
 import type { Monitor, Preset, PresetInput } from "../lib/types";
 import { createPreset, updatePreset, importIcc } from "../lib/tauri";
 import { vibranceSupported, captureNvcp } from "../lib/tauri";
 import { validatePresetForm, type ValidationErrors } from "../lib/validation";
 import { open } from "@tauri-apps/plugin-dialog";
+import { Button } from "@/components/ui/button";
 
 interface Props {
   monitors: Monitor[];
@@ -161,29 +157,27 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
   const connectedMonitors = monitors.filter((m) => m.connected);
 
   return (
-    <div className="fixed inset-0 z-50 flex overflow-y-auto bg-ink/70 p-4">
-      {/* Paper bg, 2px ink border, 6px shadow — Bauhaus modal */}
-      <div className="m-auto w-full max-w-lg border-2 border-ink bg-surface shadow-modal motion-reduce:shadow-[3px_3px_0px_var(--shadow-clr)]">
-        {/* Header: primary block bar + title */}
-        <div className="flex items-center justify-between px-6 py-4 border-b-2 border-ink">
-          <h2 className="min-w-0 flex-1 truncate text-base font-semibold text-ink font-heading">
+    <div className="fixed inset-0 isolate z-50 flex overflow-y-auto bg-black/10 p-4">
+      {/* Popover-toned panel */}
+      <div className="m-auto w-full max-w-lg rounded-xl bg-popover text-popover-foreground ring-1 ring-foreground/10">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <h2 className="min-w-0 flex-1 truncate text-base font-medium text-foreground">
             {isEditing ? `EDIT: ${editPreset?.name}` : "CREATE PRESET"}
           </h2>
-          <button
+          <Button
+            variant="ghost"
+            size="icon-sm"
             onClick={onClose}
-            className="bauhaus-btn p-1.5 border-2 border-ink bg-surface text-secondary hover:bg-surface-hover"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+            aria-label="Close editor"
+          />
         </div>
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="px-6 py-5 space-y-5">
           {/* Name */}
           <div>
-            <label className="block text-[10px] font-medium text-secondary uppercase tracking-widest mb-1.5">
+            <label className="flex items-center gap-2 text-xs leading-none font-medium text-muted-foreground uppercase tracking-widest mb-1.5 mono">
               Name
             </label>
             <input
@@ -191,23 +185,21 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
               value={form.name}
               onChange={(e) => updateField("name", e.target.value)}
               placeholder="My color preset"
-              className={`w-full px-3 py-2 text-sm border-2 bg-surface text-ink placeholder-muted focus-visible:outline-2 focus-visible:outline-blue focus-visible:outline-offset-2 ${
-                errors.name ? "border-red" : "border-ink"
-              }`}
+              className={`h-8 w-full rounded-lg border ${errors.name ? "border-destructive" : "border-border"} bg-transparent px-2.5 py-1 text-sm placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50`}
             />
-            {errors.name && <p className="mt-1 text-xs text-red">{errors.name}</p>}
+            {errors.name && <p className="mt-1 text-xs text-destructive">{errors.name}</p>}
           </div>
 
           {/* NVCP capture source */}
           <div>
-            <label className="block text-[10px] font-medium text-secondary uppercase tracking-widest mb-1.5">
-              NVCP Capture Source <span className="text-muted font-normal normal-case">(optional, import only)</span>
+            <label className="flex items-center gap-2 text-xs leading-none font-medium text-muted-foreground uppercase tracking-widest mb-1.5 mono">
+              NVCP Capture Source <span className="text-muted-foreground font-normal normal-case">(optional, import only)</span>
             </label>
             <div className="flex items-center gap-2">
               <select
                 value={captureMonitorId}
                 onChange={(e) => setCaptureMonitorId(e.target.value)}
-                className="flex-1 px-3 py-2 text-sm border-2 border-ink bg-surface text-ink focus-visible:outline-2 focus-visible:outline-blue focus-visible:outline-offset-2"
+                className="flex w-fit items-center justify-between gap-1.5 h-8 rounded-lg border border-border bg-transparent py-2 pr-2 pl-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
               >
                 <option value="">— SELECT SOURCE —</option>
                 {connectedMonitors.map((m) => (
@@ -216,122 +208,83 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
                   </option>
                 ))}
               </select>
-              <button
-                type="button"
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={handleCaptureNvcp}
                 disabled={!captureMonitorId || nvcpImporting}
-                className="bauhaus-btn shrink-0 px-3 py-2 text-xs font-medium border-2 border-ink bg-surface text-secondary hover:bg-surface-hover shadow-btn disabled:opacity-50"
               >
                 {nvcpImporting ? "IMPORTING…" : "IMPORT NVCP"}
-              </button>
+              </Button>
             </div>
-            {errors.nvcp && <p className="mt-1 text-xs text-red">{errors.nvcp}</p>}
+            {errors.nvcp && <p className="mt-1 text-xs text-destructive">{errors.nvcp}</p>}
             {connectedMonitors.length === 0 && (
-              <p className="mt-1 text-xs text-yellow">No connected monitors detected.</p>
+              <p className="mt-1 text-xs text-destructive">No connected monitors detected.</p>
             )}
           </div>
 
           {/* ICC file picker */}
           <div>
-            <label className="block text-[10px] font-medium text-secondary uppercase tracking-widest mb-1.5">
-              ICC Profile <span className="text-muted font-normal normal-case">(optional)</span>
+            <label className="flex items-center gap-2 text-xs leading-none font-medium text-muted-foreground uppercase tracking-widest mb-1.5 mono">
+              ICC Profile <span className="text-muted-foreground font-normal normal-case">(optional)</span>
             </label>
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleBrowseIcc}
-                disabled={iccImporting}
-                className="bauhaus-btn px-3 py-2 text-xs font-medium border-2 border-ink bg-surface text-secondary hover:bg-surface-hover shadow-btn disabled:opacity-50"
-              >
+              <Button variant="outline" size="sm" onClick={handleBrowseIcc} disabled={iccImporting}>
                 {iccImporting ? "IMPORTING…" : "BROWSE…"}
-              </button>
+              </Button>
               {iccStatus ? (
-                <span className="text-xs text-blue truncate">{iccStatus.filename}</span>
+                <span className="text-xs text-primary truncate mono">{iccStatus.filename}</span>
               ) : (
-                <span className="text-xs text-muted">No ICC profile selected</span>
+                <span className="text-xs text-muted-foreground mono">No ICC profile selected</span>
               )}
             </div>
-            {errors.icc_path && <p className="mt-1 text-xs text-red">{errors.icc_path}</p>}
+            {errors.icc_path && <p className="mt-1 text-xs text-destructive">{errors.icc_path}</p>}
           </div>
 
-          {/* Gamma slider — blue square thumb (data-thumb="square") */}
-          <div>
-            <div className="mb-1.5">
-              <label className="text-[10px] font-medium text-secondary uppercase tracking-widest">Gamma</label>
-            </div>
-            <div className="flex items-center gap-3">
-              <input
-                type="range" min={0.3} max={2.8} step={0.05} value={form.gamma}
-                onChange={(e) => updateField("gamma", parseFloat(e.target.value))}
-                className="min-w-0 flex-1" data-thumb="square"
-                style={trackFill(form.gamma, 0.3, 2.8, "#0066B3")}
-              />
-              <span className="w-12 shrink-0 text-right text-xs text-secondary font-mono">{form.gamma.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between text-xs text-muted mt-0.5">
-              <span className="font-mono">0.3</span>
-              <span className="font-mono">1.0 (neutral)</span>
-              <span className="font-mono">2.8</span>
-            </div>
-            {errors.gamma && <p className="mt-1 text-xs text-red">{errors.gamma}</p>}
-          </div>
+          {/* Gamma slider */}
+          <SliderField
+            label="Gamma"
+            min={0.3} max={2.8} step={0.05}
+            value={form.gamma}
+            display={form.gamma.toFixed(2)}
+            onChange={(v) => updateField("gamma", v)}
+            markers={["0.3", "1.0 (neutral)", "2.8"]}
+            error={errors.gamma}
+          />
 
-          {/* Brightness slider — yellow circle thumb */}
-          <div>
-            <div className="mb-1.5">
-              <label className="text-[10px] font-medium text-secondary uppercase tracking-widest">Brightness</label>
-            </div>
-            <div className="flex items-center gap-3">
-              <input
-                type="range" min={0} max={100} step={1} value={form.brightness}
-                onChange={(e) => updateField("brightness", parseFloat(e.target.value))}
-                className="min-w-0 flex-1" data-thumb="circle"
-                style={trackFill(form.brightness, 0, 100, "#FFCC00")}
-              />
-              <span className="w-12 shrink-0 text-right text-xs text-secondary font-mono">{form.brightness.toFixed(0)}</span>
-            </div>
-            <div className="flex justify-between text-xs text-muted mt-0.5">
-              <span className="font-mono">0</span>
-              <span className="font-mono">50</span>
-              <span className="font-mono">100</span>
-            </div>
-            {errors.brightness && <p className="mt-1 text-xs text-red">{errors.brightness}</p>}
-          </div>
+          {/* Brightness slider */}
+          <SliderField
+            label="Brightness"
+            min={0} max={100} step={1}
+            value={form.brightness}
+            display={form.brightness.toFixed(0)}
+            onChange={(v) => updateField("brightness", v)}
+            markers={["0", "50", "100"]}
+            error={errors.brightness}
+          />
 
-          {/* Contrast slider — red triangle thumb */}
-          <div>
-            <div className="mb-1.5">
-              <label className="text-[10px] font-medium text-secondary uppercase tracking-widest">Contrast</label>
-            </div>
-            <div className="flex items-center gap-3">
-              <input
-                type="range" min={0} max={100} step={1} value={form.contrast}
-                onChange={(e) => updateField("contrast", parseFloat(e.target.value))}
-                className="min-w-0 flex-1" data-thumb="triangle"
-                style={trackFill(form.contrast, 0, 100, "#E30613")}
-              />
-              <span className="w-12 shrink-0 text-right text-xs text-secondary font-mono">{form.contrast.toFixed(0)}</span>
-            </div>
-            <div className="flex justify-between text-xs text-muted mt-0.5">
-              <span className="font-mono">0</span>
-              <span className="font-mono">50</span>
-              <span className="font-mono">100</span>
-            </div>
-            {errors.contrast && <p className="mt-1 text-xs text-red">{errors.contrast}</p>}
-          </div>
+          {/* Contrast slider */}
+          <SliderField
+            label="Contrast"
+            min={0} max={100} step={1}
+            value={form.contrast}
+            display={form.contrast.toFixed(0)}
+            onChange={(v) => updateField("contrast", v)}
+            markers={["0", "50", "100"]}
+            error={errors.contrast}
+          />
 
-          {/* RGB gains — square thumbs with per-channel color */}
+          {/* RGB gains — three per-channel sliders */}
           <div>
-            <label className="block text-[10px] font-medium text-secondary uppercase tracking-widest mb-2">
-              RGB Gains <span className="text-muted font-normal normal-case">(1.0 = neutral)</span>
+            <label className="flex items-center gap-2 text-xs leading-none font-medium text-muted-foreground uppercase tracking-widest mb-2 mono">
+              RGB Gains <span className="text-muted-foreground font-normal normal-case">(1.0 = neutral)</span>
             </label>
             <div className="grid grid-cols-3 gap-3">
               {(["R", "G", "B"] as const).map((channel, idx) => {
-                const chColor = ["#E30613", "#4ade80", "#0066B3"][idx];
                 return (
                   <div key={channel}>
                     <div className="mb-1">
-                      <span className="text-xs font-mono text-ink">{channel}</span>
+                      <span className="text-xs mono text-foreground">{channel}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <input
@@ -341,95 +294,98 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
                           newGains[idx] = parseFloat(e.target.value);
                           updateField("rgb_gains", newGains);
                         }}
-                        className="min-w-0 flex-1" data-thumb="square"
-                        style={trackFill(form.rgb_gains[idx], 0, 2, chColor)}
+                        className="flex-1 h-6 appearance-none cursor-pointer bg-muted rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-primary"
                       />
-                      <span className="w-10 shrink-0 text-right text-xs text-muted font-mono">{form.rgb_gains[idx].toFixed(1)}</span>
+                      <span className="w-10 shrink-0 text-right text-xs text-muted-foreground mono">{form.rgb_gains[idx].toFixed(1)}</span>
                     </div>
                   </div>
                 );
               })}
             </div>
-            {errors.rgb_gains && <p className="mt-1 text-xs text-red">{errors.rgb_gains}</p>}
+            {errors.rgb_gains && <p className="mt-1 text-xs text-destructive">{errors.rgb_gains}</p>}
           </div>
 
-          {/* Vibrance slider — ink default (square) */}
-          <div>
-            <div className="mb-1.5">
-              <label className="text-[10px] font-medium text-secondary uppercase tracking-widest">Digital Vibrance</label>
-            </div>
-            <div className="flex items-center gap-3">
-              <input
-                type="range" min={0} max={100} step={1} value={form.vibrance}
-                disabled={nvSupported === false}
-                onChange={(e) => updateField("vibrance", parseFloat(e.target.value))}
-                className="min-w-0 flex-1"
-                style={trackFill(form.vibrance, 0, 100)}
-              />
-              <span className="w-12 shrink-0 text-right text-xs text-secondary font-mono">{form.vibrance.toFixed(0)}</span>
-            </div>
-            <div className="flex justify-between text-xs text-muted mt-0.5">
-              <span className="font-mono">0</span>
-              <span className="font-mono">50</span>
-              <span className="font-mono">100</span>
-            </div>
-            {errors.vibrance && <p className="mt-1 text-xs text-red">{errors.vibrance}</p>}
-          </div>
+          {/* Vibrance slider */}
+          <SliderField
+            label="Digital Vibrance"
+            min={0} max={100} step={1}
+            value={form.vibrance}
+            display={form.vibrance.toFixed(0)}
+            onChange={(v) => updateField("vibrance", v)}
+            markers={["0", "50", "100"]}
+            error={errors.vibrance}
+            disabled={nvSupported === false}
+          />
 
-          {/* Hue slider — ink default (square) */}
-          <div>
-            <div className="mb-1.5">
-              <label className="text-[10px] font-medium text-secondary uppercase tracking-widest">Hue</label>
-            </div>
-            <div className="flex items-center gap-3">
-              <input
-                type="range" min={0} max={359} step={1} value={form.hue_deg}
-                disabled={nvSupported === false}
-                onChange={(e) => updateField("hue_deg", parseFloat(e.target.value))}
-                className="min-w-0 flex-1"
-                style={trackFill(form.hue_deg, 0, 359)}
-              />
-              <span className="w-12 shrink-0 text-right text-xs text-secondary font-mono">{form.hue_deg.toFixed(0)}°</span>
-            </div>
-            <div className="flex justify-between text-xs text-muted mt-0.5">
-              <span className="font-mono">0</span>
-              <span className="font-mono">359</span>
-            </div>
-            {errors.hue_deg && <p className="mt-1 text-xs text-red">{errors.hue_deg}</p>}
-            {nvSupported === false && (
-              <p className="mt-1 text-xs text-yellow">Digital vibrance/hue need an NVIDIA-driven display.</p>
-            )}
-          </div>
+          {/* Hue slider */}
+          <SliderField
+            label="Hue"
+            min={0} max={359} step={1}
+            value={form.hue_deg}
+            display={`${form.hue_deg.toFixed(0)}°`}
+            onChange={(v) => updateField("hue_deg", v)}
+            markers={["0", "359"]}
+            error={errors.hue_deg}
+            disabled={nvSupported === false}
+          />
+          {nvSupported === false && (
+            <p className="mt-1 text-xs text-destructive">Digital vibrance/hue need an NVIDIA-driven display.</p>
+          )}
 
           {/* Precedence footnote */}
-          <p className="mt-2 text-[10px] text-muted leading-relaxed">
-            <span className="font-medium uppercase tracking-widest text-secondary">Precedence:</span>
+          <p className="mt-2 text-xs text-muted-foreground leading-relaxed mono">
+            <span className="font-medium uppercase tracking-widest text-muted-foreground">Precedence:</span>
             ICC profile first, then gamma + RGB gains overlaid.
           </p>
 
           {/* Actions */}
           <div className="flex flex-wrap items-center justify-end gap-3 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="bauhaus-btn px-4 py-2 text-sm font-medium border-2 border-ink bg-surface text-secondary hover:bg-surface-hover"
-            >
+            <Button variant="outline" size="sm" onClick={onClose}>
               CANCEL
-            </button>
-            {/* CREATE/UPDATE = blue bg + white text (EDIT role) */}
-            <button
-              type="submit"
-              disabled={saving}
-              className={`bauhaus-btn px-6 py-2 text-sm font-medium border-2 border-blue bg-primary-blue shadow-btn active:translate-y-0.5 active:shadow-none motion-reduce:active:translate-y-0 ${
-                saving ? "opacity-50 cursor-wait" : ""
-              }`}
-              style={{ color: "white" }}
-            >
+            </Button>
+            <Button variant="secondary" size="sm" type="submit" disabled={saving}>
               {saving ? "SAVING…" : isEditing ? "UPDATE" : "CREATE"}
-            </button>
+            </Button>
           </div>
         </form>
       </div>
+    </div>
+  );
+}
+
+/** Reusable slider + label + value + markers */
+function SliderField({
+  label, min, max, step, value, display, onChange, markers, error, disabled,
+}: {
+  label: string;
+  min: number; max: number; step: number;
+  value: number;
+  display: string;
+  onChange: (v: number) => void;
+  markers: string[];
+  error?: string;
+  disabled?: boolean;
+}) {
+  return (
+    <div>
+      <div className="mb-1.5">
+        <label className="flex items-center gap-2 text-xs leading-none font-medium text-muted-foreground uppercase tracking-widest mono">
+          {label}
+        </label>
+      </div>
+      <div className="flex items-center gap-3">
+        <input
+          type="range" min={min} max={max} step={step} value={value}
+          disabled={disabled}
+          onChange={(e) => onChange(parseFloat(e.target.value))}
+          className="flex-1 h-6 appearance-none cursor-pointer bg-muted rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50"
+        />
+        <span className="w-12 shrink-0 text-right text-xs text-muted-foreground mono">{display}</span>
+      </div>
+      <div className="flex justify-between text-xs text-muted-foreground mt-0.5 mono">
+        {markers.map((m) => <span key={m}>{m}</span>)}
+      </div>
+      {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
     </div>
   );
 }
