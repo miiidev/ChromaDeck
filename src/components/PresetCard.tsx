@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import type { Monitor, Preset } from "../lib/types";
 import { deletePreset, createPreset, unpinMonitor } from "../lib/tauri";
 import {
@@ -112,12 +112,17 @@ export default function PresetCard({
     return m?.alias || m?.model || edid.slice(0, 12);
   });
 
-  // Color tag tint + glow (same as before)
+  // Custom tag color tints the whole pad. Format-guarded: a hand-edited
+  // presets.json could hold a non-hex string, which must never reach CSS.
+  // Flat 25% tint, no glow: the card itself carries the color. Border also
+  // follows the tag via inset outline (not box-shadow, so the Tailwind
+  // rings and the focus-visible ring keep working untouched).
+  // IN USE keeps its accent ring + badge on top of the custom tint.
   const tag = /^#[0-9a-fA-F]{6}$/.test(preset.color_tag ?? "")
     ? (preset.color_tag as string)
     : null;
   const padBackground = tag
-    ? `color-mix(in srgb, var(--color-card), ${tag} 14%)`
+    ? `color-mix(in srgb, var(--color-card), ${tag} 25%)`
     : isActive
       ? "color-mix(in srgb, var(--color-card), var(--color-primary) 12%)"
       : undefined;
@@ -125,20 +130,41 @@ export default function PresetCard({
     padBackground || tag
       ? ({
           ...(padBackground ? { backgroundColor: padBackground } : {}),
-          ...(tag
-            ? {
-                filter: `drop-shadow(0 0 8px color-mix(in srgb, ${tag} 55%, transparent))`,
-              }
-            : {}),
+          ...(tag ? { outline: `1px solid ${tag}`, outlineOffset: "-1px" } : {}),
         } as Record<string, string>)
       : undefined;
 
   // Category split on first " - "
   const { category, title } = splitCategory(preset.name);
 
-  // Title font-size based on length
-  const titleLen = title.length;
-  const titleSize = titleLen > 13 ? "26px" : titleLen > 9 ? "32px" : "36px";
+  // Title is a fixed 32px for every card; overflow is handled by
+  // truncation + hover marquee + full-name tooltip, never by resizing.
+  const titleSize = "32px";
+  const titleTextClass = "text-[#f2f5fa] font-display font-extrabold";
+  const titleTextStyle = {
+    fontSize: titleSize,
+    lineHeight: "1",
+    letterSpacing: "-0.02em",
+  } as Record<string, string>;
+
+  // Marquee only when the title actually overflows: measure full text
+  // against the button width (re-checked on resize + title change).
+  const titleBtnRef = useRef<HTMLButtonElement>(null);
+  const titleMeasureRef = useRef<HTMLSpanElement>(null);
+  const [titleOverflows, setTitleOverflows] = useState(false);
+  useEffect(() => {
+    const btn = titleBtnRef.current;
+    const measure = titleMeasureRef.current;
+    if (!btn || !measure) {
+      setTitleOverflows(false);
+      return;
+    }
+    const check = () => setTitleOverflows(measure.scrollWidth > btn.clientWidth + 1);
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(btn);
+    return () => ro.disconnect();
+  }, [title, titleSize]);
 
   // Stat values
   const statValue = (key: string): number => {
@@ -180,8 +206,8 @@ export default function PresetCard({
           // Pinned: accent border + hard offset shadow
           ...(isPinned
             ? ({
-                borderColor: "#2f8bff",
-                boxShadow: "6px 6px 0 #2f8bff",
+                borderColor: "#34D399",
+                boxShadow: "6px 6px 0 #34D399",
               } as Record<string, string>)
             : {}),
         }}
@@ -216,7 +242,7 @@ export default function PresetCard({
                     title={`Pinned to ${pinnedMonitorNames.join(", ")}`}
                     aria-label={`Preset pinned to ${pinnedMonitorNames.join(", ")}`}
                   >
-                    <Pin className="size-[14px] text-[#2f8bff]" strokeWidth={2} />
+                    <Pin className="size-[14px] text-[#34D399]" strokeWidth={2} />
                     <span className="sr-only">Pinned</span>
                   </span>
                 )}
@@ -238,7 +264,7 @@ export default function PresetCard({
                 {/* IN USE marker: solid accent badge, dark text for contrast */}
                 {isActive && (
                   <span
-                    className="pop-in rounded-[6px] bg-[#2f8bff] px-[6px] py-px text-[10px] font-mono font-bold tracking-[0.1em] text-[#06202e]"
+                    className="pop-in rounded-[6px] bg-[#34D399] px-[6px] py-px text-[10px] font-mono font-bold tracking-[0.1em] text-[#06202e]"
                     title="Currently applied to a connected monitor"
                   >
                     IN USE
@@ -254,7 +280,7 @@ export default function PresetCard({
                 <span className="pop-in">
                   <button
                     type="button"
-                    className="inline-flex items-center justify-center size-8 rounded-lg bg-transparent text-[#6b7285] hover:text-[#2f8bff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2f8bff]/60" data-slot="button"
+                    className="inline-flex items-center justify-center size-8 rounded-lg bg-transparent text-[#6b7285] hover:text-[#34D399] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#34D399]/60" data-slot="button"
                     onClick={(e) => {
                       e.stopPropagation();
                       void (async () => {
@@ -276,7 +302,7 @@ export default function PresetCard({
 
               <button
                 type="button"
-                className="inline-flex items-center justify-center size-8 rounded-lg bg-transparent text-[#6b7285] hover:text-[#2f8bff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2f8bff]/60" data-slot="button"
+                className="inline-flex items-center justify-center size-8 rounded-lg bg-transparent text-[#6b7285] hover:text-[#34D399] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#34D399]/60" data-slot="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   onEdit(preset);
@@ -290,7 +316,7 @@ export default function PresetCard({
 
               <button
                 type="button"
-                className="inline-flex items-center justify-center size-8 rounded-lg bg-transparent text-[#6b7285] hover:text-[#2f8bff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2f8bff]/60" data-slot="button"
+                className="inline-flex items-center justify-center size-8 rounded-lg bg-transparent text-[#6b7285] hover:text-[#34D399] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#34D399]/60" data-slot="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   void handleDuplicate();
@@ -304,7 +330,7 @@ export default function PresetCard({
 
               <button
                 type="button"
-                className="inline-flex items-center justify-center size-8 rounded-lg bg-transparent text-[#6b7285] hover:text-[#ff2e7e] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2f8bff]/60" data-slot="button"
+                className="inline-flex items-center justify-center size-8 rounded-lg bg-transparent text-[#6b7285] hover:text-[#ff2e7e] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#34D399]/60" data-slot="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   setShowDeleteModal(true);
@@ -321,8 +347,9 @@ export default function PresetCard({
 
         {/* ═══ Row 2: Title as apply button ═══ */}
         <button
+          ref={titleBtnRef}
           type="button"
-          className="flex items-center text-left w-full bg-transparent border-0 cursor-pointer rounded transition-opacity hover:opacity-85 focus-visible:outline-2 focus-visible:outline-[#2f8bff] focus-visible:outline-offset-2"
+          className="preset-title relative flex items-center text-left w-full bg-transparent border-0 cursor-pointer rounded transition-opacity hover:opacity-85 focus-visible:outline-2 focus-visible:outline-[#34D399] focus-visible:outline-offset-2"
           onClick={(e) => {
             // Pad already applies/toggles; don't fire twice.
             e.stopPropagation();
@@ -338,17 +365,35 @@ export default function PresetCard({
           }
           aria-pressed={selectable ? (selected ? "true" : "false") : undefined}
         >
+          {/* Invisible full-text measurer for overflow detection */}
           <span
-            className="truncate text-[#f2f5fa] font-display font-extrabold"
-            style={{
-              fontSize: titleSize,
-              lineHeight: "1",
-              letterSpacing: "-0.02em",
-            } as Record<string, string>}
-            title={preset.name}
+            ref={titleMeasureRef}
+            aria-hidden="true"
+            className={`absolute invisible whitespace-nowrap ${titleTextClass}`}
+            style={titleTextStyle}
           >
             {title}
           </span>
+          {titleOverflows ? (
+            <span className="block w-full overflow-hidden whitespace-nowrap" title={preset.name}>
+              <span className="marquee-track">
+                <span className={`pr-10 ${titleTextClass}`} style={titleTextStyle}>
+                  {title}
+                </span>
+                <span className={`pr-10 ${titleTextClass}`} style={titleTextStyle} aria-hidden="true">
+                  {title}
+                </span>
+              </span>
+            </span>
+          ) : (
+            <span
+              className={`truncate ${titleTextClass}`}
+              style={titleTextStyle}
+              title={preset.name}
+            >
+              {title}
+            </span>
+          )}
         </button>
 
         {/* ═══ Row 3: 2×2 Stat grid (identical in every mode) ═══ */}
@@ -392,7 +437,7 @@ export default function PresetCard({
               <button
                 type="button"
                 data-slot="button"
-                className="inline-flex items-center justify-center rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2f8bff]/60"
+                className="inline-flex items-center justify-center rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#34D399]/60"
                 onClick={() => setShowDeleteModal(false)}
                 disabled={deleting}
               >
@@ -401,7 +446,7 @@ export default function PresetCard({
               <button
                 type="button"
                 data-slot="button"
-                className="inline-flex items-center justify-center rounded-lg bg-destructive/20 px-3 py-1.5 text-xs font-medium text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2f8bff]/60"
+                className="inline-flex items-center justify-center rounded-lg bg-destructive/20 px-3 py-1.5 text-xs font-medium text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#34D399]/60"
                 onClick={() => void handleDelete()}
                 disabled={deleting}
               >

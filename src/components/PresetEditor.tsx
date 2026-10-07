@@ -173,7 +173,7 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="sm:max-w-[682px] max-h-[calc(100dvh-3rem)] overflow-y-auto">
+      <DialogContent className="sm:max-w-[682px] max-h-[calc(100dvh-3rem)] overflow-y-auto overflow-x-clip">
         <DialogHeader>
           <DialogTitle>
             {isEditing ? `EDIT: ${editPreset?.name}` : "CREATE PRESET"}
@@ -182,7 +182,7 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
 
         {/* Form — two columns on sm+: preview/basics left, sliders right */}
         <form onSubmit={handleSubmit} className="grid gap-5 sm:grid-cols-[240px_1fr]">
-          <div className="space-y-5 min-w-0">
+          <div className="space-y-3 min-w-0">
           {/* Live simulated preview */}
           <PreviewStrip
             preset={{
@@ -193,7 +193,7 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
               vibrance: form.vibrance,
               hue_deg: form.hue_deg,
             }}
-            height={120}
+            height={96}
             showTag
           />
           {iccStatus && (
@@ -339,7 +339,7 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
                 className="h-5 w-8 shrink-0 rounded-md border border-border"
                 style={
                   /^#[0-9a-fA-F]{6}$/.test(form.color_tag ?? "")
-                    ? ({ backgroundColor: `color-mix(in srgb, var(--color-card), ${form.color_tag} 14%)` } as Record<string, string>)
+                    ? ({ backgroundColor: `color-mix(in srgb, var(--color-card), ${form.color_tag} 25%)` } as Record<string, string>)
                     : undefined
                 }
               />
@@ -348,9 +348,9 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
           </div>
           </div>
 
-          {/* Right column — sliders */}
-          <div className="space-y-4 min-w-0">
-          {/* Gamma slider */}
+          {/* Right column — sliders — 2-col mini-grid at sm+ */}
+          <div className="flex flex-col gap-4 min-w-0 sm:grid sm:grid-cols-2 sm:gap-3">
+          {/* Gamma | Brightness — side by side */}
           <SliderField
             label="Gamma"
             min={0.3} max={2.8} step={0.05}
@@ -361,7 +361,6 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
             error={errors.gamma}
           />
 
-          {/* Brightness slider */}
           <SliderField
             label="Brightness"
             min={0} max={100} step={1}
@@ -372,7 +371,7 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
             error={errors.brightness}
           />
 
-          {/* Contrast slider */}
+          {/* Contrast | Vibrance — side by side */}
           <SliderField
             label="Contrast"
             min={0} max={100} step={1}
@@ -383,8 +382,19 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
             error={errors.contrast}
           />
 
-          {/* RGB gains — three per-channel sliders */}
-          <div>
+          <SliderField
+            label="Digital Vibrance"
+            min={0} max={100} step={1}
+            value={form.vibrance}
+            display={form.vibrance.toFixed(0)}
+            onChange={(v) => updateField("vibrance", v)}
+            markers={[{ value: 0, label: "0" }, { value: 50, label: "50" }, { value: 100, label: "100" }]}
+            error={errors.vibrance}
+            disabled={nvSupported === false}
+          />
+
+          {/* RGB Gains — full width */}
+          <div className="sm:col-span-2">
             <Label className="text-xs uppercase tracking-widest mb-2 mono">
               RGB Gains <span className="text-muted-foreground font-normal normal-case">(1.0 = neutral)</span>
             </Label>
@@ -425,19 +435,8 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
             {errors.rgb_gains && <p className="mt-1 text-xs text-destructive">{errors.rgb_gains}</p>}
           </div>
 
-          {/* Vibrance slider */}
-          <SliderField
-            label="Digital Vibrance"
-            min={0} max={100} step={1}
-            value={form.vibrance}
-            display={form.vibrance.toFixed(0)}
-            onChange={(v) => updateField("vibrance", v)}
-            markers={[{ value: 0, label: "0" }, { value: 50, label: "50" }, { value: 100, label: "100" }]}
-            error={errors.vibrance}
-            disabled={nvSupported === false}
-          />
-
-          {/* Hue slider */}
+          {/* Hue — full width */}
+          <div className="sm:col-span-2">
           <SliderField
             label="Hue"
             min={0} max={359} step={1}
@@ -449,11 +448,12 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
             disabled={nvSupported === false}
           />
           {nvSupported === false && (
-            <p className="mt-1 text-xs text-destructive">Digital vibrance/hue need an NVIDIA-driven display.</p>
+            <p className="text-xs text-destructive">Digital vibrance/hue need an NVIDIA-driven display.</p>
           )}
+          </div>
 
           {/* Precedence footnote */}
-          <p className="text-xs text-muted-foreground leading-relaxed mono">
+          <p className="sm:col-span-2 text-xs text-muted-foreground leading-relaxed mono">
             <span className="font-medium uppercase tracking-widest text-muted-foreground">Precedence:</span>
             ICC profile first, then gamma + RGB gains overlaid.
           </p>

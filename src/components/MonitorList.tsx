@@ -383,7 +383,7 @@ function LibraryScrollRoot({ header, children }: { header: ReactNode; children: 
         onScroll={onScroll}
         data-at-top="true"
         data-at-bottom="true"
-        className="scroll-fades flex-1 min-h-0 overflow-y-auto"
+        className="scroll-fades flex-1 min-h-0 overflow-y-auto overflow-x-clip"
       >
         {children}
       </div>
