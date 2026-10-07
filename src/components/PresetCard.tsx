@@ -4,6 +4,7 @@ import { deletePreset, createPreset, unpinMonitor } from "../lib/tauri";
 import { Badge } from "@/components/ui/badge";
 import { deviatingChips } from "../lib/presetChips";
 import { Button } from "@/components/ui/button";
+import { Checkbox, CheckboxIndicator } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Copy, Pencil, PinOff, Trash2 } from "lucide-react";
 import { cn } from "cn";
@@ -19,15 +20,25 @@ interface Props {
   appliedMap: Record<string, string>;
   staggerEnter?: boolean;
   staggerMs?: number;
+  onDuplicated?: (preset: Preset) => void;
+  highlightEnter?: boolean;
+  selectable?: boolean;
+  selected?: boolean;
+  onToggleSelect?: () => void;
+  trembleDelayMs?: number;
+  exploding?: boolean;
+  explodeDelayMs?: number;
+  onDeleted?: (id: string) => void;
 }
 
-export default function PresetCard({ preset, monitors, pins, onEdit, onRefreshParent, onPinChange, onApply, appliedMap, staggerEnter, staggerMs }: Props) {
+export default function PresetCard({ preset, monitors, pins, onEdit, onRefreshParent, onPinChange, onApply, appliedMap, staggerEnter, staggerMs, onDuplicated, highlightEnter, selectable, selected, onToggleSelect, trembleDelayMs, exploding, explodeDelayMs, onDeleted }: Props) {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [singleExploding, setSingleExploding] = useState(false);
 
   const handleDuplicate = async () => {
     try {
-      await createPreset({
+      const created = await createPreset({
         name: `${preset.name} (copy)`,
         brightness: preset.brightness,
         contrast: preset.contrast,
@@ -37,7 +48,10 @@ export default function PresetCard({ preset, monitors, pins, onEdit, onRefreshPa
         hue_deg: preset.hue_deg,
         color_tag: preset.color_tag,
       });
-      onRefreshParent();
+      // Optimistic insert (no library reload): the parent appends the new
+      // card with its own entrance. Falls back to full refresh if unwired.
+      if (onDuplicated) onDuplicated(created);
+      else onRefreshParent();
     } catch {
       // silent
     }
@@ -45,21 +59,34 @@ export default function PresetCard({ preset, monitors, pins, onEdit, onRefreshPa
 
   const handleDelete = async () => {
     setDeleting(true);
+    // Solo detonation: same explosion language as batch delete, then
+    // optimistic removal (no library reload). Falls back to full refresh.
+    setSingleExploding(true);
     try {
+      await new Promise<void>((resolve) => {
+        window.setTimeout(resolve, 450);
+      });
       await deletePreset(preset.id);
       setShowDeleteModal(false);
-      onRefreshParent();
+      if (onDeleted) onDeleted(preset.id);
+      else onRefreshParent();
     } catch {
       setShowDeleteModal(false);
     } finally {
       setDeleting(false);
+      setSingleExploding(false);
     }
   };
+
+  // Either detonation path (batch via parent, solo locally) triggers it.
+  const detonating = exploding || singleExploding;
+  const detonateDelayMs = explodeDelayMs ?? 0;
 
   const handleKeyDown = (e: { key: string; preventDefault: () => void }) => {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
-      onApply(preset);
+      if (selectable) onToggleSelect?.();
+      else onApply(preset);
     }
   };
 
@@ -121,15 +148,31 @@ export default function PresetCard({ preset, monitors, pins, onEdit, onRefreshPa
         data-slot="card"
         className={cn(
           "card-ring",
-          "flex flex-col rounded-lg overflow-hidden bg-card ring-1 ring-foreground/10 text-sm text-card-foreground outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
+          "flex flex-col rounded-lg overflow-hidden bg-card ring-1 ring-foreground/10 text-sm text-card-foreground outline-none focus-visible:ring-3 focus-visible:ring-ring/50 min-h-48",
           isActive ? "ring-1 ring-primary/60" : "",
+          highlightEnter ? "pop-in" : "",
+          selectable && !detonating ? "card-tremble" : "",
+          detonating ? "card-explode" : "",
         )}
-        style={padStyle}
+        style={{
+          ...padStyle,
+          // Stable per-card transition name: lets View Transitions match
+          // this card across snapshots so survivors glide when siblings
+          // are deleted. Inert unless a transition runs.
+          viewTransitionName: `preset-card-${preset.id}`,
+          // Negative delay starts each card mid-wobble so the grid
+          // trembles out of sync. Explosion delay wins while detonating.
+          // Inert unless a matching animation class runs.
+          ...((detonating ? detonateDelayMs : trembleDelayMs) !== undefined
+            ? ({ animationDelay: `${detonating ? detonateDelayMs : trembleDelayMs}ms` } as Record<string, string>)
+            : {}),
+        }}
         role="button"
         tabIndex={0}
-        onClick={() => onApply(preset)}
+        onClick={() => { if (selectable) onToggleSelect?.(); else onApply(preset); }}
         onKeyDown={handleKeyDown}
-        aria-label={`Apply preset ${preset.name}`}
+        aria-label={selectable ? `Select preset ${preset.name}` : `Apply preset ${preset.name}`}
+        aria-pressed={selectable && selected ? "true" : "false"}
       >
         {/* Deviating-parameter chips — only what differs from neutral */}
         <div className="flex flex-wrap items-center gap-1 px-1.5 pt-1.5">
@@ -163,6 +206,13 @@ export default function PresetCard({ preset, monitors, pins, onEdit, onRefreshPa
 
         {/* Name + inline status markers — one line */}
         <div className="flex items-center gap-1.5 shrink-0 px-1.5 py-0.5">
+          {selectable && (
+            <span className="pointer-events-none">
+              <Checkbox checked={selected ?? false} onCheckedChange={() => {}}>
+                <CheckboxIndicator />
+              </Checkbox>
+            </span>
+          )}
           <span className="truncate text-sm font-medium leading-tight" title={preset.name}>
             {preset.name}
           </span>
@@ -182,7 +232,7 @@ export default function PresetCard({ preset, monitors, pins, onEdit, onRefreshPa
               <Badge variant="outline" className="pop-in" title={preset.icc_filename}>
                 ICC
               </Badge>
-            )}
+)}
           </div>
         </div>
 
@@ -196,9 +246,11 @@ export default function PresetCard({ preset, monitors, pins, onEdit, onRefreshPa
         {/* ── Action cluster — compact icon buttons, in-flow row ─── */}
         {/* Row is click-through (empty space still applies the preset);
             each button re-enables pointer events and stops propagation so
-            its press never bubbles up into an apply. */}
+            its press never bubbles up into an apply.
+            Hidden entirely in selection mode. */}
+        {!selectable && (
         <div
-          className="flex items-center justify-end gap-1.5 px-1.5 pb-1.5 pt-1 pointer-events-none"
+          className="flex items-center justify-end gap-1.5 px-1.5 pb-1.5 pt-1 mt-auto pointer-events-none"
           onClick={(e) => e.stopPropagation()}
           onKeyDown={(e) => e.stopPropagation()}
         >
@@ -271,7 +323,8 @@ export default function PresetCard({ preset, monitors, pins, onEdit, onRefreshPa
           >
             <Trash2 />
           </Button>
-        </div>
+</div>
+        )}
       </div>
 
       {/* Delete confirmation dialog */}

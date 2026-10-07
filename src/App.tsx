@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { flushSync } from "react-dom";
 import "./App.css";
 import { listMonitors, listPresets, listPins, listApplied, reapplyNow } from "./lib/tauri";
 import type { Monitor, Preset, EnforceEvent } from "./lib/types";
@@ -46,9 +47,45 @@ function App() {
   const [applyingPreset, setApplyingPreset] = useState<Preset | null>(null);
   const [applyTargetEdid, setApplyTargetEdid] = useState<string | null>(null);
   const [appliedMap, setAppliedMap] = useState<Record<string, string>>({});
+  const [lastAddedId, setLastAddedId] = useState<string | null>(null);
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
+  // Optimistic batch-delete removal: drop the deleted cards locally so no
+  // reload flash interrupts the explosion, then sync quietly in the
+  // background (pins/applied/footer) without touching the loading flag.
+  // The removal runs inside a View Transition (Chromium/WebView2) so the
+  // surviving cards glide into the freed gaps instead of jumping.
+  const handleBatchDeleted = (ids: string[]) => {
+    if (ids.length > 0) {
+      const remove = () =>
+        setPresets((prev) => prev.filter((p) => !ids.includes(p.id)));
+      const doc = document as Document & {
+        startViewTransition?: (cb: () => void) => void;
+      };
+      if (typeof doc.startViewTransition === "function") {
+        doc.startViewTransition(() => {
+          flushSync(remove);
+        });
+      } else {
+        remove();
+      }
+      setLastAddedId((cur) => (cur !== null && ids.includes(cur) ? null : cur));
+    }
+    void fetchData(true);
+  };
+  // Optimistic duplicate insert: append the created preset locally so the
+  // new card fades in on its own instead of reloading the whole library.
+  const handlePresetDuplicated = (created: Preset) => {
+    setPresets((prev) =>
+      prev.some((p) => p.id === created.id) ? prev : [...prev, created],
+    );
+    setLastAddedId(created.id);
+    window.setTimeout(() => {
+      setLastAddedId((cur) => (cur === created.id ? null : cur));
+    }, 600);
+  };
+
+  const fetchData = useCallback(async (quiet = false) => {
+    if (!quiet) setLoading(true);
     setError(null);
     try {
       const [monitorsData, presetsData, pinsData, appliedData] = await Promise.all([
@@ -64,7 +101,7 @@ function App() {
     } catch (err) {
       setError(String(err));
     } finally {
-      setLoading(false);
+      if (!quiet) setLoading(false);
     }
   }, []);
 
@@ -165,7 +202,7 @@ function App() {
             </span>
           </div>
           <div className="flex items-center justify-end px-4 py-2">
-            <button onClick={fetchData} data-slot="button" className="inline-flex items-center justify-center rounded-lg border border-border bg-card px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground active:translate-y-px">
+            <button onClick={() => void fetchData()} data-slot="button" className="inline-flex items-center justify-center rounded-lg border border-border bg-card px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground active:translate-y-px">
               Retry
             </button>
           </div>
@@ -193,6 +230,10 @@ function App() {
           pins={pins}
           onPinChange={fetchData}
           appliedMap={appliedMap}
+          onPresetDuplicated={handlePresetDuplicated}
+          onBatchDeleted={handleBatchDeleted}
+          onPresetDeleted={(id) => handleBatchDeleted([id])}
+          lastAddedId={lastAddedId}
           onApply={(preset) => { setApplyTargetEdid(null); setApplyingPreset(preset); }}
         />
       </div>
