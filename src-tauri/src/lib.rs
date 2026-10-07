@@ -1,5 +1,6 @@
 mod color;
 mod enforce;
+mod identify;
 mod monitor;
 mod nvapi;
 mod nvgamma;
@@ -7,12 +8,14 @@ mod store;
 
 use color::{apply_preset_cmd, reset_monitor_cmd};
 use enforce::reapply_now_cmd;
+use identify::{identify_info_cmd, identify_monitors_cmd};
 use monitor::list_monitors_cmd;
 use nvapi::vibrance_supported_cmd;
 use nvgamma::capture_nvcp_cmd;
 use store::{
-    create_preset_cmd, delete_preset_cmd, import_icc_cmd, list_pins_cmd, list_presets_cmd,
-    pin_preset_cmd, set_monitor_name_cmd, unpin_monitor_cmd, update_preset_cmd, AppStore,
+    create_preset_cmd, delete_preset_cmd, import_icc_cmd, list_applied_cmd, list_pins_cmd,
+    list_presets_cmd, pin_preset_cmd, set_monitor_name_cmd, unpin_monitor_cmd, update_preset_cmd,
+    AppStore,
 };
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
@@ -110,6 +113,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             list_monitors_cmd,
+            identify_monitors_cmd,
+            identify_info_cmd,
             list_presets_cmd,
             create_preset_cmd,
             update_preset_cmd,
@@ -121,6 +126,7 @@ pub fn run() {
             pin_preset_cmd,
             unpin_monitor_cmd,
             list_pins_cmd,
+            list_applied_cmd,
             reapply_now_cmd,
             capture_nvcp_cmd,
             set_monitor_name_cmd,
@@ -135,6 +141,12 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
+                let label = window.label();
+                // Let identify- overlay windows close normally; prevent
+                // close + hide the main window (system-tray style).
+                if label.starts_with("identify-") {
+                    return; // allow normal close / destroy
+                }
                 api.prevent_close();
                 let _ = window.hide();
             }

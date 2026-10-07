@@ -3,6 +3,10 @@ import type { Monitor, Preset, ApplyResult } from "../lib/types";
 import { applyPreset, pinPreset, unpinMonitor } from "../lib/tauri";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox, CheckboxIndicator } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupIndicator, RadioGroupItem } from "@/components/ui/radio-group";
 
 interface Props {
   preset: Preset;
@@ -21,14 +25,6 @@ export default function ApplyDialog({ preset, monitors, pins, initialEdid, onClo
   const [pinToggle, setPinToggle] = useState(false);
   const [applying, setApplying] = useState(false);
   const [lastResult, setLastResult] = useState<ApplyResult | null>(null);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
 
   // Initialise target: explicit sidebar choice → in-session memory → first connected
   useEffect(() => {
@@ -90,32 +86,27 @@ export default function ApplyDialog({ preset, monitors, pins, initialEdid, onClo
   const isPinnedOnTarget = pins[selectedEdid] === preset.id;
 
   return (
-    <div
-      className="fixed inset-0 isolate z-50 flex items-center justify-center bg-black/10 p-4"
-      onClick={() => { if (!applying) onClose(); }}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={`Apply preset ${preset.name}`}
-        className="w-full max-w-sm rounded-xl bg-popover text-popover-foreground ring-1 ring-foreground/10"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* ── Header ────────────────────────────────────────────── */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-          <div className="min-w-0 flex-1">
-            <h2 className="text-sm font-medium text-foreground truncate">
-              Apply: {preset.name}
-            </h2>
-            <p className="mt-0.5 text-xs text-muted-foreground mono uppercase tracking-widest">
-              Select target monitor
-            </p>
-          </div>
-          <Button variant="ghost" size="icon-sm" onClick={onClose} disabled={applying} aria-label="Close apply dialog" />
-        </div>
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            Apply: {preset.name}
+          </DialogTitle>
+          <DialogDescription className="mono uppercase tracking-widest">
+            Select target monitor
+          </DialogDescription>
+        </DialogHeader>
 
         {/* ── Monitor list ──────────────────────────────────────── */}
-        <div className="px-5 py-4 space-y-2">
+        <RadioGroup
+          value={selectedEdid}
+          onValueChange={(v) => {
+            setSelectedEdid(v);
+            setPinToggle(pins[v] === preset.id);
+            setLastResult(null);
+          }}
+          className="space-y-2"
+        >
           <p className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-1 mono">
             Monitors
           </p>
@@ -136,29 +127,28 @@ export default function ApplyDialog({ preset, monitors, pins, initialEdid, onClo
                       : "bg-card/50 text-muted-foreground"
                 }`}
               >
-                <input
-                  type="radio"
-                  name="target-monitor"
+                <RadioGroupItem
                   value={m.edid_id}
-                  checked={isSelected}
                   disabled={!m.connected}
-                  onChange={() => {
+                  onClick={() => {
                     if (m.connected) {
-                      setSelectedEdid(m.edid_id);
-                      setPinToggle(pins[m.edid_id] === preset.id);
                       setLastResult(null);
                     }
                   }}
-                  className="accent-primary"
-                />
+                >
+                  <RadioGroupIndicator />
+                </RadioGroupItem>
                 <span className="flex-1 min-w-0 truncate text-sm font-medium text-foreground">
                   {m.alias || m.model || m.device_name}
                 </span>
                 <span className="inline-flex items-center gap-1 shrink-0">
                   {isPinnedHere && (
-                    <Badge variant="outline" className="text-accent border-accent">
-                      PINNED
-                    </Badge>
+                    <span className="inline-flex items-center gap-1">
+                      <span className="status-dot status-dot-pinned" title="Pinned" />
+                      <Badge variant="outline" className="text-accent border-accent">
+                        PINNED
+                      </Badge>
+                    </span>
                   )}
                   {m.connected ? (
                     <span className="status-dot status-dot-connected" title="Connected" />
@@ -171,33 +161,33 @@ export default function ApplyDialog({ preset, monitors, pins, initialEdid, onClo
               </label>
             );
           })}
-        </div>
+        </RadioGroup>
 
         {/* ── Pin toggle ────────────────────────────────────────── */}
-        <div className="px-5 py-3 flex items-center gap-3 border-t border-border">
-          <label className="inline-flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
+        <div className="flex items-center gap-3">
+          <Label className="inline-flex items-center gap-2 cursor-pointer">
+            <Checkbox
               checked={pinToggle}
-              onChange={(e) => setPinToggle(e.target.checked)}
-              className="accent-primary"
-            />
+              onCheckedChange={setPinToggle}
+            >
+              <CheckboxIndicator />
+            </Checkbox>
             <span className="text-xs font-medium text-muted-foreground uppercase tracking-widest mono">
               PIN TO MONITOR
             </span>
-          </label>
+          </Label>
           {isPinnedOnTarget && pinToggle && (
-            <span className="text-xs text-primary">Already pinned</span>
+            <span className="text-xs text-primary transient-enter">Already pinned</span>
           )}
         </div>
 
         {/* ── Result feedback — persistent ──────────────────────── */}
         {lastResult && (
-          <div className="px-5 py-2" aria-live="polite">
+          <div aria-live="polite" className={lastResult.error ? "exit-fade" : "feedback-enter"}>
             {lastResult.error ? (
-              <span className="text-xs text-destructive block">Apply failed: {lastResult.error}</span>
+              <span className="text-xs text-destructive block validation-slide">Apply failed: {lastResult.error}</span>
             ) : (
-              <span className="text-xs text-primary block mono">
+              <span className="text-xs text-primary block mono feedback-enter">
                 {[
                   lastResult.icc_applied && "ICC applied",
                   lastResult.gamma_applied && "gamma applied",
@@ -212,20 +202,20 @@ export default function ApplyDialog({ preset, monitors, pins, initialEdid, onClo
         )}
 
         {/* ── Actions ───────────────────────────────────────────── */}
-        <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-border">
+        <DialogFooter>
           <Button variant="outline" size="sm" onClick={onClose} disabled={applying}>
-            CANCEL
+            Cancel
           </Button>
           {lastResult && !lastResult.error && (
             <Button variant="outline" size="sm" onClick={onClose}>
-              DONE
+              Done
             </Button>
           )}
           <Button variant="default" size="sm" onClick={handleApply} disabled={!selectedEdid || applying}>
-            {applying ? "APPLYING…" : "APPLY"}
+            {applying ? "Applying…" : "Apply"}
           </Button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

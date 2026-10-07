@@ -92,7 +92,7 @@ describe("validatePreset", () => {
     expect(errors.rgb_gains).toBeDefined();
   });
 
-  it("returns empty errors when all fields are valid", () => {
+it("returns empty errors when all fields are valid", () => {
     const errors = validatePreset({
       name: "Test",
       gamma: 2.2,
@@ -101,5 +101,47 @@ describe("validatePreset", () => {
       rgb_gains: [1.0, 1.0, 1.0],
     });
     expect(Object.keys(errors)).toHaveLength(0);
+  });
+});
+
+describe("color_tag validation", () => {
+  it("accepts empty string (untagged)", () => {
+    const errors = validatePreset({ color_tag: "" });
+    expect(errors.color_tag).toBeUndefined();
+  });
+
+  it("accepts valid #rrggbb hex color", () => {
+    const errors = validatePreset({ color_tag: "#06b6d4" });
+    expect(errors.color_tag).toBeUndefined();
+  });
+
+  it("accepts uppercase hex", () => {
+    const errors = validatePreset({ color_tag: "#EF4444" });
+    expect(errors.color_tag).toBeUndefined();
+  });
+
+  it("rejects non-hex string", () => {
+    const errors = validatePreset({ color_tag: "not-a-color" });
+    expect(errors.color_tag).toBeDefined();
+  });
+
+  it("rejects 3-digit hex", () => {
+    const errors = validatePreset({ color_tag: "#fff" });
+    expect(errors.color_tag).toBeDefined();
+  });
+
+  it("rejects missing hash prefix", () => {
+    const errors = validatePreset({ color_tag: "06b6d4" });
+    expect(errors.color_tag).toBeDefined();
+  });
+
+  it("rejects invalid hex chars", () => {
+    const errors = validatePreset({ color_tag: "#zz0000" });
+    expect(errors.color_tag).toBeDefined();
+  });
+
+  it("undefined color_tag passes validation (untagged)", () => {
+    const errors = validatePreset({});
+    expect(errors.color_tag).toBeUndefined();
   });
 });

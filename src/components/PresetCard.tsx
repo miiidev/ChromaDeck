@@ -1,9 +1,12 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import type { Monitor, Preset } from "../lib/types";
 import { deletePreset, createPreset, unpinMonitor } from "../lib/tauri";
 import { Badge } from "@/components/ui/badge";
+import { deviatingChips } from "../lib/presetChips";
 import { Button } from "@/components/ui/button";
-import { Check, Copy, Pencil, PinOff, Trash2 } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Copy, Pencil, PinOff, Trash2 } from "lucide-react";
+import { cn } from "cn";
 
 interface Props {
   preset: Preset;
@@ -14,20 +17,13 @@ interface Props {
   onPinChange: () => void;
   onApply: (preset: Preset) => void;
   appliedMap: Record<string, string>;
+  staggerEnter?: boolean;
+  staggerMs?: number;
 }
 
-export default function PresetCard({ preset, monitors, pins, onEdit, onRefreshParent, onPinChange, onApply, appliedMap }: Props) {
+export default function PresetCard({ preset, monitors, pins, onEdit, onRefreshParent, onPinChange, onApply, appliedMap, staggerEnter, staggerMs }: Props) {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
-
-  useEffect(() => {
-    if (!showDeleteModal) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setShowDeleteModal(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [showDeleteModal]);
 
   const handleDuplicate = async () => {
     try {
@@ -39,6 +35,7 @@ export default function PresetCard({ preset, monitors, pins, onEdit, onRefreshPa
         gamma: preset.gamma,
         vibrance: preset.vibrance,
         hue_deg: preset.hue_deg,
+        color_tag: preset.color_tag,
       });
       onRefreshParent();
     } catch {
@@ -56,6 +53,13 @@ export default function PresetCard({ preset, monitors, pins, onEdit, onRefreshPa
       setShowDeleteModal(false);
     } finally {
       setDeleting(false);
+    }
+  };
+
+  const handleKeyDown = (e: { key: string; preventDefault: () => void }) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      onApply(preset);
     }
   };
 
@@ -77,121 +81,223 @@ export default function PresetCard({ preset, monitors, pins, onEdit, onRefreshPa
     return m?.alias || m?.model || edid.slice(0, 12);
   });
 
+  // Custom tag color tints the whole pad. Format-guarded: a hand-edited
+  // presets.json could hold a non-hex string, which must never reach CSS.
+  // IN USE keeps its accent ring + badge on top of the custom tint.
+  // Glow uses filter: drop-shadow (not box-shadow) so it never overrides
+  // the Tailwind ring utilities or the focus-visible ring.
+  const tag = /^#[0-9a-fA-F]{6}$/.test(preset.color_tag ?? "")
+    ? (preset.color_tag as string)
+    : null;
+  const padBackground = tag
+    ? `color-mix(in srgb, var(--color-card), ${tag} 14%)`
+    : isActive
+      ? "color-mix(in srgb, var(--color-card), var(--color-primary) 12%)"
+      : undefined;
+  const padStyle: Record<string, string> | undefined =
+    padBackground || tag
+      ? ({
+          ...(padBackground ? { backgroundColor: padBackground } : {}),
+          ...(tag
+            ? {
+                filter: `drop-shadow(0 0 8px color-mix(in srgb, ${tag} 55%, transparent))`,
+              }
+            : {}),
+        } as Record<string, string>)
+      : undefined;
+
   return (
-    <div className={`flex flex-col rounded-xl bg-card text-card-foreground ring-1 ring-foreground/10 ${isActive || isPinned ? "ring-primary/30" : ""}`}>
-      {/* Card body — stacked info */}
-      <div className="px-4 py-3 space-y-2">
-        {/* Name + badges row */}
-        <div className="flex items-start justify-between gap-2">
-          <span className="text-sm font-medium text-foreground truncate leading-tight">
+    <div
+      className={cn(
+        staggerEnter ? "enter-stagger" : "",
+      )}
+      style={staggerEnter && staggerMs !== undefined
+        ? ({ "--stagger-ms": `${staggerMs}ms` } as Record<string, string>)
+        : undefined
+      }
+    >
+      {/* ── Tap pad: whole surface applies the preset ─────────────── */}
+      <div
+        data-slot="card"
+        className={cn(
+          "card-ring",
+          "flex flex-col rounded-lg overflow-hidden bg-card ring-1 ring-foreground/10 text-sm text-card-foreground outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
+          isActive ? "ring-1 ring-primary/60" : "",
+        )}
+        style={padStyle}
+        role="button"
+        tabIndex={0}
+        onClick={() => onApply(preset)}
+        onKeyDown={handleKeyDown}
+        aria-label={`Apply preset ${preset.name}`}
+      >
+        {/* Deviating-parameter chips — only what differs from neutral */}
+        <div className="flex flex-wrap items-center gap-1 px-1.5 pt-1.5">
+          {(() => {
+            const chips = deviatingChips({
+              brightness: preset.brightness,
+              contrast: preset.contrast,
+              gamma: preset.gamma,
+              rgb_gains: preset.rgb_gains,
+              vibrance: preset.vibrance,
+              hue_deg: preset.hue_deg,
+            });
+            if (chips.length === 0) {
+              return (
+                <span className="rounded-md border border-border px-1 py-px text-[10px] mono text-muted-foreground">
+                  Neutral
+                </span>
+              );
+            }
+            return chips.map((chip) => (
+              <span
+                key={chip.key}
+                title={chip.title}
+                className="rounded-md border border-border bg-muted px-1 py-px text-[10px] mono text-foreground"
+              >
+                {chip.label}
+              </span>
+            ));
+          })()}
+        </div>
+
+        {/* Name + inline status markers — one line */}
+        <div className="flex items-center gap-1.5 shrink-0 px-1.5 py-0.5">
+          <span className="truncate text-sm font-medium leading-tight" title={preset.name}>
             {preset.name}
           </span>
           <div className="flex items-center gap-1 shrink-0">
-            {isPinned && (
-              <Badge variant="outline" className="text-accent border-accent" title={`Pinned to ${pinnedMonitorNames.join(", ")}`}>
-                PINNED
+            {isActive && (
+              <Badge className="pop-in" title="Currently applied to a connected monitor">
+                IN USE
               </Badge>
             )}
+            {isPinned && (
+              <span
+                className="status-dot-pinned"
+                title={`Pinned to ${pinnedMonitorNames.join(", ")}`}
+              />
+            )}
             {preset.icc_hash && (
-              <Badge variant="outline" title={preset.icc_filename}>
+              <Badge variant="outline" className="pop-in" title={preset.icc_filename}>
                 ICC
               </Badge>
             )}
           </div>
         </div>
 
-        {/* Parameter row — mono numerals */}
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground mono">
-          <span>γ{preset.gamma.toFixed(1)}</span>
-          <span>B{preset.brightness.toFixed(0)}</span>
-          <span>C{preset.contrast.toFixed(0)}</span>
-          <span>RGB {preset.rgb_gains.map((v) => v.toFixed(1)).join("/")}</span>
-          <span>V{preset.vibrance.toFixed(0)}</span>
-          <span>H{preset.hue_deg.toFixed(0)}°</span>
-        </div>
-
         {/* Pin target hint */}
         {pinnedMonitorNames.length > 0 && (
-          <span className="text-xs text-muted-foreground">
+          <span className="px-1.5 text-xs text-muted-foreground leading-tight" title={`Pinned to ${pinnedMonitorNames.join(", ")}`}>
             → {pinnedMonitorNames.join(", ")}
           </span>
         )}
-      </div>
 
-      {/* Action buttons row */}
-      <div className="flex flex-wrap items-center gap-1 px-4 pb-3">
-        {/* APPLY = primary */}
-        <Button variant="default" size="icon-sm" onClick={() => onApply(preset)} title="Apply" aria-label={`Apply preset ${preset.name}`}>
-          <Check />
-        </Button>
+        {/* ── Action cluster — compact icon buttons, in-flow row ─── */}
+        {/* Row is click-through (empty space still applies the preset);
+            each button re-enables pointer events and stops propagation so
+            its press never bubbles up into an apply. */}
+        <div
+          className="flex items-center justify-end gap-1.5 px-1.5 pb-1.5 pt-1 pointer-events-none"
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => e.stopPropagation()}
+        >
+          {isPinned && (
+            <span className="pop-in">
+              <Button
+                variant="outline"
+                size="icon-xs"
+                className="pointer-events-auto"
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  try {
+                    for (const edid of pinnedEdidList) {
+                      await unpinMonitor(edid);
+                    }
+                    onPinChange();
+                  } catch {
+                    // silent
+                  }
+                }}
+                title="Unpin from all monitors"
+                aria-label={`Unpin preset ${preset.name} from all monitors`}
+              >
+                <PinOff />
+              </Button>
+            </span>
+          )}
 
-        {isPinned && (
+          {/* EDIT = secondary */}
+          <Button
+            variant="secondary"
+            size="icon-xs"
+            className="pointer-events-auto"
+            onClick={(e) => {
+              e.stopPropagation();
+              onEdit(preset);
+            }}
+            title="Edit"
+            aria-label={`Edit preset ${preset.name}`}
+          >
+            <Pencil />
+          </Button>
+
+          {/* DUP = outline */}
           <Button
             variant="outline"
-            size="icon-sm"
-            onClick={async () => {
-              try {
-                for (const edid of pinnedEdidList) {
-                  await unpinMonitor(edid);
-                }
-                onPinChange();
-              } catch {
-                // silent
-              }
+            size="icon-xs"
+            className="pointer-events-auto"
+            onClick={(e) => {
+              e.stopPropagation();
+              void handleDuplicate();
             }}
-            title="Unpin from all monitors"
-            aria-label={`Unpin preset ${preset.name} from all monitors`}
+            title="Duplicate preset"
+            aria-label={`Duplicate preset ${preset.name}`}
           >
-            <PinOff />
+            <Copy />
           </Button>
-        )}
 
-        {/* EDIT = secondary */}
-        <Button variant="secondary" size="icon-sm" onClick={() => onEdit(preset)} title="Edit" aria-label={`Edit preset ${preset.name}`}>
-          <Pencil />
-        </Button>
-
-        {/* DUP = outline */}
-        <Button variant="outline" size="icon-sm" onClick={handleDuplicate} title="Duplicate preset" aria-label={`Duplicate preset ${preset.name}`}>
-          <Copy />
-        </Button>
-
-        {/* DEL = destructive */}
-        <Button variant="destructive" size="icon-sm" onClick={() => setShowDeleteModal(true)} title="Delete preset" aria-label={`Delete preset ${preset.name}`}>
-          <Trash2 />
-        </Button>
+          {/* DEL = destructive */}
+          <Button
+            variant="destructive"
+            size="icon-xs"
+            className="pointer-events-auto"
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowDeleteModal(true);
+            }}
+            title="Delete preset"
+            aria-label={`Delete preset ${preset.name}`}
+          >
+            <Trash2 />
+          </Button>
+        </div>
       </div>
 
-      {/* Delete confirmation popup */}
+      {/* Delete confirmation dialog */}
       {showDeleteModal && (
-        <div
-          className="fixed inset-0 isolate z-50 flex items-center justify-center bg-black/10 p-4"
-          onClick={() => { if (!deleting) setShowDeleteModal(false); }}
+        <Dialog
+          open
+          onOpenChange={(open) => { if (!open && !deleting) setShowDeleteModal(false); }}
         >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label={`Delete preset ${preset.name}`}
-            className="w-full max-w-xs rounded-xl bg-popover text-popover-foreground ring-1 ring-foreground/10 p-4"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="text-base font-medium text-foreground">
-              Delete preset?
-            </h3>
-            <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
-              Permanently delete <span className="font-medium text-foreground">"{preset.name}"</span>?
-              This cannot be undone.
-            </p>
-            <div className="mt-4 flex items-center justify-end gap-2">
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Delete preset?</DialogTitle>
+              <DialogDescription>
+                Permanently delete <span className="font-medium text-foreground">"{preset.name}"</span>?
+                This cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
               <Button variant="outline" size="sm" onClick={() => setShowDeleteModal(false)} disabled={deleting}>
-                CANCEL
+                Cancel
               </Button>
               <Button variant="destructive" size="sm" onClick={() => void handleDelete()} disabled={deleting}>
-                {deleting ? "DELETING…" : "DELETE"}
+                {deleting ? "Deleting…" : "Delete"}
               </Button>
-            </div>
-          </div>
-        </div>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   );

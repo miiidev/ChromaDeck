@@ -11,6 +11,22 @@ fn default_vibrance() -> f64 { 50.0 }
 fn default_hue() -> f64 { 0.0 }
 fn legacy_model() -> String { "gain-v1".into() }
 
+/// Validate a color_tag value: must be empty or #rrggbb hex.
+fn is_valid_color_tag(tag: &str) -> bool {
+    if tag.is_empty() {
+        return true;
+    }
+    if tag.len() != 7 || !tag.starts_with("#") {
+        return false;
+    }
+    for c in tag[1..].chars() {
+        if !matches!(c, '0'..='9' | 'a'..='f' | 'A'..='F') {
+            return false;
+        }
+    }
+    true
+}
+
 /// Produce a local-date timestamp string `yyyymmdd-HHMMSS` from SystemTime.
 fn local_timestamp() -> String {
     let dur = std::time::SystemTime::now()
@@ -69,6 +85,8 @@ pub struct Preset {
     pub hue_deg: f64, // 0–359 degrees
     #[serde(default = "legacy_model")]
     pub color_model: String,
+    #[serde(default)]
+    pub color_tag: Option<String>, // #rrggbb or None for untagged
 }
 
 /// Input data for creating or updating a preset.
@@ -82,6 +100,8 @@ pub struct PresetInput {
     pub gamma: f64,
     pub vibrance: f64,
     pub hue_deg: f64,
+    #[serde(default)]
+    pub color_tag: Option<String>,
 }
 
 // ── Store errors ───────────────────────────────────────────────────────────
@@ -127,6 +147,8 @@ pub struct Store {
     presets: Vec<Preset>,
     pins_path: PathBuf,
     pinned: HashMap<String, String>, // edid_id -> preset_id
+    applied_path: PathBuf,
+    applied: HashMap<String, String>, // edid_id -> preset_id (last manual apply; not verified)
     names_path: PathBuf,
     monitor_names: HashMap<String, String>, // edid_id -> user alias
 }
@@ -138,6 +160,11 @@ impl Store {
         let presets_path = data_dir.join("presets.json");
 
         std::fs::create_dir_all(&profiles_dir)?;
+
+        // ── First-run detection: presets.json absence is the sentinel ────
+        // Captured before any migrations so that a migration that wipes existing
+        // presets does not trigger re-seeding — the file existed at open time.
+        let was_fresh = !presets_path.exists();
 
         let presets: Vec<Preset> = if presets_path.exists() {
             let content = std::fs::read_to_string(&presets_path)?;
@@ -162,6 +189,22 @@ impl Store {
             HashMap::new()
         };
 
+        let applied_path = data_dir.join("applied.json");
+        // ── Stale-record honesty ─────────────────────────────────────────────
+        // The applied map is a session-recency hint: it records the last
+        // manually applied preset per monitor from the same process lifetime.
+        // Unlike pins, it is NOT verified against hardware — an unpinned record
+        // can over-claim if something external (game, HDR toggle, reboot) clears
+        // the gamma LUT or NVAPI registers. Hardware capture-and-compare is a
+        // separate future build; pins + the enforce loop remain the definitive
+        // source of truth for guaranteed state.
+        let applied: HashMap<String, String> = if applied_path.exists() {
+            let content = std::fs::read_to_string(&applied_path)?;
+            serde_json::from_str(&content).unwrap_or_default()
+        } else {
+            HashMap::new()
+        };
+
         // ── Legacy migration: NVCP-scale preset upgrade ─────────────────────
         let mut store = Store {
             data_dir: data_dir.clone(),
@@ -170,6 +213,8 @@ impl Store {
             presets,
             pins_path,
             pinned,
+            applied_path,
+            applied,
             names_path,
             monitor_names,
         };
@@ -224,6 +269,26 @@ impl Store {
             let _ = std::fs::write(data_dir.join(".global-presets-v1"), b"");
         }
 
+        // ── First-run seeding: Standard preset ─────────────────────────
+        // On a true first launch (presets.json did not exist), create a
+        // neutral Standard preset so a new library is never empty.  It is
+        // deliberately NOT pinned or applied: the user opts in to enforcement
+        // explicitly.  Neutral values (50/50/1.0) change nothing visible.
+        if was_fresh {
+            let standard_input = PresetInput {
+                name: "Standard".into(),
+                icc_path: None,
+                brightness: 50.0,
+                contrast: 50.0,
+                rgb_gains: [1.0, 1.0, 1.0],
+                gamma: 1.0,
+                vibrance: 50.0,
+                hue_deg: 0.0,
+                color_tag: None,
+            };
+            let _ = store.create_preset(standard_input)?;
+        }
+
         Ok(store)
     }
 
@@ -271,6 +336,15 @@ impl Store {
             }
         }
 
+        // Validate color_tag
+        if let Some(ref tag) = input.color_tag {
+            if !is_valid_color_tag(tag) {
+                return Err(StoreError::InvalidInput(
+                    "color_tag must be a hex color like #rrggbb or empty".into(),
+                ));
+            }
+        }
+
         // Handle optional ICC import
         let (icc_hash, icc_filename) = if let Some(ref src) = input.icc_path {
             let hash = self.import_icc_file(src)?;
@@ -294,6 +368,9 @@ impl Store {
             vibrance: input.vibrance,
             hue_deg: input.hue_deg,
             color_model: "nvcp-v1".into(),
+            color_tag: if let Some(tag) = input.color_tag {
+                if tag.is_empty() { None } else { Some(tag.into()) }
+            } else { None },
         };
 
         self.presets.push(preset.clone());
@@ -342,6 +419,15 @@ impl Store {
             ));
         }
 
+        // Validate color_tag
+        if let Some(ref tag) = input.color_tag {
+            if !is_valid_color_tag(tag) {
+                return Err(StoreError::InvalidInput(
+                    "color_tag must be a hex color like #rrggbb or empty".into(),
+                ));
+            }
+        }
+
         // Handle optional ICC import (new path provided) or keep existing
         let (icc_hash, icc_filename) = if let Some(ref src) = input.icc_path {
             let hash = self.import_icc_file(src)?;
@@ -366,6 +452,9 @@ impl Store {
             vibrance: input.vibrance,
             hue_deg: input.hue_deg,
             color_model: self.presets[idx].color_model.clone(),
+            color_tag: if let Some(tag) = input.color_tag {
+                if tag.is_empty() { None } else { Some(tag.into()) }
+            } else { None },
         };
 
         self.presets[idx] = updated.clone();
@@ -386,9 +475,16 @@ impl Store {
         if pinned_gone {
             self.pinned.retain(|_, v| v != id);
         }
+        let applied_gone = self.applied.values().any(|v| v == id);
+        if applied_gone {
+            self.applied.retain(|_, v| v != id);
+        }
         self.flush()?;
         if pinned_gone {
             self.flush_pins()?;
+        }
+        if applied_gone {
+            self.flush_applied()?;
         }
         Ok(removed)
     }
@@ -480,6 +576,35 @@ impl Store {
     /// Return a copy of the monitor alias map (edid_id -> alias).
     pub fn list_monitor_names(&self) -> HashMap<String, String> {
         self.monitor_names.clone()
+    }
+
+    /// Record a manual preset application for a monitor.
+    /// Flushes to applied.json atomically.
+    pub fn record_applied(&mut self, edid_id: &str, preset_id: &str) -> Result<(), StoreError> {
+        self.applied.insert(edid_id.into(), preset_id.into());
+        self.flush_applied()
+    }
+
+    /// Clear the applied record for a monitor (e.g. after reset).
+    /// No-op when no record exists. Flushes only on change.
+    pub fn clear_applied(&mut self, edid_id: &str) {
+        if self.applied.remove(edid_id).is_some() {
+            let _ = self.flush_applied();
+        }
+    }
+
+    /// Return a copy of the applied map (edid_id -> preset_id).
+    pub fn list_applied(&self) -> HashMap<String, String> {
+        self.applied.clone()
+    }
+
+    /// Atomically persist the applied map to `applied.json`.
+    fn flush_applied(&self) -> Result<(), StoreError> {
+        let json = serde_json::to_string_pretty(&self.applied)?;
+        let tmp = self.data_dir.join("applied.json.tmp");
+        std::fs::write(&tmp, &json)?;
+        std::fs::rename(&tmp, &self.applied_path)?;
+        Ok(())
     }
 
     /// Atomically persist the alias map to `monitor_names.json`.
@@ -586,6 +711,14 @@ pub fn list_pins_cmd(
 }
 
 #[tauri::command]
+pub fn list_applied_cmd(
+    state: tauri::State<'_, AppStore>,
+) -> Result<HashMap<String, String>, String> {
+    let store = state.0.lock().map_err(|e| e.to_string())?;
+    Ok(store.list_applied())
+}
+
+#[tauri::command]
 pub fn set_monitor_name_cmd(
     state: tauri::State<'_, AppStore>,
     edid_id: String,
@@ -614,8 +747,13 @@ mod tests {
     }
 
     /// Create a Store at a specific directory (cleaning any leftovers first).
+    /// Pre-writes an empty presets.json so Store::new never triggers first-run
+    /// seeding — isolation tests that want seeding should call Store::new(fresh_dir)
+    /// directly.
     fn test_store_at(dir: PathBuf) -> Store {
         let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("presets.json"), b"[]").unwrap();
         Store::new(dir).unwrap()
     }
 
@@ -638,6 +776,7 @@ mod tests {
             gamma: 2.2,
             vibrance: 50.0,
             hue_deg: 0.0,
+            color_tag: None,
         }
     }
 
@@ -723,6 +862,7 @@ mod tests {
                     gamma: 2.0,
                     vibrance: 50.0,
                     hue_deg: 0.0,
+                    color_tag: None,
                 },
             )
             .unwrap();
@@ -828,7 +968,7 @@ mod tests {
         ));
         let _ = std::fs::remove_dir_all(&dir);
 
-        // First session
+        // First session: fresh dir seeds Standard + creates 2 = 3 total
         {
             let mut store = Store::new(dir.clone()).unwrap();
             let _p1 = store.create_preset(minimal_input()).unwrap();
@@ -842,18 +982,20 @@ mod tests {
                     gamma: 2.5,
                     vibrance: 50.0,
                     hue_deg: 0.0,
+                    color_tag: None,
                 })
                 .unwrap();
-            assert_eq!(store.list_presets().len(), 2);
+            assert_eq!(store.list_presets().len(), 3);
         }
 
-        // Second session — reload from disk
+        // Second session — reload from disk (3 presets)
         {
             let store = Store::new(dir.clone()).unwrap();
             let list = store.list_presets();
-            assert_eq!(list.len(), 2);
-            assert_eq!(list[0].name, "Test Preset");
-            assert_eq!(list[1].name, "Second");
+            assert_eq!(list.len(), 3);
+            assert_eq!(list[0].name, "Standard");
+            assert_eq!(list[1].name, "Test Preset");
+            assert_eq!(list[2].name, "Second");
         }
 
         // Cleanup
@@ -895,6 +1037,134 @@ mod tests {
         let preset = store.create_preset(input).unwrap();
         assert_eq!(preset.vibrance, 75.0);
         assert_eq!(preset.hue_deg, 120.0);
+    }
+
+    // ── color_tag ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn color_tag_defaults_to_none() {
+        let mut store = test_store();
+        let preset = store.create_preset(minimal_input()).unwrap();
+        assert!(preset.color_tag.is_none(), "untagged preset has no color_tag");
+    }
+
+    #[test]
+    fn color_tag_store_and_roundtrip() {
+        let mut store = test_store();
+        let mut input = minimal_input();
+        input.color_tag = Some("#06b6d4".into());
+        let preset = store.create_preset(input).unwrap();
+        assert_eq!(preset.color_tag, Some("#06b6d4".to_string()));
+    }
+
+    #[test]
+    fn color_tag_empty_string_normalized_to_none() {
+        let mut store = test_store();
+        let mut input = minimal_input();
+        input.color_tag = Some("".into());
+        let preset = store.create_preset(input).unwrap();
+        assert!(preset.color_tag.is_none(), "empty string color_tag becomes None");
+    }
+
+    #[test]
+    fn color_tag_rejects_bad_format() {
+        let mut store = test_store();
+        let mut input = minimal_input();
+        input.color_tag = Some("not-a-color".into());
+        let err = store.create_preset(input).unwrap_err();
+        assert!(err.to_string().contains("color_tag"), "error mentions color_tag");
+    }
+
+    #[test]
+    fn color_tag_rejects_short_hex() {
+        let mut store = test_store();
+        let mut input = minimal_input();
+        input.color_tag = Some("#fff".into());
+        let err = store.create_preset(input).unwrap_err();
+        assert!(err.to_string().contains("color_tag"));
+    }
+
+    #[test]
+    fn color_tag_loaded_from_old_json_without_field() {
+        let json = r#"{"id":"x","name":"Old","icc_hash":"","icc_filename":"","brightness":55.0,"contrast":60.0,"rgb_gains":[1.0,1.0,1.0],"gamma":2.2,"vibrance":50.0,"hue_deg":0.0,"color_model":"nvcp-v1"}"#;
+        let preset: Preset = serde_json::from_str(json).unwrap();
+        assert!(preset.color_tag.is_none(), "old JSON without color_tag loads as None");
+    }
+
+    #[test]
+    fn color_tag_update_changes_value() {
+        let mut store = test_store();
+        let preset = store.create_preset(minimal_input()).unwrap();
+        assert!(preset.color_tag.is_none());
+
+        let updated = store
+            .update_preset(
+                &preset.id,
+                PresetInput {
+                    name: "Tagged".into(),
+                    icc_path: None,
+                    brightness: 55.0,
+                    contrast: 60.0,
+                    rgb_gains: [1.0, 1.0, 1.0],
+                    gamma: 2.2,
+                    vibrance: 50.0,
+                    hue_deg: 0.0,
+                    color_tag: Some("#ef4444".into()),
+                },
+            )
+            .unwrap();
+        assert_eq!(updated.color_tag, Some("#ef4444".to_string()));
+    }
+
+    #[test]
+    fn color_tag_update_clears_tag() {
+        let mut store = test_store();
+        let mut input = minimal_input();
+        input.color_tag = Some("#06b6d4".into());
+        let preset = store.create_preset(input).unwrap();
+        assert_eq!(preset.color_tag, Some("#06b6d4".to_string()));
+
+        let updated = store
+            .update_preset(
+                &preset.id,
+                PresetInput {
+                    name: "Cleared".into(),
+                    icc_path: None,
+                    brightness: 55.0,
+                    contrast: 60.0,
+                    rgb_gains: [1.0, 1.0, 1.0],
+                    gamma: 2.2,
+                    vibrance: 50.0,
+                    hue_deg: 0.0,
+                    color_tag: Some("".into()),
+                },
+            )
+            .unwrap();
+        assert!(updated.color_tag.is_none(), "clearing color_tag produces None");
+    }
+
+    #[test]
+    fn color_tag_update_rejects_bad_value() {
+        let mut store = test_store();
+        let preset = store.create_preset(minimal_input()).unwrap();
+
+        let err = store
+            .update_preset(
+                &preset.id,
+                PresetInput {
+                    name: "Bad".into(),
+                    icc_path: None,
+                    brightness: 55.0,
+                    contrast: 60.0,
+                    rgb_gains: [1.0, 1.0, 1.0],
+                    gamma: 2.2,
+                    vibrance: 50.0,
+                    hue_deg: 0.0,
+                    color_tag: Some("invalid".into()),
+                },
+            )
+            .unwrap_err();
+        assert!(err.to_string().contains("color_tag"));
     }
 
     // ── color_model / migration ──────────────────────────────────────────────
@@ -984,6 +1254,71 @@ mod tests {
         assert_eq!(reopened.list_pins().get("EDID-001"), Some(&preset.id));
     }
 
+    // ── applied record (persistent last-manual-apply hint) ──────────────
+
+    #[test]
+    fn applied_record_flush_and_reload() {
+        let mut store = test_store();
+        let preset = store.create_preset(minimal_input()).unwrap();
+        store.record_applied("EDID-001", &preset.id).unwrap();
+        assert_eq!(
+            store.list_applied().get("EDID-001"),
+            Some(&preset.id),
+        );
+        let list = store.list_applied();
+        assert_eq!(list.len(), 1);
+    }
+
+    #[test]
+    fn applied_clear_removes_entry() {
+        let mut store = test_store();
+        let preset = store.create_preset(minimal_input()).unwrap();
+        store.record_applied("EDID-001", &preset.id).unwrap();
+        assert!(!store.list_applied().is_empty());
+        store.clear_applied("EDID-001");
+        assert!(store.list_applied().is_empty());
+    }
+
+    #[test]
+    fn applied_persists_across_reopen() {
+        let dir = test_store_dir_unique();
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("presets.json"), b"[]").unwrap();
+        let mut store = Store::new(dir.clone()).unwrap();
+        let preset = store.create_preset(minimal_input()).unwrap();
+        store.record_applied("EDID-001", &preset.id).unwrap();
+        drop(store);
+        let reopened = Store::new(dir).unwrap();
+        assert_eq!(
+            reopened.list_applied().get("EDID-001"),
+            Some(&preset.id),
+        );
+    }
+
+    #[test]
+    fn delete_cascades_applied() {
+        let mut store = test_store();
+        let preset = store.create_preset(minimal_input()).unwrap();
+        store.record_applied("EDID-001", &preset.id).unwrap();
+        store.delete_preset(&preset.id).unwrap();
+        assert!(store.list_applied().is_empty());
+    }
+
+    #[test]
+    fn malformed_applied_defaults_empty() {
+        let dir = test_store_dir_unique();
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("applied.json"),
+            br#"this is not json at all"#,
+        )
+        .unwrap();
+        std::fs::write(dir.join("presets.json"), b"[]").unwrap();
+        std::fs::write(dir.join(".monitor-enumeration-v2"), b"").unwrap();
+        let store = Store::new(dir).unwrap();
+        assert!(store.list_applied().is_empty());
+    }
+
     // ── monitor-enumeration wipe (backup + sentinel) ──────────────────────
 
     #[test]
@@ -1053,5 +1388,43 @@ mod tests {
             reopened.list_monitor_names().get("EDID-001"),
             Some(&"Main".to_string())
         );
+    }
+
+    // ── First-run seeding ──────────────────────────────────────────────
+
+    #[test]
+    fn fresh_store_contains_standard_preset() {
+        let dir = test_store_dir_unique();
+        let store = Store::new(dir).unwrap();
+        let list = store.list_presets();
+        assert_eq!(list.len(), 1, "fresh store has exactly one preset");
+        assert_eq!(list[0].name, "Standard");
+        assert_eq!(list[0].brightness, 50.0);
+        assert_eq!(list[0].contrast, 50.0);
+        assert_eq!(list[0].gamma, 1.0);
+        assert_eq!(list[0].rgb_gains, [1.0, 1.0, 1.0]);
+        assert_eq!(list[0].vibrance, 50.0);
+        assert_eq!(list[0].hue_deg, 0.0);
+        assert_eq!(list[0].color_model, "nvcp-v1");
+        assert!(list[0].color_tag.is_none(), "Standard preset has no color tag");
+        assert!(list[0].icc_hash.is_empty(), "Standard preset has no ICC profile");
+        assert!(!list[0].id.is_empty(), "Standard preset has a UUID id");
+    }
+
+    #[test]
+    fn existing_presets_prevents_reseeding() {
+        let dir = test_store_dir_unique();
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("presets.json"),
+            r#"[{"id":"a","name":"Existing","icc_hash":"","icc_filename":"","brightness":55.0,"contrast":60.0,"rgb_gains":[1.0,1.0,1.0],"gamma":2.2,"vibrance":50.0,"hue_deg":0.0,"color_model":"nvcp-v1"}]"#,
+        )
+        .unwrap();
+        // Skip monitor-enumeration wipe so the pre-existing preset survives.
+        std::fs::write(dir.join(".monitor-enumeration-v2"), b"").unwrap();
+        let store = Store::new(dir).unwrap();
+        let list = store.list_presets();
+        assert_eq!(list.len(), 1, "no duplicate Standard preset");
+        assert_eq!(list[0].name, "Existing");
     }
 }

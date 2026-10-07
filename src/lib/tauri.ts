@@ -9,6 +9,29 @@ export async function listMonitors(): Promise<Monitor[]> {
   return invoke<Monitor[]>("list_monitors_cmd");
 }
 
+/**
+ * Show a numbered overlay on each connected monitor to identify them.
+ * Returns the 1‑based monitor numbers that were shown (may be fewer than
+ * connected if some cannot be located via Win32).
+ */
+export async function identifyMonitors(): Promise<number[]> {
+  return invoke<number[]>("identify_monitors_cmd");
+}
+
+/** Overlay payload for a 1-based monitor number: display name + total. */
+export interface IdentifyInfo {
+  name: string;
+  total: number;
+}
+
+/**
+ * Resolve overlay info for the 1-based monitor number `n` (same ordering
+ * as `identifyMonitors`). Called by identify overlay windows on mount.
+ */
+export async function getIdentifyInfo(n: number): Promise<IdentifyInfo> {
+  return invoke<IdentifyInfo>("identify_info_cmd", { n });
+}
+
 // ── Preset store ───────────────────────────────────────────────────────────
 
 /** Fetch all stored presets. */
@@ -85,6 +108,11 @@ export async function unpinMonitor(edidId: string): Promise<void> {
 /** Map of edid_id -> preset_id for pinned monitors. */
 export async function listPins(): Promise<Record<string, string>> {
   return invoke<Record<string, string>>("list_pins_cmd");
+}
+
+/** Map of edid_id -> preset_id for last manual applies. Persisted across restarts. */
+export async function listApplied(): Promise<Record<string, string>> {
+  return invoke<Record<string, string>>("list_applied_cmd");
 }
 
 /** Set a monitor's display name (empty clears back to default). */

@@ -13,7 +13,7 @@ Per-monitor display color profile manager for Windows. Save color presets per mo
 - **Pin & enforce** — pin a preset per monitor and a background loop restores it if anything (games, HDR toggles, driver updates) stomps it. Tray-resident with autostart and single-instance.
 - **Reset, duplicate, delete** — full-default reset (gamma + vibrance + hue), one-click duplicate, delete with confirmation.
 - **Import NVCP state** — capture the driver's live color state straight into a new preset.
-- **Preset deck UI** — Bauhaus design system with light/dark toggle, theme-aware logo, shape-coded controls, tap-to-apply deck, in-use highlighting on preset cards, monitor sidebar, support for offline monitors.
+- **Preset deck UI** — dark-only shadcn theme (canonical), Bauhaus shape-language influence (geometric shape-coded status, honest flat materials), tap-to-apply deck, in-use highlighting on preset cards, monitor sidebar, support for offline monitors.
 
 ## Installation (Windows 10/11 x64)
 
@@ -38,7 +38,7 @@ All values show their neutral points in the editor (e.g. brightness/contrast 50,
 
 ## How it works
 
-- **Frontend:** React + Vite + Tailwind CSS v4, Bauhaus design system (light/dark themes, see `DESIGN.md`).
+- **Frontend:** React + Vite + Tailwind CSS v4, dark-only shadcn theme with Bauhaus shape-language influence (geometric shape-coded status, honest flat materials; see `DESIGN.md`).
 - **Backend:** Rust via Tauri v2. `monitor.rs` enumerates displays as an adapter→monitor tree with EDID identity; `store.rs` persists presets/pins/aliases as JSON; `color.rs` applies ICC + gamma ramps; `nvgamma.rs` + `nvapi.rs` implement the NVCP transfer math (reimplemented from observed driver behavior), 1024-entry float ramps, and driver-registry persistence; `enforce.rs` runs the 10-second drift-check loop.
 - **Data lives in** `%APPDATA%\ChromaDeck\` (`presets.json`, `pins.json`, `monitor_names.json`, `profiles\`, plus timestamped `.bak-*` backups before migrations).
 

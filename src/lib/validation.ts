@@ -11,6 +11,7 @@ export interface ValidationErrors {
   vibrance?: string;
   hue_deg?: string;
   nvcp?: string;
+  color_tag?: string;
 }
 
 /** Validate a partial PresetInput and return per-field error strings. */
@@ -63,6 +64,12 @@ export function validatePreset(input: Partial<PresetInput>): ValidationErrors {
     }
   }
 
+  if (input.color_tag !== undefined) {
+    if (input.color_tag !== "" && !/^#[0-9a-fA-F]{6}$/.test(input.color_tag)) {
+      errors.color_tag = "Color tag must be a hex color like #rrggbb or empty";
+    }
+  }
+
   return errors;
 }
 
@@ -80,6 +87,7 @@ export function validatePresetForm(
     rgb_gains: input.rgb_gains,
     vibrance: input.vibrance,
     hue_deg: input.hue_deg,
+    color_tag: input.color_tag,
   });
 
   Object.assign(errors, all);

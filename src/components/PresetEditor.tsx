@@ -5,7 +5,13 @@ import { createPreset, updatePreset, importIcc } from "../lib/tauri";
 import { vibranceSupported, captureNvcp } from "../lib/tauri";
 import { validatePresetForm, type ValidationErrors } from "../lib/validation";
 import { open } from "@tauri-apps/plugin-dialog";
+import PreviewStrip from "@/components/PreviewStrip";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Slider } from "@/components/ui/slider";
 
 interface Props {
   monitors: Monitor[];
@@ -22,6 +28,7 @@ const DEFAULT_INPUT: PresetInput = {
   gamma: 1.0,
   vibrance: 50,
   hue_deg: 0,
+  color_tag: "",
 };
 
 export default function PresetEditor({ monitors, editPreset, onClose, onSaved }: Props) {
@@ -36,6 +43,13 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
   });
   const [nvcpImporting, setNvcpImporting] = useState(false);
   const [nvSupported, setNvSupported] = useState<boolean | null>(null);
+  const [tagFocused, setTagFocused] = useState(false);
+  const [tagDraft, setTagDraft] = useState("");
+
+  // Follow stored tag while not editing the hex field.
+  useEffect(() => {
+    if (!tagFocused) setTagDraft(form.color_tag ?? "");
+  }, [form.color_tag, tagFocused]);
 
   // Populate form when editing
   useEffect(() => {
@@ -48,6 +62,7 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
         gamma: editPreset.gamma,
         vibrance: editPreset.vibrance,
         hue_deg: editPreset.hue_deg,
+        color_tag: editPreset.color_tag ?? "",
       });
       if (editPreset.icc_hash) {
         setIccStatus({ hash: editPreset.icc_hash, filename: editPreset.icc_filename });
@@ -157,67 +172,92 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
   const connectedMonitors = monitors.filter((m) => m.connected);
 
   return (
-    <div className="fixed inset-0 isolate z-50 flex overflow-y-auto bg-black/10 p-4">
-      {/* Popover-toned panel */}
-      <div className="m-auto w-full max-w-lg rounded-xl bg-popover text-popover-foreground ring-1 ring-foreground/10">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-          <h2 className="min-w-0 flex-1 truncate text-base font-medium text-foreground">
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="sm:max-w-[682px] max-h-[calc(100dvh-3rem)] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>
             {isEditing ? `EDIT: ${editPreset?.name}` : "CREATE PRESET"}
-          </h2>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={onClose}
-            aria-label="Close editor"
-          />
-        </div>
+          </DialogTitle>
+        </DialogHeader>
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="px-6 py-5 space-y-5">
+        {/* Form — two columns on sm+: preview/basics left, sliders right */}
+        <form onSubmit={handleSubmit} className="grid gap-5 sm:grid-cols-[240px_1fr]">
+          <div className="space-y-5 min-w-0">
+          {/* Live simulated preview */}
+          <PreviewStrip
+            preset={{
+              brightness: form.brightness,
+              contrast: form.contrast,
+              gamma: form.gamma,
+              rgb_gains: form.rgb_gains,
+              vibrance: form.vibrance,
+              hue_deg: form.hue_deg,
+            }}
+            height={120}
+            showTag
+          />
+          {iccStatus && (
+            <p className="text-[10px] text-muted-foreground mono -mt-3">
+              SIM excludes ICC profile
+            </p>
+          )}
+
           {/* Name */}
           <div>
-            <label className="flex items-center gap-2 text-xs leading-none font-medium text-muted-foreground uppercase tracking-widest mb-1.5 mono">
+            <Label htmlFor="preset-name" className="text-xs uppercase tracking-widest mb-1.5 mono">
               Name
-            </label>
-            <input
+            </Label>
+            <Input
+              id="preset-name"
               type="text"
               value={form.name}
-              onChange={(e) => updateField("name", e.target.value)}
+              onChange={(e) => updateField("name", (e.target as HTMLInputElement).value)}
               placeholder="My color preset"
-              className={`h-8 w-full rounded-lg border ${errors.name ? "border-destructive" : "border-border"} bg-transparent px-2.5 py-1 text-sm placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50`}
+              aria-invalid={errors.name ? ("true" as const) : undefined}
             />
-            {errors.name && <p className="mt-1 text-xs text-destructive">{errors.name}</p>}
+            {errors.name && <p className="mt-1 text-xs text-destructive validation-slide">{errors.name}</p>}
           </div>
 
           {/* NVCP capture source */}
           <div>
-            <label className="flex items-center gap-2 text-xs leading-none font-medium text-muted-foreground uppercase tracking-widest mb-1.5 mono">
+            <Label className="text-xs uppercase tracking-widest mb-1.5 mono">
               NVCP Capture Source <span className="text-muted-foreground font-normal normal-case">(optional, import only)</span>
-            </label>
+            </Label>
             <div className="flex items-center gap-2">
-              <select
-                value={captureMonitorId}
-                onChange={(e) => setCaptureMonitorId(e.target.value)}
-                className="flex w-fit items-center justify-between gap-1.5 h-8 rounded-lg border border-border bg-transparent py-2 pr-2 pl-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-              >
-                <option value="">— SELECT SOURCE —</option>
-                {connectedMonitors.map((m) => (
-                  <option key={m.edid_id} value={m.edid_id}>
-                    {m.alias || m.model || m.device_name} {m.serial ? `(${m.serial})` : ""}
-                  </option>
-                ))}
-              </select>
+              <Select value={captureMonitorId} onValueChange={(v: string | null) => setCaptureMonitorId(v ?? "")}>
+                <SelectTrigger className="min-w-0 flex-1">
+                  {/* Explicit label: Base UI falls back to the raw edid_id
+                      when the selected monitor has no mounted item
+                      (e.g. disconnected mid-session), so resolve the
+                      display name from the FULL monitor list here. */}
+                  <SelectValue>
+                    {(v: string | null) => {
+                      if (!v) return "— SELECT SOURCE —";
+                      const m = monitors.find((mon) => mon.edid_id === v);
+                      return m ? (m.alias || m.model || m.device_name) : v;
+                    }}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">— SELECT SOURCE —</SelectItem>
+                  {connectedMonitors.map((m) => (
+                    <SelectItem key={m.edid_id} value={m.edid_id}>
+                      {m.alias || m.model || m.device_name} {m.serial ? `(${m.serial})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <Button
                 variant="outline"
                 size="sm"
+                className="shrink-0"
                 onClick={handleCaptureNvcp}
                 disabled={!captureMonitorId || nvcpImporting}
               >
-                {nvcpImporting ? "IMPORTING…" : "IMPORT NVCP"}
+                {nvcpImporting ? "Importing…" : "Import NVCP"}
               </Button>
             </div>
-            {errors.nvcp && <p className="mt-1 text-xs text-destructive">{errors.nvcp}</p>}
+            {errors.nvcp && <p className="mt-1 text-xs text-destructive validation-slide">{errors.nvcp}</p>}
             {connectedMonitors.length === 0 && (
               <p className="mt-1 text-xs text-destructive">No connected monitors detected.</p>
             )}
@@ -225,22 +265,91 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
 
           {/* ICC file picker */}
           <div>
-            <label className="flex items-center gap-2 text-xs leading-none font-medium text-muted-foreground uppercase tracking-widest mb-1.5 mono">
+            <Label className="text-xs uppercase tracking-widest mb-1.5 mono">
               ICC Profile <span className="text-muted-foreground font-normal normal-case">(optional)</span>
-            </label>
+            </Label>
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={handleBrowseIcc} disabled={iccImporting}>
-                {iccImporting ? "IMPORTING…" : "BROWSE…"}
+              <Button variant="outline" size="sm" className="shrink-0" onClick={handleBrowseIcc} disabled={iccImporting}>
+                {iccImporting ? "Importing…" : "Browse…"}
               </Button>
               {iccStatus ? (
-                <span className="text-xs text-primary truncate mono">{iccStatus.filename}</span>
+                <span className="min-w-0 flex-1 text-xs text-primary truncate mono icc-pop" title={iccStatus.filename}>{iccStatus.filename}</span>
               ) : (
-                <span className="text-xs text-muted-foreground mono">No ICC profile selected</span>
+                <span className="min-w-0 flex-1 text-xs text-muted-foreground mono truncate">No ICC profile selected</span>
               )}
             </div>
-            {errors.icc_path && <p className="mt-1 text-xs text-destructive">{errors.icc_path}</p>}
+            {errors.icc_path && <p className="mt-1 text-xs text-destructive validation-slide">{errors.icc_path}</p>}
           </div>
 
+          {/* Tag color — fully custom: native picker + hex field */}
+          <div>
+            <Label className="text-xs uppercase tracking-widest mb-1.5 mono">
+              Tag Color <span className="text-muted-foreground font-normal normal-case">(optional, tints the whole card)</span>
+            </Label>
+            <div className="flex items-center gap-2">
+              <input
+                type="color"
+                value={/^#[0-9a-fA-F]{6}$/.test(form.color_tag ?? "") ? form.color_tag as string : "#22d3ee"}
+                onChange={(e) => updateField("color_tag", (e.target as HTMLInputElement).value)}
+                className="h-7 w-9 shrink-0 cursor-pointer rounded-md border border-border bg-transparent p-0.5"
+                aria-label="Pick tag color"
+                title="Pick tag color"
+              />
+              <input
+                type="text"
+                value={tagDraft}
+                spellCheck={false}
+                maxLength={7}
+                placeholder="#rrggbb"
+                aria-label="Tag color hex value, type to edit"
+                title="Hex color, e.g. #ff5533 (Enter commits, Escape reverts)"
+                onChange={(e) => setTagDraft((e.target as HTMLInputElement).value)}
+                onFocus={() => setTagFocused(true)}
+                onBlur={() => {
+                  setTagFocused(false);
+                  const v = tagDraft.trim();
+                  if (/^#[0-9a-fA-F]{6}$/.test(v)) updateField("color_tag", v);
+                  else setTagDraft(form.color_tag ?? "");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                  else if (e.key === "Escape") {
+                    setTagDraft(form.color_tag ?? "");
+                    (e.target as HTMLInputElement).blur();
+                  }
+                }}
+                className="min-w-0 flex-1 bg-transparent p-0 text-xs mono outline-none border-b border-transparent text-muted-foreground hover:text-foreground focus:text-foreground focus:border-primary"
+              />
+              <Button
+                variant="ghost"
+                size="xs"
+                className="shrink-0"
+                onClick={() => {
+                  updateField("color_tag", "");
+                  setTagDraft("");
+                }}
+                title="Remove tag color"
+                aria-label="Remove tag color"
+              >
+                None
+              </Button>
+              <span
+                aria-hidden="true"
+                title="Card tint preview"
+                className="h-5 w-8 shrink-0 rounded-md border border-border"
+                style={
+                  /^#[0-9a-fA-F]{6}$/.test(form.color_tag ?? "")
+                    ? ({ backgroundColor: `color-mix(in srgb, var(--color-card), ${form.color_tag} 14%)` } as Record<string, string>)
+                    : undefined
+                }
+              />
+            </div>
+            {errors.color_tag && <p className="mt-1 text-xs text-destructive validation-slide">{errors.color_tag}</p>}
+          </div>
+          </div>
+
+          {/* Right column — sliders */}
+          <div className="space-y-4 min-w-0">
           {/* Gamma slider */}
           <SliderField
             label="Gamma"
@@ -248,7 +357,7 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
             value={form.gamma}
             display={form.gamma.toFixed(2)}
             onChange={(v) => updateField("gamma", v)}
-            markers={["0.3", "1.0 (neutral)", "2.8"]}
+            markers={[{ value: 0.3, label: "0.3" }, { value: 1.0, label: "1.0 (neutral)" }, { value: 2.8, label: "2.8" }]}
             error={errors.gamma}
           />
 
@@ -259,7 +368,7 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
             value={form.brightness}
             display={form.brightness.toFixed(0)}
             onChange={(v) => updateField("brightness", v)}
-            markers={["0", "50", "100"]}
+            markers={[{ value: 0, label: "0" }, { value: 50, label: "50" }, { value: 100, label: "100" }]}
             error={errors.brightness}
           />
 
@@ -270,15 +379,15 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
             value={form.contrast}
             display={form.contrast.toFixed(0)}
             onChange={(v) => updateField("contrast", v)}
-            markers={["0", "50", "100"]}
+            markers={[{ value: 0, label: "0" }, { value: 50, label: "50" }, { value: 100, label: "100" }]}
             error={errors.contrast}
           />
 
           {/* RGB gains — three per-channel sliders */}
           <div>
-            <label className="flex items-center gap-2 text-xs leading-none font-medium text-muted-foreground uppercase tracking-widest mb-2 mono">
+            <Label className="text-xs uppercase tracking-widest mb-2 mono">
               RGB Gains <span className="text-muted-foreground font-normal normal-case">(1.0 = neutral)</span>
-            </label>
+            </Label>
             <div className="grid grid-cols-3 gap-3">
               {(["R", "G", "B"] as const).map((channel, idx) => {
                 return (
@@ -287,16 +396,27 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
                       <span className="text-xs mono text-foreground">{channel}</span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <input
-                        type="range" min={0} max={2} step={0.05} value={form.rgb_gains[idx]}
-                        onChange={(e) => {
+                      <Slider
+                        min={0} max={2} step={0.05}
+                        value={[form.rgb_gains[idx]]}
+                        onValueChange={([v]) => {
                           const newGains = [...form.rgb_gains] as [number, number, number];
-                          newGains[idx] = parseFloat(e.target.value);
+                          newGains[idx] = v;
                           updateField("rgb_gains", newGains);
                         }}
-                        className="flex-1 h-6 appearance-none cursor-pointer bg-muted rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                        className="flex-1"
                       />
-                      <span className="w-10 shrink-0 text-right text-xs text-muted-foreground mono">{form.rgb_gains[idx].toFixed(1)}</span>
+                      <EditableNumber
+                        label={`${channel} gain`}
+                        min={0} max={2} step={0.05}
+                        display={form.rgb_gains[idx].toFixed(1)}
+                        onCommit={(v) => {
+                          const newGains = [...form.rgb_gains] as [number, number, number];
+                          newGains[idx] = v;
+                          updateField("rgb_gains", newGains);
+                        }}
+                        className="w-10 shrink-0"
+                      />
                     </div>
                   </div>
                 );
@@ -312,7 +432,7 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
             value={form.vibrance}
             display={form.vibrance.toFixed(0)}
             onChange={(v) => updateField("vibrance", v)}
-            markers={["0", "50", "100"]}
+            markers={[{ value: 0, label: "0" }, { value: 50, label: "50" }, { value: 100, label: "100" }]}
             error={errors.vibrance}
             disabled={nvSupported === false}
           />
@@ -324,7 +444,7 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
             value={form.hue_deg}
             display={`${form.hue_deg.toFixed(0)}°`}
             onChange={(v) => updateField("hue_deg", v)}
-            markers={["0", "359"]}
+            markers={[{ value: 0, label: "0" }, { value: 359, label: "359" }]}
             error={errors.hue_deg}
             disabled={nvSupported === false}
           />
@@ -333,24 +453,89 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
           )}
 
           {/* Precedence footnote */}
-          <p className="mt-2 text-xs text-muted-foreground leading-relaxed mono">
+          <p className="text-xs text-muted-foreground leading-relaxed mono">
             <span className="font-medium uppercase tracking-widest text-muted-foreground">Precedence:</span>
             ICC profile first, then gamma + RGB gains overlaid.
           </p>
-
-          {/* Actions */}
-          <div className="flex flex-wrap items-center justify-end gap-3 pt-2">
-            <Button variant="outline" size="sm" onClick={onClose}>
-              CANCEL
-            </Button>
-            <Button variant="secondary" size="sm" type="submit" disabled={saving}>
-              {saving ? "SAVING…" : isEditing ? "UPDATE" : "CREATE"}
-            </Button>
           </div>
+
+          {/* Actions — full width */}
+          <DialogFooter className="sm:col-span-2">
+            <Button variant="outline" size="sm" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button variant="secondary" size="sm" type="submit" disabled={saving} className="save-crossfade">
+              {saving ? "Saving…" : isEditing ? "Update" : "Create"}
+            </Button>
+          </DialogFooter>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
+}
+
+/** Editable numeric readout beside a slider.
+ * Shows the formatted display string; typing + Enter/blur commits a parsed
+ * value clamped to [min,max] and snapped to step (Escape reverts).
+ * Invalid input reverts silently — range errors surface at save time. */
+function EditableNumber({
+  label, min, max, step, display, onCommit, disabled, className,
+}: {
+  label: string;
+  min: number; max: number; step: number;
+  display: string;
+  onCommit: (v: number) => void;
+  disabled?: boolean;
+  className?: string;
+}) {
+  const [draft, setDraft] = useState(display);
+  const [focused, setFocused] = useState(false);
+  // Follow slider drags while not editing.
+  useEffect(() => {
+    if (!focused) setDraft(display);
+  }, [display, focused]);
+
+  const commit = () => {
+    const n = parseFloat(draft);
+    if (!Number.isFinite(n)) {
+      setDraft(display);
+      return;
+    }
+    const clamped = Math.min(max, Math.max(min, n));
+    const snapped = Math.round((clamped - min) / step) * step + min;
+    onCommit(Number(snapped.toFixed(6)));
+  };
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      value={draft}
+      disabled={disabled}
+      aria-label={`${label} value, type a number to edit`}
+      title={`${label}: ${display} (click to edit, range ${min}–${max})`}
+      onChange={(e) => setDraft((e.target as HTMLInputElement).value)}
+      onFocus={() => setFocused(true)}
+      onBlur={() => {
+        setFocused(false);
+        commit();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+        else if (e.key === "Escape") {
+          setDraft(display);
+          (e.target as HTMLInputElement).blur();
+        }
+      }}
+      className={`bg-transparent p-0 text-right text-xs mono outline-none border-b border-transparent text-muted-foreground hover:text-foreground focus:text-foreground focus:border-primary disabled:pointer-events-none disabled:opacity-50 ${className ?? ""}`}
+    />
+  );
+}
+
+/** Marker label pinned to its true track position. */
+export interface SliderMarker {
+  value: number;
+  label: string;
 }
 
 /** Reusable slider + label + value + markers */
@@ -362,30 +547,55 @@ function SliderField({
   value: number;
   display: string;
   onChange: (v: number) => void;
-  markers: string[];
+  markers: SliderMarker[];
   error?: string;
   disabled?: boolean;
 }) {
   return (
     <div>
       <div className="mb-1.5">
-        <label className="flex items-center gap-2 text-xs leading-none font-medium text-muted-foreground uppercase tracking-widest mono">
+        <Label className="text-xs uppercase tracking-widest mono">
           {label}
-        </label>
+        </Label>
       </div>
       <div className="flex items-center gap-3">
-        <input
-          type="range" min={min} max={max} step={step} value={value}
+        <Slider
+          min={min}
+          max={max}
+          step={step}
+          value={[value]}
           disabled={disabled}
-          onChange={(e) => onChange(parseFloat(e.target.value))}
-          className="flex-1 h-6 appearance-none cursor-pointer bg-muted rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50"
+          onValueChange={([v]) => onChange(v)}
+          className="flex-1"
         />
-        <span className="w-12 shrink-0 text-right text-xs text-muted-foreground mono">{display}</span>
+        <EditableNumber
+          label={label}
+          min={min} max={max} step={step}
+          display={display}
+          onCommit={onChange}
+          disabled={disabled}
+          className="w-12 shrink-0"
+        />
       </div>
-      <div className="flex justify-between text-xs text-muted-foreground mt-0.5 mono">
-        {markers.map((m) => <span key={m}>{m}</span>)}
+      {/* Markers sit exactly under their track positions: the row is
+          inset by the readout column (w-12 + gap-3 = 60px) so its center
+          matches the track center, and each label is centered on the
+          thumb-center position for its value (8px half-thumb insets). */}
+      <div className="relative mt-0.5 h-4 mono text-xs text-muted-foreground" style={{ marginRight: "60px" }}>
+        {markers.map((m) => {
+          const frac = Math.min(1, Math.max(0, (m.value - min) / (max - min)));
+          return (
+            <span
+              key={m.label}
+              className="absolute whitespace-nowrap"
+              style={{ left: `calc(8px + ${frac} * (100% - 16px))`, transform: "translateX(-50%)" }}
+            >
+              {m.label}
+            </span>
+          );
+        })}
       </div>
-      {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
+      {error && <p className="mt-1 text-xs text-destructive validation-slide">{error}</p>}
     </div>
   );
 }

@@ -301,7 +301,8 @@ fn p(id: &str, _edid: &str, brightness: f64, vibrance: f64, hue: f64) -> crate::
             gamma: 2.2,
             vibrance,
             hue_deg: hue,
-            color_model: "nvcp-v1".into(),
+color_model: "nvcp-v1".into(),
+            color_tag: None,
         }
     }
 

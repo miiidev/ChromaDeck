@@ -27,6 +27,7 @@ export interface Preset {
   gamma: number;        // 0.3 – 2.8 (NVCP range, 1.0 neutral)
   vibrance: number;     // 0 – 100, 50 neutral
   hue_deg: number;      // 0 – 359 degrees
+  color_tag?: string;   // #rrggbb hex or empty/undefined for untagged
 }
 
 export interface PresetInput {
@@ -38,6 +39,7 @@ export interface PresetInput {
   gamma: number;
   vibrance: number;
   hue_deg: number;
+  color_tag?: string;   // #rrggbb hex or empty for untagged
 }
 
 export interface ApplyResult {

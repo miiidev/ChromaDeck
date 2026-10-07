@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import "./App.css";
-import { listMonitors, listPresets, listPins, reapplyNow } from "./lib/tauri";
+import { listMonitors, listPresets, listPins, listApplied, reapplyNow } from "./lib/tauri";
 import type { Monitor, Preset, EnforceEvent } from "./lib/types";
+import { mergeMonitors } from "./lib/monitorMerge";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import logoLockupDark from "./assets/logo-lockup-dm.png";
 import MonitorList from "./components/MonitorList";
@@ -50,14 +51,16 @@ function App() {
     setLoading(true);
     setError(null);
     try {
-      const [monitorsData, presetsData, pinsData] = await Promise.all([
+      const [monitorsData, presetsData, pinsData, appliedData] = await Promise.all([
         listMonitors(),
         listPresets(),
         listPins(),
+        listApplied(),
       ]);
       setMonitors(monitorsData);
       setPresets(presetsData);
       setPins(pinsData);
+      setAppliedMap(appliedData);
     } catch (err) {
       setError(String(err));
     } finally {
@@ -68,6 +71,41 @@ function App() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // ── Background poll: 5s interval + window focus refresh ──────────────
+  // Fetches monitors ONLY (never presets/pins). Merges against current
+  // state so disconnected monitors persist as red offline cards rather
+  // than disappearing. Silent on failure — keeps last-known state.
+
+  useEffect(() => {
+    let mounted = true;
+    let inFlight = false;
+
+    const tick = async () => {
+      if (!mounted || inFlight) return;
+      inFlight = true;
+      try {
+        const fresh = await listMonitors();
+        if (mounted) {
+          setMonitors((prev) => mergeMonitors(prev, fresh));
+        }
+      } catch {
+        // silent: keep last-known state on failure
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    const POLL_MS = 5000;
+    const intervalId = setInterval(tick, POLL_MS);
+    window.addEventListener("focus", tick);
+
+    return () => {
+      mounted = false;
+      clearInterval(intervalId);
+      window.removeEventListener("focus", tick);
+    };
+  }, []);
 
   const handleEdit = (preset: Preset) => {
     setEditingPreset(preset);
@@ -101,9 +139,9 @@ function App() {
   }
 
   return (
-    <main className="min-h-screen bg-background text-foreground flex flex-col">
+    <main className="h-screen overflow-hidden bg-background text-foreground flex flex-col">
       {/* ── Header ──────────────────────────────────────────────────────── */}
-      <header className="border-b border-border bg-card px-6 py-3">
+      <header className="border-b border-border bg-card px-6 py-3 shell-enter" style={{ ["--shell-delay" as string]: "0ms" }}>
         <div className="flex items-center justify-between gap-x-4">
           <div className="flex min-w-0 items-center gap-x-4">
             <LogoMark />
@@ -111,7 +149,7 @@ function App() {
               <span className="font-bold">C</span>hromaDec<span className="font-bold">k</span>
             </h1>
             <span className="rounded-lg border border-border bg-popover px-1.5 py-0.5 text-xs text-muted-foreground mono">
-              v0.4.0
+              v0.5.0
             </span>
           </div>
           <div className="flex items-center gap-3" />
@@ -120,22 +158,23 @@ function App() {
 
       {/* ── Error banner ────────────────────────────────────────────────── */}
       {error && (
-        <div className="mx-6 mt-4 rounded-lg border border-border bg-card">
+        <div className="mx-6 mt-4 rounded-lg border border-border bg-card error-banner-enter">
           <div className="bg-destructive/20 px-4 py-1.5 rounded-md">
             <span className="text-xs font-medium text-foreground">
               Failed to load: {error}
             </span>
           </div>
           <div className="flex items-center justify-end px-4 py-2">
-            <button onClick={fetchData} className="inline-flex items-center justify-center rounded-lg border border-border bg-card px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground active:translate-y-px">
-              RETRY
+            <button onClick={fetchData} data-slot="button" className="inline-flex items-center justify-center rounded-lg border border-border bg-card px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground active:translate-y-px">
+              Retry
             </button>
           </div>
         </div>
       )}
 
-      {/* ── Content row: sidebar + library ──────────────────────────── */}
-      <div className="flex-1 flex flex-col md:flex-row gap-5 items-start p-6">
+      {/* ── Content column: monitor strip on top, library below ─── */}
+      {/* Capped + centered so ultrawide/maximized windows get margins, not stretched pads */}
+      <div className="flex-1 min-h-0 mx-auto w-full max-w-7xl flex flex-col gap-5 p-6">
         <MonitorSidebar
           monitors={monitors}
           presets={presets}
@@ -159,13 +198,15 @@ function App() {
       </div>
 
       {/* ── Footer / status bar ─────────────────────────────────────────── */}
-      <footer className="border-t border-border bg-card px-6 py-3 flex flex-col sm:flex-row items-center sm:items-center justify-between text-xs gap-1">
-        <span className="uppercase tracking-widest mono text-muted-foreground">
-          {loading ? "LOADING…" : `${presets.length} PRESET${presets.length !== 1 ? "S" : ""} · ${monitors.filter((m) => m.connected).length} MONITOR${monitors.filter((m) => m.connected).length !== 1 ? "S" : ""} CONNECTED · ${Object.keys(pins).length} PINNED`}
-        </span>
+      <footer className="border-t border-border bg-card px-6 py-3 flex flex-col sm:flex-row items-center sm:items-center justify-between text-xs gap-1 shell-enter" style={{ ["--shell-delay" as string]: "180ms" }}>
+        {(() => {
+          const t = loading ? "LOADING…" : `${presets.length} PRESET${presets.length !== 1 ? "S" : ""} · ${monitors.filter((m) => m.connected).length} MONITOR${monitors.filter((m) => m.connected).length !== 1 ? "S" : ""} CONNECTED · ${Object.keys(pins).length} PINNED`;
+          return <span key={t} className="uppercase tracking-widest mono text-muted-foreground footer-crossfade">{t}</span>;
+        })()}
         <span className="inline-flex items-center gap-3">
-          {reapplyMsg && <span className="text-muted-foreground">{reapplyMsg}</span>}
+          {reapplyMsg && <span className="text-muted-foreground transient-enter">{reapplyMsg}</span>}
           <button
+            data-slot="button"
             onClick={async () => {
               try {
                 const events: EnforceEvent[] = await reapplyNow();
@@ -181,7 +222,7 @@ function App() {
             className="inline-flex items-center justify-center rounded-lg border border-border bg-card px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
             title="Re-run enforcement now"
           >
-            REAPPLY
+            Reapply
           </button>
           <AutostartToggle />
         </span>

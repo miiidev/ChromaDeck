@@ -1,8 +1,11 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import type { Monitor, Preset } from "../lib/types";
-import { resetMonitor, setMonitorName, unpinMonitor } from "../lib/tauri";
+import { identifyMonitors, resetMonitor, setMonitorName, unpinMonitor } from "../lib/tauri";
+import { prefersReducedMotion } from "../lib/motion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { MonitorCheck, ChevronLeft, ChevronRight } from "lucide-react";
 
 interface Props {
   monitors: Monitor[];
@@ -41,23 +44,23 @@ function MonitorNameEditor({ monitor, onRefreshParent }: { monitor: Monitor; onR
   }
   return (
     <span className="inline-flex items-center gap-1.5">
-      <input
+      <Input
         type="text"
         value={draft}
         autoFocus
         maxLength={64}
         placeholder={monitor.model}
         aria-label="Monitor name"
-        onChange={(e) => setDraft(e.target.value)}
+        onChange={(e) => setDraft((e.target as HTMLInputElement).value)}
         onKeyDown={(e) => { if (e.key === "Enter") void save(); else if (e.key === "Escape") setEditing(false); }}
         disabled={saving}
-        className="h-7 w-28 rounded-lg border border-input bg-transparent px-2 py-1 text-xs placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
+        className="h-7 w-28 px-2 text-xs"
       />
       <Button variant="secondary" size="xs" onClick={() => void save()} disabled={saving}>
-        {saving ? "…" : "SAVE"}
+        {saving ? "…" : "Save"}
       </Button>
       <Button variant="ghost" size="xs" onClick={() => setEditing(false)} disabled={saving}>
-        CANCEL
+        Cancel
       </Button>
     </span>
   );
@@ -99,7 +102,7 @@ function MonitorResetButton({ edidId, onPinChange }: { edidId: string; onPinChan
   return (
     <span className="inline-flex items-center gap-2">
       {message && (
-        <span aria-live="polite" className={`text-xs ${message.ok ? "text-primary" : "text-destructive"}`}>
+        <span key={message.text} aria-live="polite" className={`transient-enter text-xs ${message.ok ? "text-primary" : "text-destructive"}`}>
           {message.text}
         </span>
       )}
@@ -110,65 +113,105 @@ function MonitorResetButton({ edidId, onPinChange }: { edidId: string; onPinChan
         disabled={resetting}
         title="Reset this monitor to default colours (identity gamma)"
       >
-        {resetting ? "RESETTING…" : "RESET"}
+        {resetting ? "Resetting…" : "Reset"}
       </Button>
     </span>
   );
 }
 
 export default function MonitorSidebar({ monitors, presets, pins, onRefresh, onPinChange, onApplyFor }: Props) {
-  const [collapsed, setCollapsed] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem("chromadeck.monitors-collapsed") === "1";
-    } catch {
-      return false;
+  const [identifying, setIdentifying] = useState(false);
+  const trackRef = useRef<HTMLDivElement>(null);
+  const [canScroll, setCanScroll] = useState(false);
+
+  // Show carousel arrows only when the track actually overflows.
+  useEffect(() => {
+    const track = trackRef.current;
+    if (!track) {
+      setCanScroll(false);
+      return;
     }
-  });
-  const toggleCollapsed = () => {
-    setCollapsed((prev) => {
-      try {
-        localStorage.setItem("chromadeck.monitors-collapsed", prev ? "0" : "1");
-      } catch {
-        // ignore storage failures
-      }
-      return !prev;
+    const update = () => setCanScroll(track.scrollWidth > track.clientWidth + 1);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(track);
+    return () => ro.disconnect();
+  }, [monitors.length]);
+  const handleIdentify = async () => {
+    setIdentifying(true);
+    try {
+      await identifyMonitors();
+    } catch {
+      // silent
+    } finally {
+      setIdentifying(false);
+    }
+  };
+
+  const scrollTrack = (dir: 1 | -1) => {
+    const track = trackRef.current;
+    if (!track) return;
+    track.scrollBy({
+      left: dir * track.clientWidth * 0.8,
+      behavior: prefersReducedMotion() ? "auto" : "smooth",
     });
   };
 
   if (monitors.length === 0) return null;
 
   return (
-    <aside className={`${collapsed ? "w-full md:w-12" : "w-full md:w-72"} shrink-0 rounded-lg bg-card text-card-foreground ring-1 ring-foreground/10 self-start`}>
-      <div className="flex items-center justify-between px-3 py-2 border-b border-border">
-        {!collapsed && (
-          <span className="text-xs font-medium text-muted-foreground uppercase tracking-widest mono">
-            Monitors ({monitors.length})
+    <aside className="w-full shrink-0 rounded-lg bg-card text-card-foreground ring-1 ring-foreground/10 shell-enter" style={{ ["--shell-delay" as string]: "60ms" }}>
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
+        <span className="text-xs font-medium text-muted-foreground uppercase tracking-widest mono">
+          Monitors ({monitors.length})
+        </span>
+        <span className="flex-1" />
+        {canScroll && (
+          <span className="hidden sm:inline-flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="xs"
+              onClick={() => scrollTrack(-1)}
+              title="Scroll monitors left"
+              aria-label="Scroll monitors left"
+            >
+              <ChevronLeft className="size-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="xs"
+              onClick={() => scrollTrack(1)}
+              title="Scroll monitors right"
+              aria-label="Scroll monitors right"
+            >
+              <ChevronRight className="size-3.5" />
+            </Button>
           </span>
         )}
         <Button
-          variant="ghost"
-          size="xs"
-          onClick={toggleCollapsed}
-          title={collapsed ? "Expand monitors" : "Collapse monitors"}
-          aria-label={collapsed ? "Expand monitor sidebar" : "Collapse monitor sidebar"}
-          aria-expanded={!collapsed}
+          variant="outline"
+          size="sm"
+          onClick={() => void handleIdentify()}
+          disabled={identifying}
+          title="Show monitor numbers on each display"
         >
-          {collapsed ? "»" : "«"}
+          <MonitorCheck className="size-3.5" />
+          {identifying ? "…" : "Identify"}
         </Button>
       </div>
-      {!collapsed && (
-        <div className="space-y-2 p-2 max-h-96 overflow-y-auto">
+      <div ref={trackRef} className="flex gap-2 overflow-x-auto carousel-scroll snap-x snap-mandatory p-2 sidebar-content-enter">
           {monitors.map((m) => {
             const pinnedId = pins[m.edid_id];
             const pinnedPreset = pinnedId ? presets.find((p) => p.id === pinnedId) : null;
             return (
               <div
                 key={m.edid_id}
-                className="flex flex-col gap-1.5 rounded-lg border border-border bg-muted p-2"
+                className="flex w-64 shrink-0 snap-start flex-col gap-1.5 rounded-lg border border-border bg-muted p-2 monitor-row-enter"
+                style={{ "--stagger-ms": `${Math.min(monitors.indexOf(m) * 60, 300)}ms` } as Record<string, string>}
               >
                 <div className="flex items-center gap-2 text-foreground">
                   <span
-                    className={`status-dot ${m.connected ? "status-dot-connected" : "status-dot-warning"}`}
+                    className={`status-dot ${m.connected ? "status-dot-connected" : "status-dot-offline"}`}
                     title={m.connected ? "Connected" : "Offline"}
                   />
                   <MonitorNameEditor monitor={m} onRefreshParent={onRefresh} />
@@ -183,20 +226,23 @@ export default function MonitorSidebar({ monitors, presets, pins, onRefresh, onP
                     </Badge>
                   )}
                   {pinnedPreset && (
-                    <Badge variant="outline" className="text-accent border-accent" title={`Pinned: ${pinnedPreset.name}`}>
-                      PINNED: {pinnedPreset.name}
-                    </Badge>
+                    <span className="inline-flex items-center gap-1">
+                      <span className="status-dot status-dot-pinned" title={`Pinned: ${pinnedPreset.name}`} />
+                      <Badge variant="outline" className="text-accent border-accent" title={`Pinned: ${pinnedPreset.name}`}>
+                        PINNED: {pinnedPreset.name}
+                      </Badge>
+                    </span>
                   )}
                 </div>
                 <div className="flex flex-wrap items-center gap-1">
                   {pinnedPreset && m.connected && (
                     <Button variant="default" size="xs" onClick={() => onApplyFor(pinnedPreset, m.edid_id)} title={`Apply presets to ${m.alias || m.model}`}>
-                      APPLY…
+                      Apply…
                     </Button>
                   )}
                   {pinnedId && (
                     <Button variant="outline" size="xs" onClick={async () => { try { await unpinMonitor(m.edid_id); onPinChange(); } catch { /* silent */ } }} title="Unpin from this monitor">
-                      UNPIN
+                      Unpin
                     </Button>
                   )}
                   <MonitorResetButton edidId={m.edid_id} onPinChange={onPinChange} />
@@ -205,18 +251,6 @@ export default function MonitorSidebar({ monitors, presets, pins, onRefresh, onP
             );
           })}
         </div>
-      )}
-      {collapsed && (
-        <div className="flex md:flex-col flex-row items-center gap-2 p-2 flex-wrap">
-          {monitors.map((m) => (
-            <span
-              key={m.edid_id}
-              className={`status-dot ${m.connected ? "status-dot-connected" : "status-dot-warning"}`}
-              title={`${m.alias || m.model || m.device_name}${pins[m.edid_id] ? " (pinned)" : ""}`}
-            />
-          ))}
-        </div>
-      )}
     </aside>
   );
 }

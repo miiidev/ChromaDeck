@@ -735,14 +735,35 @@ pub fn apply_preset_cmd(
 
     let api = RealColorApi;
     let nv = crate::nvapi::RealNvapi;
-    apply_preset(&api, &nv, &preset, &target_edid, &profiles_dir_str)
+    let result = apply_preset(&api, &nv, &preset, &target_edid, &profiles_dir_str);
+
+    // Record applied state on success (reacquire store lock)
+    if result.error.is_none() {
+        if let Ok(mut store) = state.0.lock() {
+            let _ = store.record_applied(&target_edid, &id);
+        }
+    }
+
+    result
 }
 
 #[tauri::command]
-pub fn reset_monitor_cmd(edid_id: String) -> ApplyResult {
+pub fn reset_monitor_cmd(
+    state: tauri::State<'_, crate::store::AppStore>,
+    edid_id: String,
+) -> ApplyResult {
     let api = RealColorApi;
     let nv = crate::nvapi::RealNvapi;
-    reset_monitor(&api, &nv, &edid_id)
+    let result = reset_monitor(&api, &nv, &edid_id);
+
+    // Clear applied record on success
+    if result.error.is_none() {
+        if let Ok(mut store) = state.0.lock() {
+            store.clear_applied(&edid_id);
+        }
+    }
+
+    result
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────────
@@ -773,6 +794,7 @@ mod tests {
             vibrance: 50.0,
             hue_deg: 0.0,
             color_model: "nvcp-v1".into(),
+            color_tag: None,
         }
     }
 
