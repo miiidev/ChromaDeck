@@ -1,6 +1,12 @@
 import { useState, useEffect, useCallback } from "react";
 import { flushSync } from "react-dom";
 import "./App.css";
+import "@fontsource/archivo/500.css";
+import "@fontsource/archivo/600.css";
+import "@fontsource/archivo/700.css";
+import "@fontsource/archivo/800.css";
+import "@fontsource/jetbrains-mono/500.css";
+import "@fontsource/jetbrains-mono/700.css";
 import { listMonitors, listPresets, listPins, listApplied, reapplyNow } from "./lib/tauri";
 import type { Monitor, Preset, EnforceEvent } from "./lib/types";
 import { mergeMonitors } from "./lib/monitorMerge";
@@ -186,7 +192,7 @@ function App() {
               <span className="font-bold">C</span>hromaDec<span className="font-bold">k</span>
             </h1>
             <span className="rounded-lg border border-border bg-popover px-1.5 py-0.5 text-xs text-muted-foreground mono">
-              v0.5.0
+              v0.6.0
             </span>
           </div>
           <div className="flex items-center gap-3" />

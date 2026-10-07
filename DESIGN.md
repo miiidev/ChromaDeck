@@ -68,7 +68,8 @@ Single row (`flex justify-between`): left cluster (logo + title + version), righ
 
 ## Typography
 
-- Sans: `Inter` (400/500/600/700) with system-ui fallback
-- Mono: `JetBrains Mono` (400/500) for IDs, status, parameter values, meta data
+- Display: `Archivo` (500/600/700/800, bundled via `@fontsource/archivo`) for headings, dialog titles, buttons, and preset card titles
+- Mono: `JetBrains Mono` (500/700, bundled via `@fontsource/jetbrains-mono`) for IDs, status, parameter values, meta data
+- Body: system sans (`system-ui, "Segoe UI", sans-serif`) — Inter was removed along with the Google Fonts link; no remote fonts, fully offline
 - Labels: `text-xs uppercase tracking-widest`
 - Body: `text-sm` / `text-xs` shadcn defaults

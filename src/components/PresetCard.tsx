@@ -1,12 +1,17 @@
 import { useState } from "react";
 import type { Monitor, Preset } from "../lib/types";
 import { deletePreset, createPreset, unpinMonitor } from "../lib/tauri";
-import { Badge } from "@/components/ui/badge";
-import { deviatingChips } from "../lib/presetChips";
-import { Button } from "@/components/ui/button";
+import {
+  splitCategory,
+  formatStat,
+  isNeutral,
+  STAT_KEYS,
+  STAT_LABELS,
+} from "../lib/presetCard";
+import StatTile from "./StatTile";
 import { Checkbox, CheckboxIndicator } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Copy, Pencil, PinOff, Trash2 } from "lucide-react";
+import { Copy, Pencil, PinOff, Trash2, Pin } from "lucide-react";
 import { cn } from "cn";
 
 interface Props {
@@ -31,7 +36,12 @@ interface Props {
   onDeleted?: (id: string) => void;
 }
 
-export default function PresetCard({ preset, monitors, pins, onEdit, onRefreshParent, onPinChange, onApply, appliedMap, staggerEnter, staggerMs, onDuplicated, highlightEnter, selectable, selected, onToggleSelect, trembleDelayMs, exploding, explodeDelayMs, onDeleted }: Props) {
+export default function PresetCard({
+  preset, monitors, pins, onEdit, onRefreshParent, onPinChange,
+  onApply, appliedMap, staggerEnter, staggerMs, onDuplicated,
+  highlightEnter, selectable, selected, onToggleSelect,
+  trembleDelayMs, exploding, explodeDelayMs, onDeleted,
+}: Props) {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [singleExploding, setSingleExploding] = useState(false);
@@ -48,8 +58,6 @@ export default function PresetCard({ preset, monitors, pins, onEdit, onRefreshPa
         hue_deg: preset.hue_deg,
         color_tag: preset.color_tag,
       });
-      // Optimistic insert (no library reload): the parent appends the new
-      // card with its own entrance. Falls back to full refresh if unwired.
       if (onDuplicated) onDuplicated(created);
       else onRefreshParent();
     } catch {
@@ -59,8 +67,6 @@ export default function PresetCard({ preset, monitors, pins, onEdit, onRefreshPa
 
   const handleDelete = async () => {
     setDeleting(true);
-    // Solo detonation: same explosion language as batch delete, then
-    // optimistic removal (no library reload). Falls back to full refresh.
     setSingleExploding(true);
     try {
       await new Promise<void>((resolve) => {
@@ -78,7 +84,6 @@ export default function PresetCard({ preset, monitors, pins, onEdit, onRefreshPa
     }
   };
 
-  // Either detonation path (batch via parent, solo locally) triggers it.
   const detonating = exploding || singleExploding;
   const detonateDelayMs = explodeDelayMs ?? 0;
 
@@ -97,7 +102,6 @@ export default function PresetCard({ preset, monitors, pins, onEdit, onRefreshPa
   const isPinned = pinnedEdidList.length > 0;
   const isConnected = (edid: string) =>
     monitors.find((m) => m.edid_id === edid)?.connected ?? false;
-  // In use = pinned to a connected monitor, or applied this session
   const isActive =
     pinnedEdidList.some(isConnected) ||
     Object.entries(appliedMap).some(
@@ -108,11 +112,7 @@ export default function PresetCard({ preset, monitors, pins, onEdit, onRefreshPa
     return m?.alias || m?.model || edid.slice(0, 12);
   });
 
-  // Custom tag color tints the whole pad. Format-guarded: a hand-edited
-  // presets.json could hold a non-hex string, which must never reach CSS.
-  // IN USE keeps its accent ring + badge on top of the custom tint.
-  // Glow uses filter: drop-shadow (not box-shadow) so it never overrides
-  // the Tailwind ring utilities or the focus-visible ring.
+  // Color tag tint + glow (same as before)
   const tag = /^#[0-9a-fA-F]{6}$/.test(preset.color_tag ?? "")
     ? (preset.color_tag as string)
     : null;
@@ -133,22 +133,39 @@ export default function PresetCard({ preset, monitors, pins, onEdit, onRefreshPa
         } as Record<string, string>)
       : undefined;
 
+  // Category split on first " - "
+  const { category, title } = splitCategory(preset.name);
+
+  // Title font-size based on length
+  const titleLen = title.length;
+  const titleSize = titleLen > 13 ? "26px" : titleLen > 9 ? "32px" : "36px";
+
+  // Stat values
+  const statValue = (key: string): number => {
+    switch (key) {
+      case "gamma": return preset.gamma;
+      case "brightness": return preset.brightness;
+      case "contrast": return preset.contrast;
+      case "vibrance": return preset.vibrance;
+      default: return 0;
+    }
+  };
+
   return (
     <div
-      className={cn(
-        staggerEnter ? "enter-stagger" : "",
-      )}
+      className={cn(staggerEnter ? "enter-stagger" : "")}
       style={staggerEnter && staggerMs !== undefined
         ? ({ "--stagger-ms": `${staggerMs}ms` } as Record<string, string>)
         : undefined
       }
     >
-      {/* ── Tap pad: whole surface applies the preset ─────────────── */}
+      {/* ── Card shell ───────────────────────────────────────────── */}
       <div
         data-slot="card"
         className={cn(
           "card-ring",
-          "flex flex-col rounded-lg overflow-hidden bg-card ring-1 ring-foreground/10 text-sm text-card-foreground outline-none focus-visible:ring-3 focus-visible:ring-ring/50 min-h-48",
+          "flex flex-col gap-3.5 w-full rounded-xl border-2 border-[#272b38] bg-[#0e1118] p-[18px] outline-none",
+          "focus-visible:ring-3 focus-visible:ring-ring/50",
           isActive ? "ring-1 ring-primary/60" : "",
           highlightEnter ? "pop-in" : "",
           selectable && !detonating ? "card-tremble" : "",
@@ -156,178 +173,208 @@ export default function PresetCard({ preset, monitors, pins, onEdit, onRefreshPa
         )}
         style={{
           ...padStyle,
-          // Stable per-card transition name: lets View Transitions match
-          // this card across snapshots so survivors glide when siblings
-          // are deleted. Inert unless a transition runs.
           viewTransitionName: `preset-card-${preset.id}`,
-          // Negative delay starts each card mid-wobble so the grid
-          // trembles out of sync. Explosion delay wins while detonating.
-          // Inert unless a matching animation class runs.
           ...((detonating ? detonateDelayMs : trembleDelayMs) !== undefined
             ? ({ animationDelay: `${detonating ? detonateDelayMs : trembleDelayMs}ms` } as Record<string, string>)
+            : {}),
+          // Pinned: accent border + hard offset shadow
+          ...(isPinned
+            ? ({
+                borderColor: "#2f8bff",
+                boxShadow: "6px 6px 0 #2f8bff",
+              } as Record<string, string>)
             : {}),
         }}
         role="button"
         tabIndex={0}
-        onClick={() => { if (selectable) onToggleSelect?.(); else onApply(preset); }}
+        onClick={() => {
+          if (selectable) onToggleSelect?.();
+          else onApply(preset);
+        }}
         onKeyDown={handleKeyDown}
         aria-label={selectable ? `Select preset ${preset.name}` : `Apply preset ${preset.name}`}
-        aria-pressed={selectable && selected ? "true" : "false"}
+        aria-pressed={selectable ? (selected ? "true" : "false") : undefined}
       >
-        {/* Deviating-parameter chips — only what differs from neutral */}
-        <div className="flex flex-wrap items-center gap-1 px-1.5 pt-1.5">
-          {(() => {
-            const chips = deviatingChips({
-              brightness: preset.brightness,
-              contrast: preset.contrast,
-              gamma: preset.gamma,
-              rgb_gains: preset.rgb_gains,
-              vibrance: preset.vibrance,
-              hue_deg: preset.hue_deg,
-            });
-            if (chips.length === 0) {
-              return (
-                <span className="rounded-md border border-border px-1 py-px text-[10px] mono text-muted-foreground">
-                  Neutral
-                </span>
-              );
-            }
-            return chips.map((chip) => (
-              <span
-                key={chip.key}
-                title={chip.title}
-                className="rounded-md border border-border bg-muted px-1 py-px text-[10px] mono text-foreground"
-              >
-                {chip.label}
+        {/* ═══ Row 1: Header ═══ */}
+        <div className="flex items-center justify-between h-8">
+          {/* Left cluster: selection checkbox is ADDED in select mode;
+              card content never changes with mode. */}
+          <div className="flex items-center gap-1.5">
+            {selectable && (
+              // Decorative mirror of pad state; the pad itself toggles.
+              <span className="pointer-events-none" aria-hidden="true">
+                <Checkbox checked={selected ?? false} onCheckedChange={() => {}} tabIndex={-1}>
+                  <CheckboxIndicator />
+                </Checkbox>
               </span>
-            ));
-          })()}
-        </div>
+            )}
+            <>
+              {/* Filled pin icon when pinned */}
+              {isPinned && (
+                  <span
+                    className="inline-flex items-center gap-1"
+                    title={`Pinned to ${pinnedMonitorNames.join(", ")}`}
+                    aria-label={`Preset pinned to ${pinnedMonitorNames.join(", ")}`}
+                  >
+                    <Pin className="size-[14px] text-[#2f8bff]" strokeWidth={2} />
+                    <span className="sr-only">Pinned</span>
+                  </span>
+                )}
 
-        {/* Name + inline status markers — one line */}
-        <div className="flex items-center gap-1.5 shrink-0 px-1.5 py-0.5">
-          {selectable && (
-            <span className="pointer-events-none">
-              <Checkbox checked={selected ?? false} onCheckedChange={() => {}}>
-                <CheckboxIndicator />
-              </Checkbox>
-            </span>
-          )}
-          <span className="truncate text-sm font-medium leading-tight" title={preset.name}>
-            {preset.name}
-          </span>
-          <div className="flex items-center gap-1 shrink-0">
-            {isActive && (
-              <Badge className="pop-in" title="Currently applied to a connected monitor">
-                IN USE
-              </Badge>
-            )}
-            {isPinned && (
-              <span
-                className="status-dot-pinned"
-                title={`Pinned to ${pinnedMonitorNames.join(", ")}`}
-              />
-            )}
-            {preset.icc_hash && (
-              <Badge variant="outline" className="pop-in" title={preset.icc_filename}>
-                ICC
-              </Badge>
-)}
+                {/* Category label */}
+                {category && (
+                  <span className="text-[11px] font-mono font-bold tracking-[0.14em] uppercase text-[#8b92a6]">
+                    {category}
+                  </span>
+                )}
+
+                {/* ICC tag */}
+                {preset.icc_hash && (
+                  <span className="pop-in rounded-[6px] border border-[#3a4054] px-[6px] py-px text-[10px] font-mono tracking-[0.1em] text-[#8b92a6]">
+                    ICC
+                  </span>
+                )}
+
+                {/* IN USE marker: solid accent badge, dark text for contrast */}
+                {isActive && (
+                  <span
+                    className="pop-in rounded-[6px] bg-[#2f8bff] px-[6px] py-px text-[10px] font-mono font-bold tracking-[0.1em] text-[#06202e]"
+                    title="Currently applied to a connected monitor"
+                  >
+                    IN USE
+                  </span>
+                )}
+              </>
           </div>
+
+          {/* Right: action icons — hidden in selection mode */}
+          {!selectable && (
+            <div className="flex items-center gap-1.5">
+              {isPinned && (
+                <span className="pop-in">
+                  <button
+                    type="button"
+                    className="inline-flex items-center justify-center size-8 rounded-lg bg-transparent text-[#6b7285] hover:text-[#2f8bff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2f8bff]/60" data-slot="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void (async () => {
+                        try {
+                          for (const edid of pinnedEdidList) {
+                            await unpinMonitor(edid);
+                          }
+                          onPinChange();
+                        } catch { /* silent */ }
+                      })();
+                    }}
+                    title="Unpin from all monitors"
+                    aria-label={`Unpin preset ${preset.name} from all monitors`}
+                  >
+                    <PinOff className="size-4 stroke-2" />
+                  </button>
+                </span>
+              )}
+
+              <button
+                type="button"
+                className="inline-flex items-center justify-center size-8 rounded-lg bg-transparent text-[#6b7285] hover:text-[#2f8bff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2f8bff]/60" data-slot="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEdit(preset);
+                }}
+                onKeyDown={(e) => e.stopPropagation()}
+                title="Edit"
+                aria-label={`Edit preset ${preset.name}`}
+              >
+                <Pencil className="size-4 stroke-2" />
+              </button>
+
+              <button
+                type="button"
+                className="inline-flex items-center justify-center size-8 rounded-lg bg-transparent text-[#6b7285] hover:text-[#2f8bff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2f8bff]/60" data-slot="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void handleDuplicate();
+                }}
+                onKeyDown={(e) => e.stopPropagation()}
+                title="Duplicate preset"
+                aria-label={`Duplicate preset ${preset.name}`}
+              >
+                <Copy className="size-4 stroke-2" />
+              </button>
+
+              <button
+                type="button"
+                className="inline-flex items-center justify-center size-8 rounded-lg bg-transparent text-[#6b7285] hover:text-[#ff2e7e] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2f8bff]/60" data-slot="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowDeleteModal(true);
+                }}
+                onKeyDown={(e) => e.stopPropagation()}
+                title="Delete preset"
+                aria-label={`Delete preset ${preset.name}`}
+              >
+                <Trash2 className="size-4 stroke-2" />
+              </button>
+            </div>
+          )}
         </div>
 
-        {/* Pin target hint */}
-        {pinnedMonitorNames.length > 0 && (
-          <span className="px-1.5 text-xs text-muted-foreground leading-tight" title={`Pinned to ${pinnedMonitorNames.join(", ")}`}>
+        {/* ═══ Row 2: Title as apply button ═══ */}
+        <button
+          type="button"
+          className="flex items-center text-left w-full bg-transparent border-0 cursor-pointer rounded transition-opacity hover:opacity-85 focus-visible:outline-2 focus-visible:outline-[#2f8bff] focus-visible:outline-offset-2"
+          onClick={(e) => {
+            // Pad already applies/toggles; don't fire twice.
+            e.stopPropagation();
+            if (selectable) onToggleSelect?.();
+            else onApply(preset);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") e.stopPropagation();
+          }}
+          aria-label={selectable
+            ? `Select preset ${preset.name}`
+            : `Apply preset ${preset.name}`
+          }
+          aria-pressed={selectable ? (selected ? "true" : "false") : undefined}
+        >
+          <span
+            className="truncate text-[#f2f5fa] font-display font-extrabold"
+            style={{
+              fontSize: titleSize,
+              lineHeight: "1",
+              letterSpacing: "-0.02em",
+            } as Record<string, string>}
+            title={preset.name}
+          >
+            {title}
+          </span>
+        </button>
+
+        {/* ═══ Row 3: 2×2 Stat grid (identical in every mode) ═══ */}
+        <div className="mt-auto grid grid-cols-2 gap-2">
+            {STAT_KEYS.map((key) => {
+              const value = statValue(key);
+              return (
+                <StatTile
+                  key={key}
+                  label={STAT_LABELS[key]}
+                  value={formatStat(key, value)}
+                  neutral={isNeutral(key, value)}
+                />
+              );
+            })}
+        </div>
+
+        {/* ── Pin target hint (below grid, every mode) ── */}
+        {isPinned && pinnedMonitorNames.length > 0 && (
+          <span className="text-xs text-muted-foreground leading-tight">
             → {pinnedMonitorNames.join(", ")}
           </span>
         )}
-
-        {/* ── Action cluster — compact icon buttons, in-flow row ─── */}
-        {/* Row is click-through (empty space still applies the preset);
-            each button re-enables pointer events and stops propagation so
-            its press never bubbles up into an apply.
-            Hidden entirely in selection mode. */}
-        {!selectable && (
-        <div
-          className="flex items-center justify-end gap-1.5 px-1.5 pb-1.5 pt-1 mt-auto pointer-events-none"
-          onClick={(e) => e.stopPropagation()}
-          onKeyDown={(e) => e.stopPropagation()}
-        >
-          {isPinned && (
-            <span className="pop-in">
-              <Button
-                variant="outline"
-                size="icon-xs"
-                className="pointer-events-auto"
-                onClick={async (e) => {
-                  e.stopPropagation();
-                  try {
-                    for (const edid of pinnedEdidList) {
-                      await unpinMonitor(edid);
-                    }
-                    onPinChange();
-                  } catch {
-                    // silent
-                  }
-                }}
-                title="Unpin from all monitors"
-                aria-label={`Unpin preset ${preset.name} from all monitors`}
-              >
-                <PinOff />
-              </Button>
-            </span>
-          )}
-
-          {/* EDIT = secondary */}
-          <Button
-            variant="secondary"
-            size="icon-xs"
-            className="pointer-events-auto"
-            onClick={(e) => {
-              e.stopPropagation();
-              onEdit(preset);
-            }}
-            title="Edit"
-            aria-label={`Edit preset ${preset.name}`}
-          >
-            <Pencil />
-          </Button>
-
-          {/* DUP = outline */}
-          <Button
-            variant="outline"
-            size="icon-xs"
-            className="pointer-events-auto"
-            onClick={(e) => {
-              e.stopPropagation();
-              void handleDuplicate();
-            }}
-            title="Duplicate preset"
-            aria-label={`Duplicate preset ${preset.name}`}
-          >
-            <Copy />
-          </Button>
-
-          {/* DEL = destructive */}
-          <Button
-            variant="destructive"
-            size="icon-xs"
-            className="pointer-events-auto"
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowDeleteModal(true);
-            }}
-            title="Delete preset"
-            aria-label={`Delete preset ${preset.name}`}
-          >
-            <Trash2 />
-          </Button>
-</div>
-        )}
       </div>
 
-      {/* Delete confirmation dialog */}
+      {/* ── Delete confirmation dialog ─────────────────────────── */}
       {showDeleteModal && (
         <Dialog
           open
@@ -342,12 +389,24 @@ export default function PresetCard({ preset, monitors, pins, onEdit, onRefreshPa
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>
-              <Button variant="outline" size="sm" onClick={() => setShowDeleteModal(false)} disabled={deleting}>
+              <button
+                type="button"
+                data-slot="button"
+                className="inline-flex items-center justify-center rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2f8bff]/60"
+                onClick={() => setShowDeleteModal(false)}
+                disabled={deleting}
+              >
                 Cancel
-              </Button>
-              <Button variant="destructive" size="sm" onClick={() => void handleDelete()} disabled={deleting}>
+              </button>
+              <button
+                type="button"
+                data-slot="button"
+                className="inline-flex items-center justify-center rounded-lg bg-destructive/20 px-3 py-1.5 text-xs font-medium text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2f8bff]/60"
+                onClick={() => void handleDelete()}
+                disabled={deleting}
+              >
                 {deleting ? "Deleting…" : "Delete"}
-              </Button>
+              </button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
