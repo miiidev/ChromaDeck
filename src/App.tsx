@@ -11,7 +11,7 @@ import { listMonitors, listPresets, listPins, listApplied, reapplyNow } from "./
 import type { Monitor, Preset, EnforceEvent } from "./lib/types";
 import { mergeMonitors } from "./lib/monitorMerge";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
-import logoLockupDark from "./assets/logo-lockup-dm.png";
+import logoMark from "./assets/chromadeck-icon.svg";
 import MonitorList from "./components/MonitorList";
 import MonitorSidebar from "./components/MonitorSidebar";
 import ApplyDialog from "./components/ApplyDialog";
@@ -174,7 +174,7 @@ function App() {
   function LogoMark() {
     return (
       <img
-        src={logoLockupDark}
+        src={logoMark}
         className="logo-lockup"
         alt="ChromaDeck logo"
       />
