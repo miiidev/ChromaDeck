@@ -8,6 +8,7 @@ import "@fontsource/archivo/800.css";
 import "@fontsource/jetbrains-mono/500.css";
 import "@fontsource/jetbrains-mono/700.css";
 import { listMonitors, listPresets, listPins, listApplied, reapplyNow } from "./lib/tauri";
+import { version as appVersion } from "../package.json";
 import type { Monitor, Preset, EnforceEvent } from "./lib/types";
 import { mergeMonitors } from "./lib/monitorMerge";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
@@ -192,7 +193,7 @@ function App() {
               <span className="font-bold">C</span>hromaDec<span className="font-bold">k</span>
             </h1>
             <span className="rounded-lg border border-border bg-popover px-1.5 py-0.5 text-xs text-muted-foreground mono">
-              v0.6.0
+              v{appVersion}
             </span>
           </div>
           <div className="flex items-center gap-3" />
