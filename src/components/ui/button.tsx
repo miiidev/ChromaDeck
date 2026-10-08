@@ -43,6 +43,7 @@ function Button({
   className,
   variant = "default",
   size = "default",
+  children,
   ...props
 }: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
   return (
@@ -50,7 +51,11 @@ function Button({
       data-slot="button"
       className={cn(buttonVariants({ variant, size, className }))}
       {...props}
-    />
+    >
+      <span className="btn-label inline-flex items-center gap-[inherit]">
+        {children}
+      </span>
+    </ButtonPrimitive>
   )
 }
 

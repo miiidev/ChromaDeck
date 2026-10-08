@@ -1,6 +1,6 @@
 [package]
 name = "chromadeck"
-version = "0.6.0"
+version = "0.7.0"
 description = "ChromaDeck — per-monitor ICC colour preset manager"
 authors = ["miiidev"]
 edition = "2021"

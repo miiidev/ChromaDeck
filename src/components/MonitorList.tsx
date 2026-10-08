@@ -261,7 +261,7 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
             </Button>
           </div>
         ) : (
-          <div className="grid gap-3 p-2 [grid-template-columns:repeat(auto-fill,minmax(12rem,1fr))]">
+          <div className="preset-deck grid gap-3 p-2 [grid-template-columns:repeat(auto-fill,minmax(12rem,1fr))]">
             {/* p-2 breathing room: rings, focus rings, and tag glows paint
                 outside the card box and would clip at the scrollport walls
                 (first/last columns sit flush against the edge). No negative
@@ -285,7 +285,6 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
                 onDuplicated={onPresetDuplicated}
                 onDeleted={onPresetDeleted}
                 highlightEnter={!isStagger && lastAddedId === preset.id}
-                trembleDelayMs={(i % 7) * -60}
                 exploding={explodingIds.has(preset.id)}
                 explodeDelayMs={Math.min(i, 10) * 40}
                   selectable={selecting}
@@ -340,37 +339,88 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
   );
 }
 
-/** Scroll container with edge-fade overlays.
- * The header lives OUTSIDE the scrollport (static, always crisp); the grid
- * scrolls beneath sticky ::before/::after gradient overlays whose opacity
- * eases with scroll position. Position writes go straight to the dataset
- * (no re-render per scroll event) and are rAF-throttled. */
+/** Plain scroll container. Edge fading is fully declarative now
+ * (scroll-driven card animations in CSS); no scroll listeners, no
+ * rAF, no dataset writes. The header lives outside the scrollport.
+ *
+ * When the runtime does NOT support CSS animation-timeline: view()
+ * (suspected in older WebView2), an IntersectionObserver fallback
+ * writes per-card --edge-o CSS variables and the .no-view-timeline
+ * class activates companion CSS rules. Feature-detect runs once on
+ * mount; on supporting runtimes the fallback installs nothing. */
 function LibraryScrollRoot({ header, children }: { header: ReactNode; children: ReactNode }) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const rafRef = useRef(0);
 
-  const updateFade = () => {
-    const el = scrollRef.current;
-    if (!el) return;
-    el.dataset.atTop = String(el.scrollTop <= 8);
-    el.dataset.atBottom = String(
-      el.scrollHeight - el.scrollTop - el.clientHeight <= 8,
-    );
-  };
-
-  const onScroll = () => {
-    cancelAnimationFrame(rafRef.current);
-    rafRef.current = requestAnimationFrame(updateFade);
-  };
-
+  // ── IntersectionObserver fallback for unsupported runtimes ─────
   useEffect(() => {
-    updateFade();
-    window.addEventListener("resize", updateFade);
-    return () => {
-      window.removeEventListener("resize", updateFade);
-      cancelAnimationFrame(rafRef.current);
+    const scroll = scrollRef.current;
+    if (!scroll) return;
+
+    // 1. Feature-detect CSS scroll-driven animations
+    const supportsViewTimeline =
+      typeof CSS !== "undefined" &&
+      typeof CSS.supports === "function" &&
+      CSS.supports("animation-timeline", "view()");
+    if (supportsViewTimeline) return; // CSS handles it — install nothing
+
+    // 2. Runtime guard: IntersectionObserver / MutationObserver present
+    if (typeof IntersectionObserver === "undefined" || typeof MutationObserver === "undefined") return;
+
+    // 3. Respect prefers-reduced-motion
+    try {
+      const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+      if (mq.matches) return; // reduced motion — cards stay fully opaque
+    } catch {
+      /* matchMedia unavailable — fall through */
+    }
+
+    // 4. Activate fallback CSS rules on the scroll container
+    scroll.classList.add("no-view-timeline");
+
+    // 5. Dense thresholds: 0 to 1 step 0.05
+    const thresholds: number[] = [0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1];
+
+    // 6. Create IntersectionObserver with scroll container as root
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          const el = entry.target as HTMLElement;
+          // Map ratio r → min(1, r/0.35): fully opaque through the
+          // middle ~65%, fade occupies the outer ~35% at each edge,
+          // mirroring the 35/65 keyframe shoulders of card-edge-vanish.
+          const opacity = Math.min(1, entry.intersectionRatio / 0.35);
+          el.style.setProperty("--edge-o", String(opacity));
+        }
+      },
+      {
+        root: scroll,
+        threshold: thresholds,
+      },
+    );
+
+    // 7. Sync IO observations with .preset-deck children (initial + on changes)
+    const syncCards = () => {
+      const deck = scroll.querySelector(".preset-deck");
+      if (!deck) return;
+      io.disconnect();
+      for (const child of deck.children) {
+        io.observe(child);
+      }
     };
-  });
+
+    syncCards();
+
+    // 8. Watch for grid changes (duplicate → new card, delete → removal)
+    const mut = new MutationObserver(() => syncCards());
+    mut.observe(scroll, { childList: true, subtree: true });
+
+    // 9. Cleanup on unmount — no observer leaks
+    return () => {
+      io.disconnect();
+      mut.disconnect();
+      scroll.classList.remove("no-view-timeline");
+    };
+  }, []);
 
   return (
     <div
@@ -380,10 +430,7 @@ function LibraryScrollRoot({ header, children }: { header: ReactNode; children: 
       {header}
       <div
         ref={scrollRef}
-        onScroll={onScroll}
-        data-at-top="true"
-        data-at-bottom="true"
-        className="scroll-fades flex-1 min-h-0 overflow-y-auto overflow-x-clip"
+        className="flex-1 min-h-0 overflow-y-auto overflow-x-clip"
       >
         {children}
       </div>

@@ -307,19 +307,35 @@ h6,
   animation: motion-pulse-soft 2s var(--ease-out) infinite;
 }
 
-/* ── Button hover effect ───────────────────────────────────────── */
+/* ── Button hover effect: label grows, box stays put ─────────── */
+/* Hover feedback scales the label/icon inside a fixed-geometry box
+   (font-size would grow content-width buttons and shove neighbors;
+   transform on the label avoids layout entirely). Press still dips
+   the box; the label resets on active so the two transforms compose
+   to exactly the press value instead of double-shrinking. */
 
 [data-slot="button"]:not(:disabled) {
   transition: transform var(--motion-micro) var(--ease-spring),
               opacity var(--motion-micro) var(--ease-out);
 }
 
-[data-slot="button"]:not(:disabled):not(:active):hover {
-  transform: scale(1.03);
+[data-slot="button"]:not(:disabled) > .btn-label,
+[data-slot="button"]:not(:disabled) > svg {
+  transition: transform var(--motion-micro) var(--ease-spring);
+}
+
+[data-slot="button"]:not(:disabled):not(:active):hover > .btn-label,
+[data-slot="button"]:not(:disabled):not(:active):hover > svg {
+  transform: scale(1.06);
 }
 
 [data-slot="button"]:not(:disabled):active {
   transform: scale(0.96);
+}
+
+[data-slot="button"]:not(:disabled):active > .btn-label,
+[data-slot="button"]:not(:disabled):active > svg {
+  transform: none;
 }
 
 /* ── Dialog timing override (bump from base-ui 100ms default) ──── */
@@ -484,50 +500,52 @@ h6,
               box-shadow var(--motion-micro) var(--ease-out);
 }
 
-/* ── Library scroll edge fades ────────────────────────────────────
-   Scroll-aware gradient overlays: sticky pseudo-elements ride the top
-   and bottom of the scroll viewport while content slides beneath them.
-   Opacity eases 200ms so fades melt in/out at the scroll boundaries
-   instead of snapping (masks can't transition; overlays can). Gradients
-   run to --color-background (theme-neutral); pointer-events:none keeps
-   every preset clickable, hoverable, and keyboard-focusable. The Library
-   header lives outside the scrollport and stays crisp. */
+/* ── Library scroll edge vanish ───────────────────────────────────
+   Scroll-linked per-card dissolve: each preset pad fades, settles, and
+   shrinks slightly as it travels out of the scrollport in either
+   direction, fully driven by its position (animation-timeline: view).
+   Scrubbable, GPU-composited, zero JavaScript. Excludes pads running a
+   one-shot or looping animation (pop-in entrance, select tremble,
+   detonation) so effects never fight. viewTransitionName on the pad is
+   unrelated (delete gap-fill) and composes fine. */
 
-.scroll-fades {
-  position: relative;
+@keyframes card-edge-vanish {
+  0%   { opacity: 0; transform: translateY(8px) scale(0.97); }
+  35%  { opacity: 1; transform: none; }
+  65%  { opacity: 1; transform: none; }
+  100% { opacity: 0; transform: translateY(-8px) scale(0.97); }
 }
 
-.scroll-fades::before,
-.scroll-fades::after {
-  content: "";
-  position: sticky;
-  display: block;
-  pointer-events: none;
-  z-index: 5;
-  opacity: 0;
-  transition: opacity 200ms var(--ease-out);
+.preset-deck [data-slot="card"]:not(.pop-in):not(.card-tremble):not(.card-explode) {
+  animation: card-edge-vanish linear both;
+  animation-timeline: view();
 }
 
-.scroll-fades::before {
-  top: 0;
-  height: 28px;
-  margin-bottom: -28px;
-  background: linear-gradient(to bottom, var(--color-background), transparent);
+@media (prefers-reduced-motion: reduce) {
+  .preset-deck [data-slot="card"] {
+    /* !important: the base rule above carries :not() specificity that a
+       plain override cannot beat, and the global duration-zeroing does
+       not stop timeline-driven animations. */
+    animation: none !important;
+  }
 }
 
-.scroll-fades::after {
-  bottom: 0;
-  height: 36px;
-  margin-top: -36px;
-  background: linear-gradient(to top, var(--color-background), transparent);
-}
+/* ── Library scroll edge vanish — IO fallback ──────────────────
+   Activated by MonitorList.tsx when CSS.supports('animation-timeline',
+   'view()') returns false (e.g. older WebView2 without CSS scroll-driven
+   animations). The .no-view-timeline class is added to the scroll
+   container, and an IntersectionObserver writes --edge-o to each card
+   wrapper so CSS can gate opacity on it. Cards without pop-in/tremble/
+   explode get their base animation killed here: on an unsupported runtime
+   the card-edge-vanish keyframes would play on the auto timeline (animating
+   cards to opacity 0 and staying there), so we must kill them to prevent
+   that. Other animations (pop-in bounce, tremble, detonation) compose
+   naturally — they override the plain opacity property while they run, and
+   the fallback CSS applies only when they are absent. */
 
-.scroll-fades[data-at-top="false"]::before {
-  opacity: 1;
-}
-
-.scroll-fades[data-at-bottom="false"]::after {
-  opacity: 1;
+.no-view-timeline .preset-deck [data-slot="card"]:not(.pop-in):not(.card-tremble):not(.card-explode) {
+  animation: none !important;
+  opacity: var(--edge-o, 1);
 }
 
 /* ── Preset title marquee ─────────────────────────────────────────

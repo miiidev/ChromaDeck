@@ -139,6 +139,21 @@ impl From<serde_json::Error> for StoreError {
 
 // ── Store ──────────────────────────────────────────────────────────────────
 
+/// A preset as seeded on first run: exactly "Standard" with untouched
+/// neutral values (no ICC). Only pins to such a pristine preset are
+/// removed by the standard-unpin migration below — a user-tweaked
+/// "Standard" keeps its pins.
+fn is_neutral_standard(p: &Preset) -> bool {
+    p.name == "Standard"
+        && p.brightness == 50.0
+        && p.contrast == 50.0
+        && p.gamma == 1.0
+        && p.rgb_gains == [1.0, 1.0, 1.0]
+        && p.vibrance == 50.0
+        && p.hue_deg == 0.0
+        && p.icc_hash.is_empty()
+}
+
 /// Manages the preset store on disk.
 pub struct Store {
     data_dir: PathBuf,
@@ -287,6 +302,31 @@ impl Store {
                 color_tag: None,
             };
             let _ = store.create_preset(standard_input)?;
+        }
+
+        // ── Standard unpin migration (one-shot) ─────────────────────────
+        // Early builds auto-pinned the seeded neutral Standard preset, so it
+        // stayed IN USE forever and every later apply showed two active
+        // presets. Seeding no longer pins; this repairs installs carrying
+        // those pins. Only pins to a still-pristine neutral Standard are
+        // dropped — anything the user renamed or retuned is untouched — and
+        // the Standard preset itself is always kept. Sentinel makes it
+        // exactly-once.
+        if !data_dir.join(".standard-unpin-v1").exists() {
+            let standard_ids: Vec<String> = store
+                .presets
+                .iter()
+                .filter(|p| is_neutral_standard(p))
+                .map(|p| p.id.clone())
+                .collect();
+            if !standard_ids.is_empty() {
+                let before = store.pinned.len();
+                store.pinned.retain(|_, pid| !standard_ids.contains(pid));
+                if store.pinned.len() != before {
+                    store.flush_pins()?;
+                }
+            }
+            let _ = std::fs::write(data_dir.join(".standard-unpin-v1"), b"");
         }
 
         Ok(store)
@@ -1409,6 +1449,11 @@ mod tests {
         assert!(list[0].color_tag.is_none(), "Standard preset has no color tag");
         assert!(list[0].icc_hash.is_empty(), "Standard preset has no ICC profile");
         assert!(!list[0].id.is_empty(), "Standard preset has a UUID id");
+        assert!(store.list_pins().is_empty(), "fresh store pins nothing");
+        assert!(
+            store.list_applied().is_empty(),
+            "fresh store has nothing in use"
+        );
     }
 
     #[test]
@@ -1426,5 +1471,63 @@ mod tests {
         let list = store.list_presets();
         assert_eq!(list.len(), 1, "no duplicate Standard preset");
         assert_eq!(list[0].name, "Existing");
+    }
+
+    // ── Standard unpin migration ─────────────────────────────────────
+
+    fn write_standard_unpin_fixture(dir: &std::path::Path, standard_json: &str) {
+        std::fs::create_dir_all(dir).unwrap();
+        std::fs::write(
+            dir.join("presets.json"),
+            format!(
+                r#"[{standard_json},{{"id":"custom-1","name":"Custom","icc_hash":"","icc_filename":"","brightness":55.0,"contrast":60.0,"rgb_gains":[1.0,1.0,1.0],"gamma":2.2,"vibrance":50.0,"hue_deg":0.0,"color_model":"nvcp-v1"}}]"#,
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("pins.json"),
+            r#"{"EDID-A":"std-1","EDID-B":"custom-1"}"#,
+        )
+        .unwrap();
+        // Skip monitor-enumeration wipe so fixtures survive.
+        std::fs::write(dir.join(".monitor-enumeration-v2"), b"").unwrap();
+    }
+
+    const NEUTRAL_STANDARD_JSON: &str = r#"{"id":"std-1","name":"Standard","icc_hash":"","icc_filename":"","brightness":50.0,"contrast":50.0,"rgb_gains":[1.0,1.0,1.0],"gamma":1.0,"vibrance":50.0,"hue_deg":0.0,"color_model":"nvcp-v1"}"#;
+
+    #[test]
+    fn standard_unpin_migration_drops_pristine_standard_pins() {
+        let dir = test_store_dir_unique();
+        write_standard_unpin_fixture(&dir, NEUTRAL_STANDARD_JSON);
+        let store = Store::new(dir.clone()).unwrap();
+        // Standard preset itself is kept; only its pins are dropped.
+        assert_eq!(store.list_presets().len(), 2);
+        assert_eq!(
+            store.list_pins().get("EDID-A"),
+            None,
+            "auto-pinned Standard pin is repaired"
+        );
+        assert_eq!(
+            store.list_pins().get("EDID-B"),
+            Some(&"custom-1".to_string()),
+            "unrelated pin is untouched"
+        );
+        assert!(
+            dir.join(".standard-unpin-v1").exists(),
+            "sentinel written exactly-once"
+        );
+    }
+
+    #[test]
+    fn standard_unpin_migration_keeps_tweaked_standard_pins() {
+        let dir = test_store_dir_unique();
+        let tweaked = NEUTRAL_STANDARD_JSON.replace("\"brightness\":50.0", "\"brightness\":55.0");
+        write_standard_unpin_fixture(&dir, &tweaked);
+        let store = Store::new(dir).unwrap();
+        assert_eq!(
+            store.list_pins().get("EDID-A"),
+            Some(&"std-1".to_string()),
+            "user-tweaked Standard keeps its pin"
+        );
     }
 }

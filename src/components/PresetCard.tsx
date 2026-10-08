@@ -30,7 +30,6 @@ interface Props {
   selectable?: boolean;
   selected?: boolean;
   onToggleSelect?: () => void;
-  trembleDelayMs?: number;
   exploding?: boolean;
   explodeDelayMs?: number;
   onDeleted?: (id: string) => void;
@@ -40,7 +39,7 @@ export default function PresetCard({
   preset, monitors, pins, onEdit, onRefreshParent, onPinChange,
   onApply, appliedMap, staggerEnter, staggerMs, onDuplicated,
   highlightEnter, selectable, selected, onToggleSelect,
-  trembleDelayMs, exploding, explodeDelayMs, onDeleted,
+  exploding, explodeDelayMs, onDeleted,
 }: Props) {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -85,7 +84,6 @@ export default function PresetCard({
   };
 
   const detonating = exploding || singleExploding;
-  const detonateDelayMs = explodeDelayMs ?? 0;
 
   const handleKeyDown = (e: { key: string; preventDefault: () => void }) => {
     if (e.key === "Enter" || e.key === " ") {
@@ -200,8 +198,12 @@ export default function PresetCard({
         style={{
           ...padStyle,
           viewTransitionName: `preset-card-${preset.id}`,
-          ...((detonating ? detonateDelayMs : trembleDelayMs) !== undefined
-            ? ({ animationDelay: `${detonating ? detonateDelayMs : trembleDelayMs}ms` } as Record<string, string>)
+          // Delay ONLY while detonating: a shared animation-delay would
+          // phase-shift the scroll-driven edge fade (tremble desync lived
+          // here before and pushed every card's fade zone toward the end
+          // of travel). Tremble runs sync now; explosion keeps its cascade.
+          ...(detonating && explodeDelayMs !== undefined
+            ? ({ animationDelay: `${explodeDelayMs}ms` } as Record<string, string>)
             : {}),
           // Pinned: accent border + hard offset shadow
           ...(isPinned
@@ -441,7 +443,7 @@ export default function PresetCard({
                 onClick={() => setShowDeleteModal(false)}
                 disabled={deleting}
               >
-                Cancel
+                <span className="btn-label">Cancel</span>
               </button>
               <button
                 type="button"
@@ -450,7 +452,7 @@ export default function PresetCard({
                 onClick={() => void handleDelete()}
                 disabled={deleting}
               >
-                {deleting ? "Deleting…" : "Delete"}
+                <span className="btn-label">{deleting ? "Deleting…" : "Delete"}</span>
               </button>
             </DialogFooter>
           </DialogContent>

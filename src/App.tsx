@@ -209,7 +209,7 @@ function App() {
           </div>
           <div className="flex items-center justify-end px-4 py-2">
             <button onClick={() => void fetchData()} data-slot="button" className="inline-flex items-center justify-center rounded-lg border border-border bg-card px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground active:translate-y-px">
-              Retry
+              <span className="btn-label">Retry</span>
             </button>
           </div>
         </div>
@@ -269,7 +269,7 @@ function App() {
             className="inline-flex items-center justify-center rounded-lg border border-border bg-card px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
             title="Re-run enforcement now"
           >
-            Reapply
+            <span className="btn-label">Reapply</span>
           </button>
           <AutostartToggle />
         </span>
