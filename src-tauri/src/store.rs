@@ -139,10 +139,10 @@ impl From<serde_json::Error> for StoreError {
 
 // ── Store ──────────────────────────────────────────────────────────────────
 
-/// A preset as seeded on first run: exactly "Standard" with untouched
-/// neutral values (no ICC). Only pins to such a pristine preset are
-/// removed by the standard-unpin migration below — a user-tweaked
-/// "Standard" keeps its pins.
+/// A preset as previously seeded on first run: exactly "Standard" with
+/// untouched neutral values (no ICC). Only such a pristine preset is
+/// removed by the standard-seed purge below — a user-tweaked or
+/// user-created "Standard" keeps its pins and applied records.
 fn is_neutral_standard(p: &Preset) -> bool {
     p.name == "Standard"
         && p.brightness == 50.0
@@ -175,11 +175,6 @@ impl Store {
         let presets_path = data_dir.join("presets.json");
 
         std::fs::create_dir_all(&profiles_dir)?;
-
-        // ── First-run detection: presets.json absence is the sentinel ────
-        // Captured before any migrations so that a migration that wipes existing
-        // presets does not trigger re-seeding — the file existed at open time.
-        let was_fresh = !presets_path.exists();
 
         let presets: Vec<Preset> = if presets_path.exists() {
             let content = std::fs::read_to_string(&presets_path)?;
@@ -284,49 +279,27 @@ impl Store {
             let _ = std::fs::write(data_dir.join(".global-presets-v1"), b"");
         }
 
-        // ── First-run seeding: Standard preset ─────────────────────────
-        // On a true first launch (presets.json did not exist), create a
-        // neutral Standard preset so a new library is never empty.  It is
-        // deliberately NOT pinned or applied: the user opts in to enforcement
-        // explicitly.  Neutral values (50/50/1.0) change nothing visible.
-        if was_fresh {
-            let standard_input = PresetInput {
-                name: "Standard".into(),
-                icc_path: None,
-                brightness: 50.0,
-                contrast: 50.0,
-                rgb_gains: [1.0, 1.0, 1.0],
-                gamma: 1.0,
-                vibrance: 50.0,
-                hue_deg: 0.0,
-                color_tag: None,
-            };
-            let _ = store.create_preset(standard_input)?;
-        }
-
-        // ── Standard unpin migration (one-shot) ─────────────────────────
-        // Early builds auto-pinned the seeded neutral Standard preset, so it
-        // stayed IN USE forever and every later apply showed two active
-        // presets. Seeding no longer pins; this repairs installs carrying
-        // those pins. Only pins to a still-pristine neutral Standard are
-        // dropped — anything the user renamed or retuned is untouched — and
-        // the Standard preset itself is always kept. Sentinel makes it
-        // exactly-once.
-        if !data_dir.join(".standard-unpin-v1").exists() {
+        // ── Seeded-Standard purge (one-shot) ───────────────────────────
+        // Early builds created a neutral "Standard" preset on first launch
+        // and (for a time) auto-pinned/applied it, so it stayed IN USE on
+        // every connected monitor. Standard is no longer seeded: a fresh
+        // library starts empty and the user authors every preset. This
+        // repairs existing installs: any still-pristine neutral Standard is
+        // removed (delete_preset cascades pins + applied records + flushes).
+        // Anything the user renamed, retuned, or created themselves is
+        // untouched. Sentinel makes it exactly-once; an obsolete
+        // .standard-unpin-v1 file left on disk is harmless.
+        if !data_dir.join(".standard-seed-purge-v1").exists() {
             let standard_ids: Vec<String> = store
                 .presets
                 .iter()
                 .filter(|p| is_neutral_standard(p))
                 .map(|p| p.id.clone())
                 .collect();
-            if !standard_ids.is_empty() {
-                let before = store.pinned.len();
-                store.pinned.retain(|_, pid| !standard_ids.contains(pid));
-                if store.pinned.len() != before {
-                    store.flush_pins()?;
-                }
+            for id in &standard_ids {
+                let _ = store.delete_preset(id)?;
             }
-            let _ = std::fs::write(data_dir.join(".standard-unpin-v1"), b"");
+            let _ = std::fs::write(data_dir.join(".standard-seed-purge-v1"), b"");
         }
 
         Ok(store)
@@ -776,20 +749,12 @@ mod tests {
 
     /// Create a Store backed by a unique temp directory.
     fn test_store() -> Store {
-        let dir = std::env::temp_dir().join(format!(
-            "chromadeck_test_{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        test_store_at(dir)
+        test_store_at(test_store_dir_unique())
     }
 
     /// Create a Store at a specific directory (cleaning any leftovers first).
-    /// Pre-writes an empty presets.json so Store::new never triggers first-run
-    /// seeding — isolation tests that want seeding should call Store::new(fresh_dir)
-    /// directly.
+    /// Pre-writes an empty presets.json so Store::new starts from a known
+    /// empty library.
     fn test_store_at(dir: PathBuf) -> Store {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -821,9 +786,18 @@ mod tests {
     }
 
     /// Create a Store backed by a unique temp directory (returns the dir).
+    /// Uniqueness is a process-wide atomic counter, not the wall clock:
+    /// Windows clock granularity is coarse, so two tests starting in the
+    /// same tick would otherwise share a directory and race.
+    static TEST_DIR_COUNTER: std::sync::atomic::AtomicU64 =
+        std::sync::atomic::AtomicU64::new(0);
+
     fn test_store_dir_unique() -> PathBuf {
+        let n = TEST_DIR_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         std::env::temp_dir().join(format!(
-            "chromadeck_test_{}",
+            "chromadeck_test_{}_{}_{}",
+            std::process::id(),
+            n,
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
@@ -999,16 +973,10 @@ mod tests {
 
     #[test]
     fn presist_presets_across_reload() {
-        let dir = std::env::temp_dir().join(format!(
-            "chromadeck_persist_test_{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let dir = test_store_dir_unique();
         let _ = std::fs::remove_dir_all(&dir);
 
-        // First session: fresh dir seeds Standard + creates 2 = 3 total
+        // First session: fresh dir starts empty, creates 2 = 2 total
         {
             let mut store = Store::new(dir.clone()).unwrap();
             let _p1 = store.create_preset(minimal_input()).unwrap();
@@ -1025,17 +993,16 @@ mod tests {
                     color_tag: None,
                 })
                 .unwrap();
-            assert_eq!(store.list_presets().len(), 3);
+            assert_eq!(store.list_presets().len(), 2);
         }
 
-        // Second session — reload from disk (3 presets)
+        // Second session — reload from disk (2 presets)
         {
             let store = Store::new(dir.clone()).unwrap();
             let list = store.list_presets();
-            assert_eq!(list.len(), 3);
-            assert_eq!(list[0].name, "Standard");
-            assert_eq!(list[1].name, "Test Preset");
-            assert_eq!(list[2].name, "Second");
+            assert_eq!(list.len(), 2);
+            assert_eq!(list[0].name, "Test Preset");
+            assert_eq!(list[1].name, "Second");
         }
 
         // Cleanup
@@ -1430,25 +1397,16 @@ mod tests {
         );
     }
 
-    // ── First-run seeding ──────────────────────────────────────────────
+    // ── Fresh store: no seeding ──────────────────────────────────────
 
     #[test]
-    fn fresh_store_contains_standard_preset() {
+    fn fresh_store_is_empty() {
         let dir = test_store_dir_unique();
         let store = Store::new(dir).unwrap();
-        let list = store.list_presets();
-        assert_eq!(list.len(), 1, "fresh store has exactly one preset");
-        assert_eq!(list[0].name, "Standard");
-        assert_eq!(list[0].brightness, 50.0);
-        assert_eq!(list[0].contrast, 50.0);
-        assert_eq!(list[0].gamma, 1.0);
-        assert_eq!(list[0].rgb_gains, [1.0, 1.0, 1.0]);
-        assert_eq!(list[0].vibrance, 50.0);
-        assert_eq!(list[0].hue_deg, 0.0);
-        assert_eq!(list[0].color_model, "nvcp-v1");
-        assert!(list[0].color_tag.is_none(), "Standard preset has no color tag");
-        assert!(list[0].icc_hash.is_empty(), "Standard preset has no ICC profile");
-        assert!(!list[0].id.is_empty(), "Standard preset has a UUID id");
+        assert!(
+            store.list_presets().is_empty(),
+            "no presets are seeded on first run"
+        );
         assert!(store.list_pins().is_empty(), "fresh store pins nothing");
         assert!(
             store.list_applied().is_empty(),
@@ -1457,7 +1415,7 @@ mod tests {
     }
 
     #[test]
-    fn existing_presets_prevents_reseeding() {
+    fn existing_presets_untouched_by_purge() {
         let dir = test_store_dir_unique();
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
@@ -1465,17 +1423,27 @@ mod tests {
             r#"[{"id":"a","name":"Existing","icc_hash":"","icc_filename":"","brightness":55.0,"contrast":60.0,"rgb_gains":[1.0,1.0,1.0],"gamma":2.2,"vibrance":50.0,"hue_deg":0.0,"color_model":"nvcp-v1"}]"#,
         )
         .unwrap();
+        std::fs::write(dir.join("applied.json"), r#"{"EDID-A":"a"}"#).unwrap();
         // Skip monitor-enumeration wipe so the pre-existing preset survives.
         std::fs::write(dir.join(".monitor-enumeration-v2"), b"").unwrap();
-        let store = Store::new(dir).unwrap();
+        let store = Store::new(dir.clone()).unwrap();
         let list = store.list_presets();
-        assert_eq!(list.len(), 1, "no duplicate Standard preset");
+        assert_eq!(list.len(), 1, "non-Standard presets survive the purge");
         assert_eq!(list[0].name, "Existing");
+        assert_eq!(
+            store.list_applied().get("EDID-A"),
+            Some(&"a".to_string()),
+            "applied records for surviving presets are untouched"
+        );
+        assert!(
+            dir.join(".standard-seed-purge-v1").exists(),
+            "purge sentinel written"
+        );
     }
 
-    // ── Standard unpin migration ─────────────────────────────────────
+    // ── Seeded-Standard purge ────────────────────────────────────────
 
-    fn write_standard_unpin_fixture(dir: &std::path::Path, standard_json: &str) {
+    fn write_standard_purge_fixture(dir: &std::path::Path, standard_json: &str) {
         std::fs::create_dir_all(dir).unwrap();
         std::fs::write(
             dir.join("presets.json"),
@@ -1489,6 +1457,11 @@ mod tests {
             r#"{"EDID-A":"std-1","EDID-B":"custom-1"}"#,
         )
         .unwrap();
+        std::fs::write(
+            dir.join("applied.json"),
+            r#"{"EDID-A":"std-1","EDID-C":"custom-1"}"#,
+        )
+        .unwrap();
         // Skip monitor-enumeration wipe so fixtures survive.
         std::fs::write(dir.join(".monitor-enumeration-v2"), b"").unwrap();
     }
@@ -1496,16 +1469,16 @@ mod tests {
     const NEUTRAL_STANDARD_JSON: &str = r#"{"id":"std-1","name":"Standard","icc_hash":"","icc_filename":"","brightness":50.0,"contrast":50.0,"rgb_gains":[1.0,1.0,1.0],"gamma":1.0,"vibrance":50.0,"hue_deg":0.0,"color_model":"nvcp-v1"}"#;
 
     #[test]
-    fn standard_unpin_migration_drops_pristine_standard_pins() {
+    fn standard_seed_purge_removes_pristine_standard_everywhere() {
         let dir = test_store_dir_unique();
-        write_standard_unpin_fixture(&dir, NEUTRAL_STANDARD_JSON);
+        write_standard_purge_fixture(&dir, NEUTRAL_STANDARD_JSON);
         let store = Store::new(dir.clone()).unwrap();
-        // Standard preset itself is kept; only its pins are dropped.
-        assert_eq!(store.list_presets().len(), 2);
-        assert_eq!(
-            store.list_pins().get("EDID-A"),
-            None,
-            "auto-pinned Standard pin is repaired"
+        let list = store.list_presets();
+        assert_eq!(list.len(), 1, "pristine Standard is deleted");
+        assert_eq!(list[0].name, "Custom");
+        assert!(
+            store.list_pins().get("EDID-A").is_none(),
+            "Standard pin is purged"
         );
         assert_eq!(
             store.list_pins().get("EDID-B"),
@@ -1513,21 +1486,40 @@ mod tests {
             "unrelated pin is untouched"
         );
         assert!(
-            dir.join(".standard-unpin-v1").exists(),
+            store.list_applied().get("EDID-A").is_none(),
+            "Standard applied record is purged"
+        );
+        assert_eq!(
+            store.list_applied().get("EDID-C"),
+            Some(&"custom-1".to_string()),
+            "unrelated applied record is untouched"
+        );
+        assert!(
+            dir.join(".standard-seed-purge-v1").exists(),
             "sentinel written exactly-once"
         );
     }
 
     #[test]
-    fn standard_unpin_migration_keeps_tweaked_standard_pins() {
+    fn standard_seed_purge_keeps_tweaked_standard() {
         let dir = test_store_dir_unique();
         let tweaked = NEUTRAL_STANDARD_JSON.replace("\"brightness\":50.0", "\"brightness\":55.0");
-        write_standard_unpin_fixture(&dir, &tweaked);
+        write_standard_purge_fixture(&dir, &tweaked);
         let store = Store::new(dir).unwrap();
+        assert_eq!(
+            store.list_presets().len(),
+            2,
+            "user-tweaked Standard survives the purge"
+        );
         assert_eq!(
             store.list_pins().get("EDID-A"),
             Some(&"std-1".to_string()),
             "user-tweaked Standard keeps its pin"
+        );
+        assert_eq!(
+            store.list_applied().get("EDID-A"),
+            Some(&"std-1".to_string()),
+            "user-tweaked Standard keeps its applied record"
         );
     }
 }
