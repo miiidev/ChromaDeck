@@ -641,7 +641,7 @@ impl Store {
 
 // ── Default app data directory ─────────────────────────────────────────────
 
-/// Return the default store path: `%APPDATA%/ChromaDeck`.
+/// Return the default store path: `%LOCALAPPDATA%/ChromaDeck`.
 pub fn default_store_path() -> PathBuf {
     dirs::data_local_dir()
         .unwrap_or_else(|| PathBuf::from("."))

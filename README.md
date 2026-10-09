@@ -7,6 +7,7 @@ Per-monitor display color profile manager for Windows. Save color presets per mo
 ## Features
 
 - **Global presets, per-monitor pins** — presets are monitor-agnostic and apply to any display (identified by EDID, stable across docking, reconnects, and reboots); pin one preset per monitor for enforcement. Monitors are user-renamable.
+- **Empty by default** — fresh installs start with an idle library: no seeded preset, nothing pinned or applied. (Upgrades run a one-shot purge of pristine seeded Standard installs; user-tweaked presets are never touched.)
 - **NVCP-native color engine** — brightness/contrast/gamma use NVIDIA's own transfer math, driver API, and registry persistence, so results match the NVIDIA Control Panel exactly. Automatic GDI fallback on non-NVIDIA displays.
 - **Digital vibrance & hue** — driven through the NVIDIA driver (same control as NVCP), with per-display support detection.
 - **ICC profiles** — bundle `.icc`/`.icm` files into presets and associate them per monitor.
@@ -14,6 +15,7 @@ Per-monitor display color profile manager for Windows. Save color presets per mo
 - **Reset, duplicate, delete** — full-default reset (gamma + vibrance + hue), one-click duplicate, delete with confirmation.
 - **Import NVCP state** — capture the driver's live color state straight into a new preset.
 - **Preset deck UI** — dark-only shadcn theme (canonical), Bauhaus shape-language influence (geometric shape-coded status, honest flat materials), tap-to-apply deck, in-use highlighting on preset cards, monitor sidebar, support for offline monitors.
+- **Tray-native window** — closing hides to the tray; every re-open (tray Show, tray click, second launch) replays the staged load animation; the window spawns centered on launch.
 
 ## Installation (Windows 10/11 x64)
 
@@ -39,8 +41,8 @@ All values show their neutral points in the editor (e.g. brightness/contrast 50,
 ## How it works
 
 - **Frontend:** React + Vite + Tailwind CSS v4, dark-only shadcn theme with Bauhaus shape-language influence (geometric shape-coded status, honest flat materials; see `DESIGN.md`).
-- **Backend:** Rust via Tauri v2. `monitor.rs` enumerates displays as an adapter→monitor tree with EDID identity; `store.rs` persists presets/pins/aliases as JSON; `color.rs` applies ICC + gamma ramps; `nvgamma.rs` + `nvapi.rs` implement the NVCP transfer math (reimplemented from observed driver behavior), 1024-entry float ramps, and driver-registry persistence; `enforce.rs` runs the 10-second drift-check loop.
-- **Data lives in** `%APPDATA%\ChromaDeck\` (`presets.json`, `pins.json`, `monitor_names.json`, `profiles\`, plus timestamped `.bak-*` backups before migrations).
+- **Backend:** Rust via Tauri v2. `monitor.rs` enumerates displays as an adapter→monitor tree with EDID identity; `store.rs` persists presets/pins/aliases as JSON; `color.rs` applies ICC + gamma ramps; `nvgamma.rs` + `nvapi.rs` implement the NVCP transfer math (reimplemented from observed driver behavior), 1024-entry float ramps, and driver-registry persistence; `enforce.rs` runs the 10-second drift-check loop; `identify.rs` spawns numbered overlay windows for monitor identification.
+- **Data lives in** `%LOCALAPPDATA%\ChromaDeck\` (`presets.json`, `pins.json`, `applied.json`, `monitor_names.json`, `profiles\`, plus timestamped `.bak-*` backups before migrations).
 
 ## Development
 
@@ -54,11 +56,12 @@ npm run tauri dev    # dev app with hot-reload
 Verification (all must pass):
 
 ```powershell
-npx tsc --noEmit     # typecheck (repo root)
-npx vitest run       # frontend tests (repo root)
-cargo test           # backend tests (src-tauri/)
-npm run tauri build  # release bundles -> src-tauri/target/release/bundle/
+npx tsc --noEmit                                # typecheck
+npm test                                        # frontend tests (vitest)
+cargo test --manifest-path src-tauri/Cargo.toml # backend tests
+npm run tauri build                             # release bundles -> src-tauri/target/release/bundle/
 ```
+(All commands run from the repo root.)
 
 Project layout:
 
@@ -67,7 +70,6 @@ src/                    # React frontend (App, components, lib)
 src-tauri/src/          # Rust backend (monitor, store, color, nvapi, nvgamma, enforce)
 docs/superpowers/       # design specs + implementation plans
 docs/screenshots/       # README images
-samples/                # sample ICC profile for testing
 ```
 
 ## Acknowledgements

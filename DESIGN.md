@@ -1,4 +1,4 @@
-# ChromaDeck — Neobrutalist Dark Theme (post-v0.5.0)
+# ChromaDeck — Dark Theme (v0.7.0)
 
 ## Theme
 
@@ -90,10 +90,24 @@ Dialogs and popovers use `rounded-2xl` (16px); all other geometry matches the ta
 ## Header Layout
 
 ```
-[logo]  ChromaDeck  [v0.4.0 badge]  [reapply] [autostart]
+[deck-pad logo]  ChromaDeck  [v{package.json} badge]  [reapply] [autostart]
 ```
 
-Single row (`flex justify-between`): left cluster (logo + title + version), right cluster (actions). No theme toggle — dark-only.
+Single row (`flex justify-between`): left cluster (logo + title + version), right cluster (actions). No theme toggle — dark-only. The version badge renders `v{version}` imported from `package.json` (never hardcoded); the mark is the deck-pad logo at 32px (`.logo-lockup`).
+
+## Logo system
+
+Deck-pad mark with mint accent: dark rounded square, staggered pad grid, mint active pad.
+
+| Asset | Used for |
+|---|---|
+| `src/assets/chromadeck-icon.svg` | header lockup (32px) |
+| `src/assets/chromadeck-icon-1024.png` | source for `npx tauri icon` regeneration |
+| `src/assets/chromadeck-icon-small.svg`, `chromadeck.ico` | source material |
+| `public/logo.svg` | favicon (clean drawing, no provenance metadata) |
+| `src-tauri/icons/*` | window, tray, taskbar, and installer icons (generated) |
+
+Regenerate with `npx tauri icon src/assets/chromadeck-icon-1024.png`. `src-tauri/build.rs` pins `cargo:rerun-if-changed` on the bundled icons so a swapped logo always reaches the exe — cargo otherwise keeps linking previously compiled resources and the new mark silently never ships.
 
 ## Typography
 
@@ -113,3 +127,33 @@ Body text uses the Tailwind scale only (`text-xs` 12px secondary, `text-sm` 14px
 | `text-[11px]` | Eyebrow: card category labels only | Preset card header |
 
 Display type is rule-driven, not arbitrary: card titles are fixed 32px (overflow via truncation + hover marquee + tooltip), stat values step 30 → 26 → 22px by digit count, and the identify overlay number is a one-off 128px display moment. No other sizes are allowed; a new size needs a row in this table.
+
+## Motion system
+
+CSS-driven, in `src/App.css` with helpers in `src/lib/motion.ts`. Transform + opacity only — no layout-property animation. Full entrances glide on `--ease-out`; small interactive transitions (presses, pops, lifts) use `--ease-spring` (gentle overshoot, tiny travel only — scale/2px lifts — never on full entrances, so nothing wobbles across the screen).
+
+| Token | Value | Role |
+|---|---|---|
+| `--motion-micro` | 150ms | exits, micro feedback |
+| `--motion-fast` | 250ms | rows, cards, banners |
+| `--motion-std` | 350ms | standard entrances |
+| `--motion-slow` | 600ms | shell + staggered entrances |
+| `--ease-out` | `cubic-bezier(0.22, 1, 0.36, 1)` | all entrances |
+| `--ease-spring` | `cubic-bezier(0.34, 1.56, 0.64, 1)` | presses, pops, lifts |
+
+| Utility | Effect |
+|---|---|
+| `.shell-enter` (+ `--shell-delay` 0/60/120/180ms) | staged app-shell entrance: header → sidebar → library → footer (`motion-shell-up`) |
+| `.enter-stagger` (+ `--stagger-ms`) | preset-card cascade (`motion-slide-up`); attached on first load only via `consumeStagger()` |
+| `.monitor-row-enter` (+ `--stagger-ms`) | sidebar monitor-row cascade |
+| `.sidebar-content-enter` | sidebar carousel strip entrance |
+| `.enter-fade` / `.enter-slide-up` / `.enter-slide-down` / `.enter-scale` | one-shot entrances (empty states, banners, badges) |
+| `.exit-fade` / `.exit-slide-up`, `.feedback-enter` / `.feedback-exit` | exits run ~30% faster than entrances |
+| `.card-tremble` | looping "fear tremble" while in multi-select delete mode (per-card negative delays desync the loop) |
+| `.card-explode` (+ `motion-explode`) | batch-delete detonation with per-card delay |
+| `.preset-card` edge fade | scroll-driven `card-edge-vanish` on `animation-timeline: view()` where supported, with an IntersectionObserver fallback (`.no-view-timeline`, `--edge-o`) elsewhere |
+| `.pulse-soft`, `.status-dot` blink, title marquee | looping accents |
+
+Button hover grows the **label/icon inside a fixed-geometry box** (transform on `.btn-label`/svg — never font-size, which would shove neighbors); press dips the box with the label reset so the two transforms compose to exactly the press value.
+
+The window hides (not unmounts) on close, so the backend emits `window-shown` on every re-show (tray Show, tray click, second launch) and `replayEntrance()` restarts the staged entrance in place — state, scroll, and open dialogs are preserved. Reduced motion zeroes all durations/delays globally.

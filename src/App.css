@@ -282,9 +282,10 @@ h6,
   animation: motion-slide-up reverse var(--motion-fast) var(--ease-out) forwards;
 }
 
-/* ── App-shell staged entrance (plays once on mount) ─────────────
+/* ── App-shell staged entrance (mount + every window re-show) ──
    Hierarchy: header → sidebar → library → footer, 30-50ms apart.
-   Re-renders don't replay: CSS animations run once per mount. */
+   Re-renders don't replay: CSS animations run once per mount; re-shows
+   replay via replayEntrance() (see src/lib/motion.ts). */
 
 .shell-enter {
   animation: motion-shell-up var(--motion-slow) var(--ease-out) both;
