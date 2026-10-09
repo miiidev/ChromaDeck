@@ -91,10 +91,14 @@ Dialogs and popovers use `rounded-2xl` (16px); all other geometry matches the ta
 ## Header Layout
 
 ```
-[deck-pad logo]  ChromaDeck  [v{package.json} badge]  [reapply] [autostart]
+[deck-pad logo]  ChromaDeck  [v{package.json} badge]
 ```
 
-Single row (`flex justify-between`): left cluster (logo + title + version), right cluster (actions). No theme toggle — dark-only. The version badge renders `v{version}` imported from `package.json` (never hardcoded); the mark is the deck-pad logo at 32px (`.logo-lockup`).
+Single row (`flex justify-between`): left cluster (logo + title + version); the right cluster is intentionally empty — actions live in the footer status bar. No theme toggle — dark-only. The version badge renders `v{version}` imported from `package.json` (never hardcoded); the mark is the deck-pad logo at 32px (`.logo-lockup`).
+
+## Footer status bar
+
+`N PRESETS · M MONITORS CONNECTED · K PINNED` counts (mono, crossfading), transient action feedback, the **Reapply** button (re-runs enforcement now), and the **Start with Windows** autostart toggle.
 
 ## Logo system
 

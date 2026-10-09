@@ -1,6 +1,6 @@
 # ChromaDeck
 
-Per-monitor display color profile manager for Windows. Save color presets per monitor — brightness, contrast, gamma, RGB gains, digital vibrance, hue, and ICC profiles — and apply, pin, or enforce them from a single deck-style UI.
+Per-monitor display color profile manager for Windows. Save color presets — brightness, contrast, gamma, RGB gains, digital vibrance, hue, and ICC profiles — and apply, pin, or enforce them per monitor from a single deck-style UI.
 
 ![Preset library](docs/screenshots/library.png)
 
@@ -31,10 +31,12 @@ Requirements: Windows 10/11 x64 and the WebView2 runtime (preinstalled on Window
 
 ## Usage
 
-1. Launch ChromaDeck — your connected monitors appear in the sidebar; presets live in the library deck.
-2. Select a monitor, then **+ Create** (or the big button in the empty state) to build a preset: name it, tweak sliders, optionally attach an ICC profile or import the live NVCP state.
-3. Click a preset pad (or **Apply**) to set it on that monitor.
-4. **Pin** a preset to keep it enforced; **Reset** returns the monitor to full defaults; rename any monitor with the ✎ button.
+1. Launch ChromaDeck — the sidebar lists your monitors (connected, plus last-known offline ones); the library deck below holds your presets. Fresh installs start empty: click **+ Create** (or **Create preset** in the empty state) to build your first preset — name it, tweak sliders, optionally attach an ICC profile, capture the live NVCP state, or set a color tag.
+2. Click a preset pad (or **Apply…** on a monitor's pinned preset) to open the Apply dialog: pick the target monitor (your last target per preset is remembered), optionally toggle **Pin**, then **Apply**.
+3. A pinned preset stays enforced — the background loop restores it if games, HDR toggles, or driver updates stomp it. Cards show **IN USE** while pinned or applied on a connected monitor.
+4. Manage each monitor from the sidebar: **✎** renames it, **Reset** returns it to defaults (and unpins it), **Unpin** releases a pin. **Identify** flashes every monitor's number on screen.
+5. Manage the library from the deck toolbar: pencil edits, copy duplicates, trash deletes (with confirmation); **Select** enables multi-delete. The footer shows preset/monitor/pin counts plus **Reapply** and the **Start with Windows** toggle.
+6. Closing the window hides it to the tray — right-click the tray icon for Show / Reapply now / Quit, or left-click to reopen.
 
 All values show their neutral points in the editor (e.g. brightness/contrast 50, gamma 1.0): a fresh preset changes nothing until you move a slider.
 

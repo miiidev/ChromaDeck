@@ -10,7 +10,7 @@ Multi-monitor Windows power users who calibrate their displays: gamers tuning vi
 
 ## Product Purpose
 
-ChromaDeck is a per-monitor color profile manager for Windows. It saves color presets per monitor (brightness, contrast, gamma, RGB gains, digital vibrance, hue, ICC profiles) and applies, pins, or enforces them from a single deck-style UI, restoring them automatically when games, HDR toggles, or driver updates stomp them. Success looks like: the user stops opening the NVIDIA Control Panel entirely, and stopped thinking about ChromaDeck at all, because enforcement just holds.
+ChromaDeck is a per-monitor color profile manager for Windows. It saves color presets (brightness, contrast, gamma, RGB gains, digital vibrance, hue, ICC profiles) and applies, pins, or enforces them per monitor from a single deck-style UI, restoring them automatically when games, HDR toggles, or driver updates stomp them. Success looks like: the user stops opening the NVIDIA Control Panel entirely, and stopped thinking about ChromaDeck at all, because enforcement just holds.
 
 ## First run
 
