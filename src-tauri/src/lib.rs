@@ -20,7 +20,7 @@ use store::{
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, WindowEvent,
+    Emitter, Manager, WindowEvent,
 };
 
 // ── System tray ──────────────────────────────────────────────────────────────
@@ -40,10 +40,7 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
         .on_menu_event(|app, event| match event.id.as_ref() {
             "tray-quit" => app.exit(0),
             "tray-show" => {
-                if let Some(w) = app.get_webview_window("main") {
-                    let _ = w.show();
-                    let _ = w.set_focus();
-                }
+                show_main_window(app);
             }
             "tray-reapply" => {
                 use tauri::Manager;
@@ -70,14 +67,23 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
             } = event
             {
                 let app = tray.app_handle();
-                if let Some(w) = app.get_webview_window("main") {
-                    let _ = w.show();
-                    let _ = w.set_focus();
-                }
+                show_main_window(app);
             }
         })
         .build(app)?;
     Ok(())
+}
+
+/// Show + focus the main window and notify the frontend so it replays its
+/// entrance animation. The main window is hidden (not destroyed) on close,
+/// so without the emit the staged load animation would only play once per
+/// app lifetime instead of on every open.
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.set_focus();
+        let _ = w.emit("window-shown", ());
+    }
 }
 
 // ── Application entry point ──────────────────────────────────────────────────
@@ -97,10 +103,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.show();
-                let _ = w.set_focus();
-            }
+            show_main_window(app);
         }))
         .manage(app_store)
         .plugin(tauri_plugin_dialog::init())

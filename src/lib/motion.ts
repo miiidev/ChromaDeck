@@ -52,3 +52,46 @@ export const REDUCED_MOTION: boolean =
 export function staggerCss(index: number, baseMs = 80): Record<string, string> {
   return { "--stagger-ms": `${index * baseMs}ms` };
 }
+
+/* ── Entrance replay (window re-show) ─────────────────────────────────── */
+
+/**
+ * Replay the staged load animation on the existing DOM without remounting.
+ *
+ * The main window is hidden — not destroyed — when closed to the tray, so
+ * mount-time CSS animations would otherwise play once per app lifetime.
+ * The backend emits `window-shown` every time the window is re-shown; the
+ * frontend answers with this function, which force-restarts the entrance
+ * animations in place. State, scroll position, and open dialogs are
+ * preserved (only the `animation` inline override is touched, then
+ * cleared so the stylesheet value applies again).
+ */
+export function replayEntrance(): void {
+  if (typeof window === "undefined" || typeof document === "undefined") return;
+  if (prefersReducedMotion()) return;
+
+  const restart = (el: HTMLElement) => {
+    el.style.animation = "none";
+    // Force a reflow so the override above commits; clearing it then
+    // restarts the stylesheet animation from frame 0 with its own delay.
+    void el.offsetHeight;
+    el.style.animation = "";
+  };
+
+  // Shell regions + sidebar content + monitor rows: their entrance classes
+  // and stagger variables are always present, so a restart suffices.
+  const regions = document.querySelectorAll<HTMLElement>(
+    ".shell-enter, .sidebar-content-enter, .monitor-row-enter",
+  );
+  regions.forEach(restart);
+
+  // Preset cards: the `enter-stagger` class is only attached on first load
+  // (see consumeStagger), so re-attach it with per-card delays before
+  // restarting.
+  const cards = document.querySelectorAll<HTMLElement>(".preset-deck > *");
+  cards.forEach((card, i) => {
+    card.classList.add("enter-stagger");
+    card.style.setProperty("--stagger-ms", `${i * 80}ms`);
+    restart(card);
+  });
+}

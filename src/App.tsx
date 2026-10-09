@@ -12,6 +12,8 @@ import { version as appVersion } from "../package.json";
 import type { Monitor, Preset, EnforceEvent } from "./lib/types";
 import { mergeMonitors } from "./lib/monitorMerge";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
+import { listen } from "@tauri-apps/api/event";
+import { replayEntrance } from "./lib/motion";
 import logoMark from "./assets/chromadeck-icon.svg";
 import MonitorList from "./components/MonitorList";
 import MonitorSidebar from "./components/MonitorSidebar";
@@ -148,6 +150,16 @@ function App() {
       mounted = false;
       clearInterval(intervalId);
       window.removeEventListener("focus", tick);
+    };
+  }, []);
+
+  // ── Entrance replay: the window hides (not unmounts) on close, so the
+  // backend pings `window-shown` on every re-show (tray Show / tray click /
+  // second launch). Replay the staged load animation in place.
+  useEffect(() => {
+    const unlistenPromise = listen("window-shown", replayEntrance);
+    return () => {
+      unlistenPromise.then((unlisten) => unlisten()).catch(() => {});
     };
   }, []);
 
