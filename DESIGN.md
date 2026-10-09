@@ -33,7 +33,7 @@ and tightened the success-green to `#16A34A` for clear visual separation from ac
 
 | Element | Radius |
 |---|---|
-| Buttons, inputs, badges | `rounded-lg` (8px) |
+| Buttons, inputs | `rounded-lg` (8px) |
 | Cards, dialogs, popovers | `rounded-2xl` (16px) |
 | Badges | `rounded-4xl` (pill) |
 
@@ -63,8 +63,9 @@ destructive labels where dark text would be ambiguous.
 
 ## Components
 
-All UI components from `src/components/ui/` are stock shadcn `base-nova` style:
-- Button, Card, Badge, Dialog, Input, Label, Select (native `<select>`), Skeleton
+UI components in `src/components/ui/` follow shadcn `base-nova` conventions
+(data-slot API, cva variants) built on Base UI React primitives:
+- Button, Badge, Card, Dialog, Input, Label, Select, Checkbox, Radio Group, Skeleton (Base UI); Slider (Radix)
 - Icon library: Lucide
 
 Dialogs and popovers use `rounded-2xl` (16px); all other geometry matches the table above.
