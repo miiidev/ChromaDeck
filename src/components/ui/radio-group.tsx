@@ -10,7 +10,7 @@ function RadioGroupItem({ className, ...props }: RadioPrimitive.Root.Props<unkno
   return (
     <RadioPrimitive.Root
       data-slot="radio-group-item"
-      className={cn("", className)}
+      className={cn("flex size-5 shrink-0 items-center justify-center rounded-full border-2 border-ink bg-white", className)}
       {...props}
     />
   )
@@ -20,7 +20,7 @@ function RadioGroupIndicator({ className, ...props }: RadioPrimitive.Indicator.P
   return (
     <RadioPrimitive.Indicator
       data-slot="radio-group-indicator"
-      className={cn("flex size-4 items-center justify-center rounded-full", className)}
+      className={cn("flex size-2 items-center justify-center rounded-full bg-ink", className)}
       {...props}
     />
   )

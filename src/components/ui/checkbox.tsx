@@ -4,7 +4,18 @@ import { Checkbox as CheckboxPrimitive } from "@base-ui/react/checkbox"
 import { cn } from "cn"
 import { CheckIcon } from "lucide-react"
 
-const Checkbox = CheckboxPrimitive.Root
+function Checkbox({ className, ...props }: CheckboxPrimitive.Root.Props) {
+  return (
+    <CheckboxPrimitive.Root
+      data-slot="checkbox"
+      className={cn(
+        "flex size-5 shrink-0 items-center justify-center rounded-md border-2 border-ink bg-white text-ink data-checked:bg-lime",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
 
 function CheckboxIndicator({ className, ...props }: CheckboxPrimitive.Indicator.Props) {
   return (
