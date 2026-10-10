@@ -25,6 +25,7 @@ Download from the [releases page](https://github.com/miiidev/ChromaDeck/releases
 |---|---|
 | `ChromaDeck_*_x64_en-US.msi` | Standard Windows installer (recommended) |
 | `ChromaDeck_*_x64-setup.exe` | NSIS setup wizard |
+| `ChromaDeck_*_x64-portable.zip` | Portable ZIP (exe + license, unzip and run, no install needed) |
 | `chromadeck.exe` | Standalone binary, no install needed |
 
 Requirements: Windows 10/11 x64 and the WebView2 runtime (preinstalled on Windows 10 1809+ and Windows 11). An NVIDIA GPU unlocks digital vibrance/hue and the NVCP-native engine; other GPUs fall back to OS-level color controls where supported.
@@ -62,6 +63,7 @@ npx tsc --noEmit                                # typecheck
 npm test                                        # frontend tests (vitest)
 cargo test --manifest-path src-tauri/Cargo.toml # backend tests
 npm run tauri build                             # release bundles -> src-tauri/target/release/bundle/
+npm run bundle:portable                         # portable ZIP (after tauri build)
 ```
 (All commands run from the repo root.)
 
