@@ -177,7 +177,10 @@ export default function PresetCard({
 
   return (
     <div
-      className={cn(staggerEnter ? "enter-stagger" : "")}
+      className={cn(
+        staggerEnter ? "enter-stagger" : "",
+        selectable && !detonating ? "card-tremble" : "",
+      )}
       style={staggerEnter && staggerMs !== undefined
         ? ({ "--stagger-ms": `${staggerMs}ms` } as Record<string, string>)
         : undefined

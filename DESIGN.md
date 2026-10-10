@@ -168,9 +168,10 @@ scroll-driven edge-fade keyframes, which own `transform`.
 | Validation, feedback, transients, error banner, footer crossfade | short fades/slides tied to state changes |
 | Empty state | small fade (the one delight carve-out) |
 | Pad hover | raise 2px + shadow grows (shadow play answers hover; press inverts it) |
+| Select-mode tremble | sync loop on the stagger wrapper (never the pad — no fight with edge-fade, no fade phase-shift) |
 | Slider thumb grab | scale only; values track input with zero easing |
 
-Deliberately absent: label-grow, select tremble, status
+Deliberately absent: label-grow, status
 blink, breathing pulses, bounce-in pops, overlay blur, uniform
 mount fade-ins, sidebar-collapse rule. Checkbox/radio indicators appear
 instantly. Reduced motion zeroes all durations/delays globally, and

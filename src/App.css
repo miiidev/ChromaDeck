@@ -225,8 +225,9 @@ h6,
 /* (No bounce keyframes: pop-ins use the overshoot-free snap below so
    utility feedback never wobbles.) */
 
-/* (Select-mode tremble removed: checkboxes + Delete-count carry the
-   state; nothing loops forever.) */
+/* (Select-mode tremble lives below, after the entrance utilities, so it
+   wins while present; when select mode exits the completed entrance
+   fill already matches the rest state, so nothing jumps.) */
 
 /* ── Entrance utilities ────────────────────────────────────────── */
 
@@ -364,6 +365,26 @@ h6,
 
 .pop-in {
   animation: motion-scale-in 180ms var(--ease-out) both;
+}
+
+/* ── Select-mode tremble ────────────────────────────────────────
+   Fear tremble: tiny rotate/translate oscillation, played on loop while
+   the library is in multi-select delete mode — the cards tremble like
+   they're afraid of being deleted. Applied to the stagger WRAPPER (not
+   the pad itself) so it never fights the scroll-driven edge fade, which
+   owns `transform` on the pad. Runs in sync on all cards; per-card
+   desync delays once phase-shifted the fade zones, so they stay out.
+   Defined AFTER .enter-stagger (same specificity) so it wins while a
+   card is selectable; the global reduced-motion rule freezes it. */
+
+@keyframes motion-tremble-idle {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  25%      { transform: translateY(0) rotate(0.6deg) translateX(0.5px); }
+  75%      { transform: translateY(0) rotate(-0.6deg) translateX(-0.5px); }
+}
+
+.card-tremble {
+  animation: motion-tremble-idle 0.4s var(--ease-out) infinite;
 }
 
 /* ── Batch-delete explosion ───────────────────────────────────────
