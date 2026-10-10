@@ -290,7 +290,7 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
                   onApply={onApply}
                   appliedMap={appliedMap}
                   staggerEnter={isStagger}
-                  staggerMs={i * 80}
+                  staggerMs={Math.min(i, 5) * 60}
                 onDuplicated={onPresetDuplicated}
                 onDeleted={onPresetDeleted}
                 highlightEnter={!isStagger && lastAddedId === preset.id}

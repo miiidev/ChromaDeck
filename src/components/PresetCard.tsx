@@ -70,7 +70,7 @@ export default function PresetCard({
     setSingleExploding(true);
     try {
       await new Promise<void>((resolve) => {
-        window.setTimeout(resolve, 450);
+        window.setTimeout(resolve, 300);
       });
       await deletePreset(preset.id);
       setShowDeleteModal(false);
@@ -192,7 +192,6 @@ export default function PresetCard({
           "focus-visible:ring-[3px] focus-visible:ring-ring",
           isActive ? "bg-lime" : "",
           highlightEnter ? "pop-in" : "",
-          selectable && !detonating ? "card-tremble" : "",
           detonating ? "card-explode" : "",
         )}
         style={{

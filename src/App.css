@@ -102,14 +102,6 @@ h6,
 
 .status-dot-connected {
   background-color: var(--color-success);
-  /* Live-connection blink: slow soft pulse, far below photosensitive
-     flash thresholds; the reduced-motion kill-switch freezes it. */
-  animation: status-blink 1.6s ease-in-out infinite;
-}
-
-@keyframes status-blink {
-  0%, 100% { opacity: 1; }
-  50%      { opacity: 0.35; }
 }
 
 .status-dot-pinned {
@@ -200,6 +192,7 @@ h6,
   --motion-fast: 250ms;
   --motion-std: 350ms;
   --motion-slow: 600ms;
+  --motion-press: 90ms;
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 }
@@ -229,34 +222,11 @@ h6,
   to   { opacity: 1; transform: scale(1); }
 }
 
-/* True two-stage bounce: pop past the target, settle back, rest.
-   Reserved for small pop-in elements (badges, checks, status pops). */
-@keyframes motion-bounce-in {
-  0%   { opacity: 0; transform: scale(0.8); }
-  55%  { opacity: 1; transform: scale(1.06); }
-  75%  { opacity: 1; transform: scale(0.97); }
-  100% { opacity: 1; transform: scale(1); }
-}
+/* (No bounce keyframes: pop-ins use the overshoot-free snap below so
+   utility feedback never wobbles.) */
 
-/* Fear tremble: tiny rotate/translate oscillation, played on loop while
-   the library is in multi-select delete mode — the cards tremble like
-   they're afraid of being deleted. Rest-state (no lift); transform-only.
-   The global reduced-motion rule freezes it. Per-card negative delays
-   desync the loop so cards don't wobble in step. */
-@keyframes motion-tremble-idle {
-  0%, 100% { transform: translateY(0) rotate(0deg); }
-  25%      { transform: translateY(0) rotate(0.6deg) translateX(0.5px); }
-  75%      { transform: translateY(0) rotate(-0.6deg) translateX(-0.5px); }
-}
-
-.card-tremble {
-  animation: motion-tremble-idle 0.4s var(--ease-out) infinite;
-}
-
-@keyframes motion-pulse-soft {
-  0%, 100% { opacity: 1; }
-  50%      { opacity: 0.6; }
-}
+/* (Select-mode tremble removed: checkboxes + Delete-count carry the
+   state; nothing loops forever.) */
 
 /* ── Entrance utilities ────────────────────────────────────────── */
 
@@ -272,13 +242,9 @@ h6,
   animation: motion-slide-down var(--motion-fast) var(--ease-out) both;
 }
 
-.enter-scale {
-  animation: motion-bounce-in 400ms var(--ease-out) both;
-}
-
 .enter-stagger {
   animation-name: motion-slide-up;
-  animation-duration: var(--motion-slow);
+  animation-duration: var(--motion-std);
   animation-timing-function: var(--ease-out);
   animation-fill-mode: both;
   animation-delay: calc(var(--stagger-ms, 0ms));
@@ -295,12 +261,13 @@ h6,
 }
 
 /* ── App-shell staged entrance (mount + every window re-show) ──
-   Hierarchy: header → sidebar → library → footer, 30-50ms apart.
+   Hierarchy: header → sidebar → library → footer, staged by delay.
+   Kept short for a tray utility: 350ms glide, never a slow cascade.
    Re-renders don't replay: CSS animations run once per mount; re-shows
    replay via replayEntrance() (see src/lib/motion.ts). */
 
 .shell-enter {
-  animation: motion-shell-up var(--motion-slow) var(--ease-out) both;
+  animation: motion-shell-up var(--motion-std) var(--ease-out) both;
   animation-delay: var(--shell-delay, 0ms);
 }
 
@@ -314,41 +281,23 @@ h6,
   animation: motion-fade-in reverse var(--motion-micro) var(--ease-out) forwards;
 }
 
-/* ── Pulse ──────────────────────────────────────────────────────── */
+/* ── Pulse (unused — no breathing indicators) ───────────────────── */
 
-.pulse-soft {
-  animation: motion-pulse-soft 2s var(--ease-out) infinite;
-}
-
-/* ── Button hover effect: label grows, box stays put ─────────── */
-/* Hover feedback scales the label/icon inside a fixed-geometry box
-   (font-size would grow content-width buttons and shove neighbors;
-   transform on the label avoids layout entirely). Press still dips
-   the box; the label resets on active so the two transforms compose
-   to exactly the press value instead of double-shrinking. */
-
-[data-slot="button"]:not(:disabled) {
-  transition: transform var(--motion-micro) var(--ease-spring),
-              opacity var(--motion-micro) var(--ease-out);
-}
-
-[data-slot="button"]:not(:disabled) > .btn-label,
-[data-slot="button"]:not(:disabled) > svg {
-  transition: transform var(--motion-micro) var(--ease-spring);
-}
-
-[data-slot="button"]:not(:disabled):not(:active):hover > .btn-label,
-[data-slot="button"]:not(:disabled):not(:active):hover > svg {
-  transform: scale(1.06);
-}
+/* ── Signature press: translate into the shadow, ~90ms ────────────
+   `translate` (not `transform`) so it composes with the scroll-driven
+   edge-fade keyframes, which own `transform`. Duration lives on :active:
+   press-down is snappy, release settles on the base duration. */
 
 [data-slot="button"]:not(:disabled):active {
-  transform: scale(0.96);
+  translate: 2px 2px;
+  box-shadow: 0 0 0 0 #000;
+  transition-duration: var(--motion-press);
 }
 
-[data-slot="button"]:not(:disabled):active > .btn-label,
-[data-slot="button"]:not(:disabled):active > svg {
-  transform: none;
+[data-slot="card"]:active {
+  translate: 4px 4px;
+  box-shadow: 0 0 0 0 #000;
+  transition-duration: var(--motion-press);
 }
 
 /* ── Dialog timing override (bump from base-ui 100ms default) ──── */
@@ -386,41 +335,35 @@ h6,
    Surface-specific transitions — full coverage, smooth with spring accents
    ═══════════════════════════════════════════════════════════════════════════ */
 
-/* ── PresetCard hover lift ──────────────────────────────────────── */
-
-[data-slot="card"] {
-  transition: transform var(--motion-micro) var(--ease-spring),
-              box-shadow var(--motion-micro) var(--ease-out);
-}
-
-[data-slot="card"]:hover {
-  transform: translateY(-4px);
-}
+/* ── PresetCard hover: none (press carries the feedback) ─────────
+   Pads are click targets; the :active press rule below is the tactile
+   response. No lift — it would fight the scroll-driven edge fade, which
+   owns `transform` on these elements. */
 
 /* ── PresetCard ring crossfade ────────────────────────────────────
    NOTE: .card-ring sits on the same element as [data-slot="card"], and
    both selectors share specificity — this rule comes later, so its
-   transition list MUST include transform or the hover lift snaps.
+   transition list MUST include translate or the press snaps.
    filter is included so the tag-color drop-shadow glow crossfades. */
 
 .card-ring {
-  transition: transform var(--motion-micro) var(--ease-spring),
+  transition: translate var(--motion-micro) var(--ease-out),
               box-shadow var(--motion-micro) var(--ease-out),
               border-color var(--motion-micro) var(--ease-out),
               filter var(--motion-micro) var(--ease-out);
 }
 
-/* ── Badge / hint pop-in ──────────────────────────────────────── */
+/* ── Badge / hint snap-in (overshoot-free) ─────────────────────── */
 
 .pop-in {
-  animation: motion-bounce-in 400ms var(--ease-out) both;
+  animation: motion-scale-in 180ms var(--ease-out) both;
 }
 
 /* ── Batch-delete explosion ───────────────────────────────────────
    Detonation pop: quick scale burst with a slight tilt, then collapse
-   and fade. Transform + opacity only. Defined AFTER .card-tremble and
-   .pop-in (same specificity) so it wins while a card detonates; the
-   global reduced-motion rule collapses it to an instant vanish. */
+   and fade. Transform + opacity only. Defined AFTER .pop-in (same
+   specificity) so it wins while a card detonates; the reduced-motion
+   rule collapses it to an instant vanish. */
 
 @keyframes motion-explode {
   0%   { opacity: 1; transform: scale(1) rotate(0deg); }
@@ -429,7 +372,7 @@ h6,
 }
 
 .card-explode {
-  animation: motion-explode 450ms cubic-bezier(0.5, 0, 0.75, 0) both;
+  animation: motion-explode 300ms cubic-bezier(0.5, 0, 0.75, 0) both;
 }
 
 /* ── Monitor row stagger entrance ──────────────────────────────── */
@@ -466,11 +409,8 @@ h6,
   animation: motion-fade-in var(--motion-fast) var(--ease-out) both;
 }
 
-/* ── Skeleton-to-content fade ──────────────────────────────────── */
-
-.content-fade {
-  animation: motion-fade-in var(--motion-fast) var(--ease-out) both;
-}
+/* ── Skeleton-to-content fade ────────────────────────────────────
+   (Removed: content swaps instantly; shimmer covers the wait.) */
 
 /* ── PresetEditor validation slide-in ───────────────────────────── */
 
@@ -494,17 +434,13 @@ h6,
   transition: opacity var(--motion-micro) var(--ease-out);
 }
 
-/* ── ICC status pop ───────────────────────────────────────────── */
+/* ── ICC status snap ──────────────────────────────────────────── */
 
 .icc-pop {
-  animation: motion-bounce-in 400ms var(--ease-out) both;
+  animation: motion-scale-in 180ms var(--ease-out) both;
 }
 
-/* ── Checkbox indicator scale-in ───────────────────────────────── */
-
-[data-slot="checkbox-indicator"] {
-  animation: motion-bounce-in 400ms var(--ease-out) both;
-}
+/* ── Checkbox / radio indicators appear instantly (utility state) ── */
 
 /* ── Input focus-ring transition ──────────────────────────────── */
 
@@ -518,9 +454,9 @@ h6,
    shrinks slightly as it travels out of the scrollport in either
    direction, fully driven by its position (animation-timeline: view).
    Scrubbable, GPU-composited, zero JavaScript. Excludes pads running a
-   one-shot or looping animation (pop-in entrance, select tremble,
-   detonation) so effects never fight. viewTransitionName on the pad is
-   unrelated (delete gap-fill) and composes fine. */
+   one-shot animation (pop-in snap, detonation) so effects never fight.
+   viewTransitionName on the pad is unrelated (delete gap-fill)
+   and composes fine. */
 
 @keyframes card-edge-vanish {
   0%   { opacity: 0; transform: translateY(8px) scale(0.97); }
@@ -529,7 +465,7 @@ h6,
   100% { opacity: 0; transform: translateY(-8px) scale(0.97); }
 }
 
-.preset-deck [data-slot="card"]:not(.pop-in):not(.card-tremble):not(.card-explode) {
+.preset-deck [data-slot="card"]:not(.pop-in):not(.card-explode) {
   animation: card-edge-vanish linear both;
   animation-timeline: view();
 }
@@ -552,11 +488,11 @@ h6,
    explode get their base animation killed here: on an unsupported runtime
    the card-edge-vanish keyframes would play on the auto timeline (animating
    cards to opacity 0 and staying there), so we must kill them to prevent
-   that. Other animations (pop-in bounce, tremble, detonation) compose
+   that. Other animations (pop-in snap, detonation) compose
    naturally — they override the plain opacity property while they run, and
    the fallback CSS applies only when they are absent. */
 
-.no-view-timeline .preset-deck [data-slot="card"]:not(.pop-in):not(.card-tremble):not(.card-explode) {
+.no-view-timeline .preset-deck [data-slot="card"]:not(.pop-in):not(.card-explode) {
   animation: none !important;
   opacity: var(--edge-o, 1);
 }
@@ -592,11 +528,7 @@ h6,
   }
 }
 
-/* ── Radio-group indicator mount pop ──────────────────────────── */
-
-[data-slot="radio-group-indicator"] {
-  animation: motion-bounce-in 400ms var(--ease-out) both;
-}
+/* ── Radio-group indicator: instant (utility state) ─────────────── */
 
 /* ── ApplyDialog radio-row selection transition + hover ─────── */
 
@@ -635,8 +567,4 @@ h6,
   transition: background-color var(--motion-micro) var(--ease-out);
 }
 
-/* ── Sidebar collapse width transition (single-property exception) ─ */
-
-aside.shell-enter {
-  transition: width var(--motion-std) var(--ease-out);
-}
+/* (No sidebar-collapse rule: no collapse UI exists.) */

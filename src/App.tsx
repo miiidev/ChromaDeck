@@ -219,7 +219,7 @@ function App() {
             </span>
           </div>
           <div className="flex items-center justify-end px-4 py-2">
-            <button onClick={() => void fetchData()} data-slot="button" className="inline-flex items-center justify-center rounded-lg border-2 border-ink bg-white px-2 py-1 text-xs font-bold text-ink shadow-brutal-sm hover:bg-muted active:translate-y-px">
+            <button onClick={() => void fetchData()} data-slot="button" className="inline-flex items-center justify-center rounded-lg border-2 border-ink bg-white px-2 py-1 text-xs font-bold text-ink shadow-brutal-sm hover:bg-muted">
               <span className="btn-label">Retry</span>
             </button>
           </div>
