@@ -1,65 +1,59 @@
-# ChromaDeck — Dark Theme (v0.7.0)
+# ChromaDeck — Light neobrutalist theme
 
 ## Theme
 
-Uses Tailwind v4 `@theme` directive in `src/App.css` with shadcn `base-nova` style.
-The v0.6.0 mint migration replaced the blue accent family (`#2f8bff`) with mint green (`#34D399`)
-and tightened the success-green to `#16A34A` for clear visual separation from action elements.
+Light-only: paper background, white surfaces, 2px black borders, hard offset
+shadows, lime accent. No dark variants anywhere (`dark:` selectors were
+removed, not maintained). Lime is a **fill with black text** — never lime
+text or thin lime lines on a light surface. Preview and swatch areas
+(`PreviewStrip`, stat tiles) stay neutral so the chrome never competes
+with the colours being judged.
 
 | Token (--color-*) | Value | Role |
 |---|---|---|
-| `background` | `#08090F` | Page background |
-| `foreground` | `#E8EAF0` | Primary body text |
-| `card` | `#0E1118` | Card/surface background |
-| `card-foreground` | `#E8EAF0` | Card text |
-| `popover` | `#151A26` | Popover/dialog/section bg |
-| `popover-foreground` | `#E8EAF0` | Popover text |
-| `primary` | `#34D399` | Primary/accent action (APPLY, focus, EDIT, PINNED) |
-| `primary-foreground` | `#0A1A33` | Primary/accent button text (dark) |
-| `secondary` | `#34D399` | Same mint as primary (collapsed) |
-| `muted` | `#1A1E2A` | Muted/hover background |
-| `muted-foreground` | `#8B8FA3` | Secondary/muted text |
-| `accent` | `#34D399` | Same mint as primary (collapsed) |
-| `accent-soft` | `#0A1A33` | Soft accent (dark) |
-| `destructive` | `#FF2E7E` | Destructive action (DELETE) |
-| `destructive-foreground` | `#FFFFFF` | Destructive button text |
-| `border` | `#272B38` | Standard borders |
-| `input` | `rgba(255,255,255,0.08)` | Input border |
-| `ring` | `#34D399` | Focus ring |
-| `success` | `#16A34A` | Status connected/active indicator (non-accent, darker than mint action elements) |
+| `paper` / `background` | `#FBF7F3` | App background |
+| `foreground` / `ink` | `#000000` | Body text, borders, focus rings |
+| `card` / `popover` | `#FFFFFF` | Cards, dialogs, popovers |
+| `primary` / `lime` / `accent` | `#D4E84F` | Fill only, always with black text |
+| `secondary` | `#FFFFFF` | White buttons (black border via classes) |
+| `muted` | `#ECE7DC` | Muted surfaces, skeleton shimmer |
+| `muted-foreground` | `#555555` | Secondary text |
+| `tint` / `accent-soft` | `#F1F3DB` | Dialog footer strip, selected rows |
+| `destructive` / `danger` | `#E5484D` | Delete fills (black text) |
+| `danger-ink` | `#B91C1C` | Red running text (errors, warnings) |
+| `border` / `input` / `ring` | `#000000` | Borders, input borders, focus rings |
 | `warning` | `#F5A623` | Warning amber |
+| `success` | `#16A34A` | Status dots (graphics only, never text) |
+| `--border-width-brutal` | `2px` | Every border |
+| `--shadow-brutal-sm` | `2px 2px 0 #000` | Buttons, chips, small surfaces |
+| `--shadow-brutal` | `4px 4px 0 #000` | Pads, dialogs |
+| `--radius-brutal` | `12px` | Cards, dialogs, buttons |
 
 ## Geometry
 
 | Element | Radius |
 |---|---|
-| Buttons, inputs | `rounded-lg` (8px) |
-| Cards, dialogs, popovers | `rounded-2xl` (16px) |
-| Badges | `rounded-4xl` (pill) |
+| Buttons, inputs, cards, dialogs | 12px (brutal) |
+| Badges | pill |
+| Small chips (ICC, IN USE) | 6px |
 
-## Contrast Table (WCAG AA target ≥4.5:1)
-
-All body/muted text pairs clear AA. Dark foreground (`#0A1A33`) on mint (`#34D399`) passes AAA
-at 9.04:1 — well above the 4.5:1 AA bar. White-on-mint fails at 1.92:1 but is not used
-anywhere (mint action elements use dark text per `primary-foreground`). White-on-destructive
-and white-on-success pass A (≥3:1) but not AA — acceptable for small indicators and
-destructive labels where dark text would be ambiguous.
+## Contrast Table (WCAG AA target ≥4.5:1, computed)
 
 | Foreground | Background | Ratio | Level |
 |---|---|---|---|
-| `#E8EAF0` (body) | `#08090F` (page) | **16.53:1** | AAA |
-| `#E8EAF0` (body) | `#0E1118` (card) | **15.70:1** | AAA |
-| `#E8EAF0` (body) | `#151A26` (popover) | **14.46:1** | AAA |
-| `#E8EAF0` (body) | `#1A1E2A` (muted) | **13.82:1** | AAA |
-| `#8B8FA3` (muted) | `#08090F` (page) | **6.21:1** | AA |
-| `#8B8FA3` (muted) | `#0E1118` (card) | **5.90:1** | AA |
-| `#8B8FA3` (muted) | `#151A26` (popover) | **5.43:1** | AA |
-| `#8B8FA3` (muted) | `#1A1E2A` (muted) | **5.19:1** | AA |
-| `#0A1A33` (prim-fg) | `#34D399` (primary) | **9.04:1** | AAA |
-| `#06202e` (IN USE fg) | `#34D399` (primary) | **8.71:1** | AAA |
-| `#FFFFFF` (white) | `#34D399` (primary) | **1.92:1** | FAIL — not used; mint uses dark-fg |
-| `#FFFFFF` (white) | `#16A34A` (success) | **3.30:1** | A — small indicator dots only |
-| `#FFFFFF` (destr-fg) | `#FF2E7E` (destructive) | **3.53:1** | A |
+| `#000000` (body) | `#FBF7F3` (paper) | **19.7:1** | AAA |
+| `#000000` (body) | `#FFFFFF` (card) | **21.0:1** | AAA |
+| `#000000` (body) | `#D4E84F` (lime fill) | **15.5:1** | AAA |
+| `#000000` (body) | `#F1F3DB` (tint) | **18.6:1** | AAA |
+| `#000000` (body) | `#ECE7DC` (muted) | **17.1:1** | AAA |
+| `#555555` (muted) | `#FBF7F3` (paper) | **7.0:1** | AA |
+| `#555555` (muted) | `#FFFFFF` (card) | **7.5:1** | AA |
+| `#000000` (body) | `#E5484D` (delete fill) | **5.3:1** | AA |
+| `#B91C1C` (red text) | `#FFFFFF` (card) | **6.5:1** | AA |
+| `#16A34A` (success dot) | `#FFFFFF` | 3.3:1 | graphics only, never text |
+
+Lime text on light fails and is banned outright; red running text uses
+`danger-ink`, never the fill red. Focus is a 3px solid black ring.
 
 ## Components
 
@@ -74,19 +68,27 @@ Dialogs and popovers use `rounded-2xl` (16px); all other geometry matches the ta
 
 | Element | Classes |
 |---|---|
-| APPLY / primary action button | `bg-primary text-primary-foreground` |
-| EDIT / CREATE button | `bg-secondary text-primary-foreground` |
-| DUP / secondary actions | `border-border text-foreground bg-card` (outline variant) |
-| DEL / destructive | `bg-destructive/10 text-destructive` (destructive variant) |
+| APPLY / primary action button | `bg-lime text-ink border-ink shadow-brutal-sm` |
+| CREATE / secondary button | `bg-white text-ink border-ink shadow-brutal-sm` |
+| Cancel / outline | `bg-white text-ink border-ink shadow-brutal-sm` |
+| DELETE / destructive | `bg-danger text-ink border-ink shadow-brutal-sm` |
+| Applied pad | full `bg-lime` fill (black text, neutral stat tiles) |
+| PINNED tag | `pinned` variant: black tag, lime text |
+| IN USE badge | lime fill, black text + border |
+| ICC chip | white chip, black border |
 | UNPIN | outline variant |
-| PINNED badge | outline variant with `text-accent border-accent` |
-| ICC badge | outline variant |
-| Connected dot | `●` primary |
-| Pinned / attention | `■` primary |
-| Warning / offline | `▲` amber (hardcoded) |
-| Focus ring | `ring-primary` (shadcn base-nova default) |
-| Card state | via Badge variant + Card border accent |
-| Side rail (DELETED) | State communicated via Badge + Card border |
+| Connected dot | green circle; pinned adds lime square + black tag |
+| Offline row | dashed black border, paper fill, muted name |
+| Warning | amber accents (graphics only) |
+| Focus | 3px solid black ring |
+| Footer | white, black top rule, mono counts |
+
+## Dark surfaces (the one exception)
+
+The Identify overlay is a transient fullscreen flash, not app chrome: it
+dims the monitor with `bg-ink/60` and shows the number in lime
+`font-display` with the name in white. Lime-on-black here is the workshop
+reference and clears AAA; it never appears on light surfaces.
 
 ## Header Layout
 
@@ -116,11 +118,11 @@ Regenerate with `npx tauri icon src/assets/chromadeck-icon-1024.png`. `src-tauri
 
 ## Typography
 
-- Display: `Archivo` (500/600/700/800, bundled via `@fontsource/archivo`) for headings, dialog titles, buttons, and preset card titles
-- Mono: `JetBrains Mono` (500/700, bundled via `@fontsource/jetbrains-mono`) for IDs, status, parameter values, meta data
-- Body: system sans (`system-ui, "Segoe UI", sans-serif`) — Inter was removed along with the Google Fonts link; no remote fonts, fully offline
+- Display: `Montserrat` (700/800, bundled via `@fontsource/montserrat`) for headings, dialog titles, buttons, card titles, and the identify number — caps with wide tracking for eyebrows and titles
+- Mono: `JetBrains Mono` (500/700, bundled via `@fontsource/jetbrains-mono`) for IDs, status, parameter values, readouts, meta data
+- Body: system sans (`system-ui, "Segoe UI", sans-serif`) — no remote fonts, fully offline
 - Labels: `text-xs uppercase tracking-widest`
-- Body: `text-sm` / `text-xs` shadcn defaults
+- Body: `text-sm` / `text-xs` defaults
 
 ## Type scale
 
@@ -135,30 +137,39 @@ Display type is rule-driven, not arbitrary: card titles are fixed 32px (overflow
 
 ## Motion system
 
-CSS-driven, in `src/App.css` with helpers in `src/lib/motion.ts`. Transform + opacity only — no layout-property animation. Full entrances glide on `--ease-out`; small interactive transitions (presses, pops, lifts) use `--ease-spring` (gentle overshoot, tiny travel only — scale/2px lifts — never on full entrances, so nothing wobbles across the screen).
+CSS-driven, in `src/App.css` with helpers in `src/lib/motion.ts`. Emil-first:
+**no animation** unless it clarifies a state change or gives tactile
+feedback. Transform + opacity only (WebView2 performance) — never layout
+properties or shadow blur. Custom easings, never bare `ease`.
 
 | Token | Value | Role |
 |---|---|---|
-| `--motion-micro` | 150ms | exits, micro feedback |
-| `--motion-fast` | 250ms | rows, cards, banners |
-| `--motion-std` | 350ms | standard entrances |
-| `--motion-slow` | 600ms | shell + staggered entrances |
+| `--motion-micro` | 150ms | exits, validation, transients |
+| `--motion-fast` | 250ms | rows, cards, banners, dialogs |
+| `--motion-std` | 350ms | shell + staggered entrances |
+| `--motion-slow` | 600ms | (retired from entrances; kept for reference) |
+| `--motion-press` | 90ms | press-down (release settles slower) |
 | `--ease-out` | `cubic-bezier(0.22, 1, 0.36, 1)` | all entrances |
-| `--ease-spring` | `cubic-bezier(0.34, 1.56, 0.64, 1)` | presses, pops, lifts |
+| `--ease-spring` | `cubic-bezier(0.34, 1.56, 0.64, 1)` | thumb grab only |
 
-| Utility | Effect |
+Signature interaction — **press into the shadow**: pads translate 4px and
+buttons 2px with the shadow dropping to zero, ~90ms ease-out. Uses the
+`translate` property (not `transform`) so it composes with the
+scroll-driven edge-fade keyframes, which own `transform`.
+
+| What plays | Rule |
 |---|---|
-| `.shell-enter` (+ `--shell-delay` 0/60/120/180ms) | staged app-shell entrance: header → sidebar → library → footer (`motion-shell-up`) |
-| `.enter-stagger` (+ `--stagger-ms`) | preset-card cascade (`motion-slide-up`); attached on first load only via `consumeStagger()` |
-| `.monitor-row-enter` (+ `--stagger-ms`) | sidebar monitor-row cascade |
-| `.sidebar-content-enter` | sidebar carousel strip entrance |
-| `.enter-fade` / `.enter-slide-up` / `.enter-slide-down` / `.enter-scale` | one-shot entrances (empty states, banners, badges) |
-| `.exit-fade` / `.exit-slide-up`, `.feedback-enter` / `.feedback-exit` | exits run ~30% faster than entrances |
-| `.card-tremble` | looping "fear tremble" while in multi-select delete mode (per-card negative delays desync the loop) |
-| `.card-explode` (+ `motion-explode`) | batch-delete detonation with per-card delay |
-| `.preset-card` edge fade | scroll-driven `card-edge-vanish` on `animation-timeline: view()` where supported, with an IntersectionObserver fallback (`.no-view-timeline`, `--edge-o`) elsewhere |
-| `.pulse-soft`, `.status-dot` blink, title marquee | looping accents |
+| Shell entrance (mount + every window re-show) | 350ms glide, staged 0/60/120/180ms — tightened for a tray utility |
+| Preset cascade | 350ms glide, stagger capped at 5 × 60ms (≤300ms total, no stagger-spam) |
+| Pin-tag enter, ICC snap, apply-confirm badge | 180ms overshoot-free snap (`motion-scale-in`) |
+| Delete detonation | 300ms one-shot (timeout in `handleDelete` matches) |
+| Scroll edge-fade, title marquee (hover-only), View-Transition gap-glide | kept — user- or scroll-driven |
+| Validation, feedback, transients, error banner, footer crossfade | short fades/slides tied to state changes |
+| Empty state | small fade (the one delight carve-out) |
+| Slider thumb grab | scale only; values track input with zero easing |
 
-Button hover grows the **label/icon inside a fixed-geometry box** (transform on `.btn-label`/svg — never font-size, which would shove neighbors); press dips the box with the label reset so the two transforms compose to exactly the press value.
-
-The window hides (not unmounts) on close, so the backend emits `window-shown` on every re-show (tray Show, tray click, second launch) and `replayEntrance()` restarts the staged entrance in place — state, scroll, and open dialogs are preserved. Reduced motion zeroes all durations/delays globally.
+Deliberately absent: hover lifts, label-grow, select tremble, status
+blink, breathing pulses, bounce-in pops, overlay blur, uniform
+mount fade-ins, sidebar-collapse rule. Checkbox/radio indicators appear
+instantly. Reduced motion zeroes all durations/delays globally, and
+`replayEntrance()` no-ops under it.

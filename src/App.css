@@ -290,13 +290,13 @@ h6,
 
 [data-slot="button"]:not(:disabled):active {
   translate: 2px 2px;
-  box-shadow: 0 0 0 0 #000;
+  box-shadow: none;
   transition-duration: var(--motion-press);
 }
 
 [data-slot="card"]:active {
   translate: 4px 4px;
-  box-shadow: 0 0 0 0 #000;
+  box-shadow: none;
   transition-duration: var(--motion-press);
 }
 
@@ -537,7 +537,7 @@ h6,
               border-color var(--motion-micro) var(--ease-out);
 }
 
-[data-slot="dialog-content"] label:has([data-slot="radio-group-item"]):not(.border-primary):hover {
+[data-slot="dialog-content"] label:has([data-slot="radio-group-item"]):not(.bg-tint):hover {
   background-color: var(--color-muted);
 }
 
