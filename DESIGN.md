@@ -59,7 +59,7 @@ Mint text on light fails and is banned outright; red running text uses
 
 UI components in `src/components/ui/` follow shadcn `base-nova` conventions
 (data-slot API, cva variants) built on Base UI React primitives:
-- Button, Badge, Card, Dialog, Input, Label, Select, Checkbox, Radio Group, Skeleton (Base UI); Slider (Radix)
+- Button, Badge, Card, Dialog, Input, Label, Select, Checkbox, Radio Group, Skeleton (Base UI); Slider (Radix); WindowDots (custom three-dot motif for dialog and panel headers)
 - Icon library: Lucide
 
 Dialogs and popovers use the 12px brutal radius; all other geometry matches the table above.
