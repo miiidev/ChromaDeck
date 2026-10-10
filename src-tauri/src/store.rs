@@ -5,7 +5,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn default_vibrance() -> f64 { 50.0 }
 fn default_hue() -> f64 { 0.0 }
@@ -641,11 +641,43 @@ impl Store {
 
 // ── Default app data directory ─────────────────────────────────────────────
 
-/// Return the default store path: `%LOCALAPPDATA%/ChromaDeck`.
+/// Return the default store path.
+///
+/// Precedence:
+/// 1. `CHROMADECK_DATA_DIR` env var (explicit override; blank = ignored).
+/// 2. Portable mode: a file named `portable` (or `portable.txt`) sitting
+///    beside the executable keeps all data in `<exe-dir>/data`, so the
+///    portable ZIP leaves no trace outside its own folder. Installed and
+///    dev builds ship no marker and are unaffected.
+/// 3. Otherwise `%LOCALAPPDATA%/ChromaDeck`.
 pub fn default_store_path() -> PathBuf {
+    if let Ok(dir) = std::env::var("CHROMADECK_DATA_DIR") {
+        let dir = dir.trim();
+        if !dir.is_empty() {
+            return PathBuf::from(dir);
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            if let Some(portable) = portable_data_dir(dir) {
+                return portable;
+            }
+        }
+    }
     dirs::data_local_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("ChromaDeck")
+}
+
+/// Portable data dir for an executable directory: `Some(<dir>/data)` when
+/// a `portable` / `portable.txt` marker file is present, else `None`.
+/// Split out for unit testing (`current_exe` can't be faked).
+fn portable_data_dir(exe_dir: &Path) -> Option<PathBuf> {
+    if exe_dir.join("portable").exists() || exe_dir.join("portable.txt").exists() {
+        Some(exe_dir.join("data"))
+    } else {
+        None
+    }
 }
 
 // ── Tauri commands ────────────────────────────────────────────────────────
@@ -803,6 +835,49 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ))
+    }
+
+    // ── portable data resolution ─────────────────────────────────────────
+
+    #[test]
+    fn portable_marker_selects_local_data_dir() {
+        let dir = test_store_dir_unique();
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(portable_data_dir(&dir), None);
+        std::fs::write(dir.join("portable"), b"").unwrap();
+        assert_eq!(portable_data_dir(&dir), Some(dir.join("data")));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn portable_txt_marker_selects_local_data_dir() {
+        let dir = test_store_dir_unique();
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("portable.txt"), b"").unwrap();
+        assert_eq!(portable_data_dir(&dir), Some(dir.join("data")));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn env_override_selects_data_dir() {
+        // No other test touches this var, so set/restore here is safe.
+        let dir = test_store_dir_unique();
+        std::env::set_var("CHROMADECK_DATA_DIR", &dir);
+        assert_eq!(default_store_path(), dir);
+        std::env::remove_var("CHROMADECK_DATA_DIR");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn store_opens_inside_portable_data_dir() {
+        let exe_dir = test_store_dir_unique();
+        std::fs::create_dir_all(&exe_dir).unwrap();
+        std::fs::write(exe_dir.join("portable"), b"").unwrap();
+        let data_dir = portable_data_dir(&exe_dir).unwrap();
+        let store = Store::new(data_dir.clone()).unwrap();
+        assert!(data_dir.join("profiles").is_dir());
+        assert!(store.list_presets().is_empty());
+        let _ = std::fs::remove_dir_all(&exe_dir);
     }
 
     // ── create_and_list_preset ─────────────────────────────────────────────

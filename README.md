@@ -25,7 +25,7 @@ Download from the [releases page](https://github.com/miiidev/ChromaDeck/releases
 |---|---|
 | `ChromaDeck_*_x64_en-US.msi` | Standard Windows installer (recommended) |
 | `ChromaDeck_*_x64-setup.exe` | NSIS setup wizard |
-| `ChromaDeck_*_x64-portable.zip` | Portable ZIP (exe + license, unzip and run, no install needed) |
+| `ChromaDeck_*_x64-portable.zip` | Portable ZIP (exe + license + marker, unzip and run — settings stay in a `data` folder next to the exe, nothing in AppData) |
 | `chromadeck.exe` | Standalone binary, no install needed |
 
 Requirements: Windows 10/11 x64 and the WebView2 runtime (preinstalled on Windows 10 1809+ and Windows 11). An NVIDIA GPU unlocks digital vibrance/hue and the NVCP-native engine; other GPUs fall back to OS-level color controls where supported.
@@ -45,7 +45,7 @@ All values show their neutral points in the editor (e.g. brightness/contrast 50,
 
 - **Frontend:** React + Vite + Tailwind CSS v4, light neobrutalist theme (paper, black borders, hard shadows, mint accent fills; see `DESIGN.md`).
 - **Backend:** Rust via Tauri v2. `monitor.rs` enumerates displays as an adapter→monitor tree with EDID identity; `store.rs` persists presets/pins/aliases as JSON; `color.rs` applies ICC + gamma ramps; `nvgamma.rs` + `nvapi.rs` implement the NVCP transfer math (reimplemented from observed driver behavior), 1024-entry float ramps, and driver-registry persistence; `enforce.rs` runs the 10-second drift-check loop; `identify.rs` spawns numbered overlay windows for monitor identification.
-- **Data lives in** `%LOCALAPPDATA%\ChromaDeck\` (`presets.json`, `pins.json`, `applied.json`, `monitor_names.json`, `profiles\`, plus timestamped `.bak-*` backups before migrations).
+- **Data lives in** `%LOCALAPPDATA%\ChromaDeck\` (`presets.json`, `pins.json`, `applied.json`, `monitor_names.json`, `profiles\`, plus timestamped `.bak-*` backups before migrations). The portable ZIP keeps data in a `data` folder next to the exe instead (via its marker file); setting `CHROMADECK_DATA_DIR` overrides the location entirely.
 
 ## Development
 
