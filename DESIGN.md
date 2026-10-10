@@ -153,8 +153,9 @@ properties or shadow blur. Custom easings, never bare `ease`.
 | `--ease-spring` | `cubic-bezier(0.34, 1.56, 0.64, 1)` | thumb grab only |
 
 Signature interaction — **press into the shadow**: pads translate 4px and
-buttons 2px with the shadow dropping to zero, ~90ms ease-out. Uses the
-`translate` property (not `transform`) so it composes with the
+buttons 2px with the shadow dropping to zero, ~90ms ease-out. Hover is the
+inverse: pads raise 2px with a grown shadow (shadow play, not lift-or-glow).
+Both use the `translate` property (not `transform`) so they compose with the
 scroll-driven edge-fade keyframes, which own `transform`.
 
 | What plays | Rule |
@@ -166,9 +167,10 @@ scroll-driven edge-fade keyframes, which own `transform`.
 | Scroll edge-fade, title marquee (hover-only), View-Transition gap-glide | kept — user- or scroll-driven |
 | Validation, feedback, transients, error banner, footer crossfade | short fades/slides tied to state changes |
 | Empty state | small fade (the one delight carve-out) |
+| Pad hover | raise 2px + shadow grows (shadow play answers hover; press inverts it) |
 | Slider thumb grab | scale only; values track input with zero easing |
 
-Deliberately absent: hover lifts, label-grow, select tremble, status
+Deliberately absent: label-grow, select tremble, status
 blink, breathing pulses, bounce-in pops, overlay blur, uniform
 mount fade-ins, sidebar-collapse rule. Checkbox/radio indicators appear
 instantly. Reduced motion zeroes all durations/delays globally, and

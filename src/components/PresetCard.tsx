@@ -188,7 +188,7 @@ export default function PresetCard({
         data-slot="card"
         className={cn(
           "card-ring",
-          "flex flex-col gap-3.5 w-full rounded-brutal border-2 border-ink bg-white p-[18px] shadow-brutal outline-none",
+          "flex flex-col gap-3.5 w-full rounded-brutal border-2 border-ink bg-white p-[18px] shadow-brutal outline-none cursor-pointer",
           "focus-visible:ring-[3px] focus-visible:ring-ring",
           isActive ? "bg-mint" : "",
           highlightEnter ? "pop-in" : "",

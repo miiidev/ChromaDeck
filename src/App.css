@@ -335,10 +335,17 @@ h6,
    Surface-specific transitions — full coverage, smooth with spring accents
    ═══════════════════════════════════════════════════════════════════════════ */
 
-/* ── PresetCard hover: none (press carries the feedback) ─────────
-   Pads are click targets; the :active press rule below is the tactile
-   response. No lift — it would fight the scroll-driven edge fade, which
-   owns `transform` on these elements. */
+/* ── PresetCard hover: shadow play, not lift ─────────────────────
+   Pads are click targets (tap to apply), so hover must answer. The
+   brutalist idiom is a paper-raise: up-left 2px with a bigger shadow.
+   Uses the `translate` property so it composes with the scroll-driven
+   edge-fade keyframes, which own `transform`. Press (below) inverts it:
+   hover raises, press slams — one coherent physical model. */
+
+[data-slot="card"]:hover {
+  translate: -2px -2px;
+  box-shadow: 6px 6px 0 0 #000;
+}
 
 /* ── PresetCard ring crossfade ────────────────────────────────────
    NOTE: .card-ring sits on the same element as [data-slot="card"], and
