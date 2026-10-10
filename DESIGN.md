@@ -3,9 +3,9 @@
 ## Theme
 
 Light-only: paper background, white surfaces, 2px black borders, hard offset
-shadows, lime accent. No dark variants anywhere (`dark:` selectors were
-removed, not maintained). Lime is a **fill with black text** — never lime
-text or thin lime lines on a light surface. Preview and swatch areas
+shadows, mint accent. No dark variants anywhere (`dark:` selectors were
+removed, not maintained). Mint is a **fill with black text** — never mint
+text or thin mint lines on a light surface. Preview and swatch areas
 (`PreviewStrip`, stat tiles) stay neutral so the chrome never competes
 with the colours being judged.
 
@@ -14,11 +14,11 @@ with the colours being judged.
 | `paper` / `background` | `#FBF7F3` | App background |
 | `foreground` / `ink` | `#000000` | Body text, borders, focus rings |
 | `card` / `popover` | `#FFFFFF` | Cards, dialogs, popovers |
-| `primary` / `lime` / `accent` | `#D4E84F` | Fill only, always with black text |
+| `primary` / `mint` / `accent` | `#3DDC97` | Fill only, always with black text (logo mint) |
 | `secondary` | `#FFFFFF` | White buttons (black border via classes) |
 | `muted` | `#ECE7DC` | Muted surfaces, skeleton shimmer |
 | `muted-foreground` | `#555555` | Secondary text |
-| `tint` / `accent-soft` | `#F1F3DB` | Dialog footer strip, selected rows |
+| `tint` / `accent-soft` | `#E4FAF0` | Dialog footer strip, selected rows |
 | `destructive` / `danger` | `#E5484D` | Delete fills (black text) |
 | `danger-ink` | `#B91C1C` | Red running text (errors, warnings) |
 | `border` / `input` / `ring` | `#000000` | Borders, input borders, focus rings |
@@ -43,8 +43,8 @@ with the colours being judged.
 |---|---|---|---|
 | `#000000` (body) | `#FBF7F3` (paper) | **19.7:1** | AAA |
 | `#000000` (body) | `#FFFFFF` (card) | **21.0:1** | AAA |
-| `#000000` (body) | `#D4E84F` (lime fill) | **15.5:1** | AAA |
-| `#000000` (body) | `#F1F3DB` (tint) | **18.6:1** | AAA |
+| `#000000` (body) | `#3DDC97` (mint fill) | **11.9:1** | AAA |
+| `#000000` (body) | `#E4FAF0` (tint) | **19.2:1** | AAA |
 | `#000000` (body) | `#ECE7DC` (muted) | **17.1:1** | AAA |
 | `#555555` (muted) | `#FBF7F3` (paper) | **7.0:1** | AA |
 | `#555555` (muted) | `#FFFFFF` (card) | **7.5:1** | AA |
@@ -52,7 +52,7 @@ with the colours being judged.
 | `#B91C1C` (red text) | `#FFFFFF` (card) | **6.5:1** | AA |
 | `#16A34A` (success dot) | `#FFFFFF` | 3.3:1 | graphics only, never text |
 
-Lime text on light fails and is banned outright; red running text uses
+Mint text on light fails and is banned outright; red running text uses
 `danger-ink`, never the fill red. Focus is a 3px solid black ring.
 
 ## Components
@@ -68,16 +68,16 @@ Dialogs and popovers use the 12px brutal radius; all other geometry matches the 
 
 | Element | Classes |
 |---|---|
-| APPLY / primary action button | `bg-lime text-ink border-ink shadow-brutal-sm` |
-| + Create / empty-state CTA | lime primary — the view's main forward action |
+| APPLY / primary action button | `bg-mint text-ink border-ink shadow-brutal-sm` |
+| + Create / empty-state CTA | mint primary — the view's main forward action |
 | Select / Cancel / outline | `bg-white text-ink border-ink shadow-brutal-sm` |
 | DELETE / destructive | `bg-danger text-ink border-ink shadow-brutal-sm` |
-| Applied pad | full `bg-lime` fill (black text, neutral stat tiles) |
-| PINNED tag | `pinned` variant: black tag, lime text |
-| IN USE badge | lime fill, black text + border |
+| Applied pad | full `bg-mint` fill (black text, neutral stat tiles) |
+| PINNED tag | `pinned` variant: black tag, mint text |
+| IN USE badge | mint fill, black text + border |
 | ICC chip | white chip, black border |
 | UNPIN | outline variant |
-| Connected dot | green circle; pinned adds lime square + black tag |
+| Connected dot | green circle (kept `#16A34A`); pinned adds mint square + black tag |
 | Offline row | dashed black border, paper fill, muted name |
 | Warning | amber accents (graphics only) |
 | Focus | 3px solid black ring |
@@ -86,8 +86,8 @@ Dialogs and popovers use the 12px brutal radius; all other geometry matches the 
 ## Dark surfaces (the one exception)
 
 The Identify overlay is a transient fullscreen flash, not app chrome: it
-dims the monitor with `bg-ink/60` and shows the number in lime
-`font-display` with the name in white. Lime-on-black here is the workshop
+dims the monitor with `bg-ink/60` and shows the number in mint
+`font-display` with the name in white. Mint-on-black here is the workshop
 reference and clears AAA; it never appears on light surfaces.
 
 ## Header Layout

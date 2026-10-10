@@ -116,7 +116,7 @@ export default function PresetCard({
   // Flat 25% tint over the white card, no glow. Border follows the tag via
   // inset outline (not box-shadow, so the hard offset shadow and the
   // focus-visible ring keep working untouched).
-  // Applied (lime fill) is a class below; an explicit tag tint wins over it
+  // Applied (mint fill) is a class below; an explicit tag tint wins over it
   // via inline style, same precedence as before.
   const tag = /^#[0-9a-fA-F]{6}$/.test(preset.color_tag ?? "")
     ? (preset.color_tag as string)
@@ -190,7 +190,7 @@ export default function PresetCard({
           "card-ring",
           "flex flex-col gap-3.5 w-full rounded-brutal border-2 border-ink bg-white p-[18px] shadow-brutal outline-none",
           "focus-visible:ring-[3px] focus-visible:ring-ring",
-          isActive ? "bg-lime" : "",
+          isActive ? "bg-mint" : "",
           highlightEnter ? "pop-in" : "",
           detonating ? "card-explode" : "",
         )}
@@ -251,10 +251,10 @@ export default function PresetCard({
                 </span>
               )}
 
-              {/* IN USE marker: lime fill, black text + border */}
+                {/* IN USE marker: mint fill, black text + border */}
               {isActive && (
                 <span
-                  className="pop-in rounded-[6px] border-2 border-ink bg-lime px-[6px] py-px text-[10px] font-mono font-bold tracking-[0.1em] text-ink"
+                  className="pop-in rounded-[6px] border-2 border-ink bg-mint px-[6px] py-px text-[10px] font-mono font-bold tracking-[0.1em] text-ink"
                   title="Currently applied to a connected monitor"
                 >
                   IN USE
@@ -270,7 +270,7 @@ export default function PresetCard({
                 <span className="pop-in">
                   <button
                     type="button"
-                    className="inline-flex items-center justify-center size-8 rounded-lg border-2 border-transparent text-ink hover:border-ink hover:bg-lime focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-slot="button"
+                    className="inline-flex items-center justify-center size-8 rounded-lg border-2 border-transparent text-ink hover:border-ink hover:bg-mint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-slot="button"
                     onClick={(e) => {
                       e.stopPropagation();
                       void (async () => {
@@ -292,7 +292,7 @@ export default function PresetCard({
 
               <button
                 type="button"
-                className="inline-flex items-center justify-center size-8 rounded-lg border-2 border-transparent text-ink hover:border-ink hover:bg-lime focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-slot="button"
+                className="inline-flex items-center justify-center size-8 rounded-lg border-2 border-transparent text-ink hover:border-ink hover:bg-mint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-slot="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   onEdit(preset);
@@ -306,7 +306,7 @@ export default function PresetCard({
 
               <button
                 type="button"
-                className="inline-flex items-center justify-center size-8 rounded-lg border-2 border-transparent text-ink hover:border-ink hover:bg-lime focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-slot="button"
+                className="inline-flex items-center justify-center size-8 rounded-lg border-2 border-transparent text-ink hover:border-ink hover:bg-mint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-slot="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   void handleDuplicate();

@@ -53,7 +53,7 @@ export default function IdentifyOverlay({ number, total: totalProp, monitorName:
       <div className="flex flex-col items-center gap-3 px-6">
         {/* Giant monitor number */}
         <span
-          className="font-display text-[128px] font-extrabold leading-none text-lime select-none"
+          className="font-display text-[128px] font-extrabold leading-none text-mint select-none"
           aria-label={`Monitor ${number}`}
         >
           {number}

@@ -8,7 +8,7 @@ const badgeVariants = cva(
   {
     variants: {
       variant: {
-        default: "border-ink bg-lime text-ink",
+        default: "border-ink bg-mint text-ink",
         secondary:
           "border-ink bg-white text-ink",
         destructive:
@@ -18,7 +18,7 @@ const badgeVariants = cva(
         ghost:
           "hover:bg-muted hover:text-muted-foreground",
         link: "text-ink underline-offset-4 hover:underline",
-        pinned: "border-ink bg-ink text-lime",
+        pinned: "border-ink bg-ink text-mint",
       },
     },
     defaultVariants: {

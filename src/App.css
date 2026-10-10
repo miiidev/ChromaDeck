@@ -4,8 +4,8 @@
 /* ═══════════════════════════════════════════════════════════════════════════
    ChromaDeck — Light neobrutalist theme
    All color tokens via Tailwind v4 @theme. Light-only: no dark variants
-   anywhere. Lime is a fill with black text — never lime text or thin
-   lime lines. Preview/swatch areas stay neutral.
+   anywhere. Mint is a fill with black text — never mint text or thin
+   mint lines. Preview/swatch areas stay neutral.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 @theme {
@@ -17,17 +17,17 @@
   --color-card-foreground: #000000;
   --color-popover: #ffffff;
   --color-popover-foreground: #000000;
-  --color-primary: #d4e84f;
+  --color-primary: #3ddc97;
   --color-primary-foreground: #000000;
-  --color-lime: #d4e84f;
+  --color-mint: #3ddc97;
   --color-secondary: #ffffff;
   --color-secondary-foreground: #000000;
   --color-muted: #ece7dc;
   --color-muted-foreground: #555555;
-  --color-accent: #d4e84f;
+  --color-accent: #3ddc97;
   --color-accent-foreground: #000000;
-  --color-accent-soft: #f1f3db;
-  --color-tint: #f1f3db;
+  --color-accent-soft: #e4faf0;
+  --color-tint: #e4faf0;
   --color-destructive: #e5484d;
   --color-destructive-foreground: #000000;
   --color-danger: #e5484d;
