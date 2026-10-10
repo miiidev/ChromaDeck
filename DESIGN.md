@@ -168,7 +168,7 @@ scroll-driven edge-fade keyframes, which own `transform`.
 | Validation, feedback, transients, error banner, footer crossfade | short fades/slides tied to state changes |
 | Empty state | small fade (the one delight carve-out) |
 | Pad hover | raise 2px + shadow grows (shadow play answers hover; press inverts it) |
-| Select-mode tremble | sync loop on the stagger wrapper (never the pad — no fight with edge-fade, no fade phase-shift) |
+| Select-mode tremble | fast side-to-side jitter (0.28s linear) on the stagger wrapper — never the pad, so no fight with edge-fade; per-card desync via `nth-child` negative delays |
 | Slider thumb grab | scale only; values track input with zero easing |
 
 Deliberately absent: label-grow, status

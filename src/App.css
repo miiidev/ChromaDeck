@@ -368,23 +368,36 @@ h6,
 }
 
 /* ── Select-mode tremble ────────────────────────────────────────
-   Fear tremble: tiny rotate/translate oscillation, played on loop while
-   the library is in multi-select delete mode — the cards tremble like
-   they're afraid of being deleted. Applied to the stagger WRAPPER (not
-   the pad itself) so it never fights the scroll-driven edge fade, which
-   owns `transform` on the pad. Runs in sync on all cards; per-card
-   desync delays once phase-shifted the fade zones, so they stay out.
+   Scared jitter: fast side-to-side shake with a slight rotational
+   stutter, played on loop while the library is in multi-select delete
+   mode — the cards shake like they're afraid of being deleted. Uneven
+   keyframes on linear timing keep it jerky, not smooth. Applied to the
+   stagger WRAPPER (not the pad itself) so it never fights the
+   scroll-driven edge fade, which owns `transform` on the pad.
+   nth-child negative delays desync the loop per card; delays live in
+   CSS (not inline styles) so entrance replays can't wipe them.
    Defined AFTER .enter-stagger (same specificity) so it wins while a
    card is selectable; the global reduced-motion rule freezes it. */
 
 @keyframes motion-tremble-idle {
-  0%, 100% { transform: translateY(0) rotate(0deg); }
-  25%      { transform: translateY(0) rotate(0.6deg) translateX(0.5px); }
-  75%      { transform: translateY(0) rotate(-0.6deg) translateX(-0.5px); }
+  0%   { transform: translateX(0) rotate(0deg); }
+  20%  { transform: translateX(-2px) rotate(-0.8deg); }
+  40%  { transform: translateX(2px) rotate(0.6deg); }
+  60%  { transform: translateX(-1.5px) rotate(-0.4deg); }
+  80%  { transform: translateX(1.5px) rotate(0.5deg); }
+  100% { transform: translateX(0) rotate(0deg); }
 }
 
 .card-tremble {
-  animation: motion-tremble-idle 0.4s var(--ease-out) infinite;
+  animation: motion-tremble-idle 0.28s linear infinite;
+}
+
+.preset-deck > .card-tremble:nth-child(3n+2) {
+  animation-delay: -0.09s;
+}
+
+.preset-deck > .card-tremble:nth-child(3n) {
+  animation-delay: -0.19s;
 }
 
 /* ── Batch-delete explosion ───────────────────────────────────────
