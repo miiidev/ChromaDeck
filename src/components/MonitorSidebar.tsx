@@ -5,6 +5,7 @@ import { prefersReducedMotion } from "../lib/motion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import WindowDots from "@/components/ui/window-dots";
 import { MonitorCheck, ChevronLeft, ChevronRight } from "lucide-react";
 
 interface Props {
@@ -35,7 +36,7 @@ function MonitorNameEditor({ monitor, onRefreshParent }: { monitor: Monitor; onR
   if (!editing) {
     return (
       <span className="inline-flex items-center gap-1.5 min-w-0">
-        <span className="text-xs font-medium text-foreground truncate">{displayName}</span>
+        <span className={`text-xs font-medium truncate ${monitor.connected ? "text-foreground" : "text-muted-foreground"}`}>{displayName}</span>
         <Button variant="ghost" size="xs" onClick={() => { setDraft(monitor.alias); setEditing(true); }} title="Rename monitor" aria-label={`Rename monitor ${displayName}`}>
           ✎
         </Button>
@@ -102,7 +103,7 @@ function MonitorResetButton({ edidId, onPinChange }: { edidId: string; onPinChan
   return (
     <span className="inline-flex items-center gap-2">
       {message && (
-        <span key={message.text} aria-live="polite" className={`transient-enter text-xs ${message.ok ? "text-primary" : "text-destructive"}`}>
+        <span key={message.text} aria-live="polite" className={`transient-enter text-xs font-bold ${message.ok ? "text-ink" : "text-danger-ink"}`}>
           {message.text}
         </span>
       )}
@@ -160,9 +161,10 @@ export default function MonitorSidebar({ monitors, presets, pins, onRefresh, onP
   if (monitors.length === 0) return null;
 
   return (
-    <aside className="w-full shrink-0 rounded-lg bg-card text-card-foreground ring-1 ring-foreground/10 shell-enter" style={{ ["--shell-delay" as string]: "60ms" }}>
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
-        <span className="text-xs font-medium text-muted-foreground uppercase tracking-widest mono">
+    <aside className="w-full shrink-0 rounded-brutal border-2 border-ink bg-white text-ink shadow-brutal-sm shell-enter" style={{ ["--shell-delay" as string]: "60ms" }}>
+      <div className="flex items-center gap-2 px-3 py-2 border-b-2 border-ink">
+        <WindowDots />
+        <span className="text-xs font-bold text-ink uppercase tracking-widest mono">
           Monitors ({monitors.length})
         </span>
         <span className="flex-1" />
@@ -206,7 +208,9 @@ export default function MonitorSidebar({ monitors, presets, pins, onRefresh, onP
             return (
               <div
                 key={m.edid_id}
-                className="flex w-64 shrink-0 snap-start flex-col gap-1.5 rounded-lg border border-border bg-muted p-2 monitor-row-enter"
+                className={`flex w-64 shrink-0 snap-start flex-col gap-1.5 rounded-lg border-2 p-2 monitor-row-enter ${
+                  m.connected ? "border-ink bg-white" : "border-dashed border-ink bg-paper"
+                }`}
                 style={{ "--stagger-ms": `${Math.min(monitors.indexOf(m) * 60, 300)}ms` } as Record<string, string>}
               >
                 <div className="flex items-center gap-2 text-foreground">
@@ -228,7 +232,7 @@ export default function MonitorSidebar({ monitors, presets, pins, onRefresh, onP
                   {pinnedPreset && (
                     <span className="inline-flex items-center gap-1">
                       <span className="status-dot status-dot-pinned" title={`Pinned: ${pinnedPreset.name}`} />
-                      <Badge variant="outline" className="text-accent border-accent" title={`Pinned: ${pinnedPreset.name}`}>
+                      <Badge variant="pinned" title={`Pinned: ${pinnedPreset.name}`}>
                         PINNED: {pinnedPreset.name}
                       </Badge>
                     </span>

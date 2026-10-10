@@ -13,13 +13,12 @@ export default function StatTile({ label, value, neutral }: StatTileProps): Reac
   const valueSize =
     value.length > 4 ? "text-[22px]" : value.length > 3 ? "text-[26px]" : "text-[30px]";
   return (
-    <div className="flex flex-col items-stretch gap-1 min-w-0 overflow-hidden rounded-[10px] bg-[#151a26] px-3 py-[9px]">
-      <span className="text-[10px] font-mono font-medium tracking-[0.12em] uppercase text-[#8b92a6] truncate">
+    <div className="flex flex-col items-stretch gap-1 min-w-0 overflow-hidden rounded-[10px] border border-ink/15 bg-paper px-3 py-[9px]">
+      <span className="text-[10px] font-mono font-medium tracking-[0.12em] uppercase text-muted-foreground truncate">
         {label}
       </span>
       <span
-        className={`font-mono font-bold ${valueSize}/[1] tabular-nums whitespace-nowrap`}
-        style={{ color: neutral ? "#6b7285" : "#f2f5fa" } as Record<string, string>}
+        className={`font-mono font-bold ${valueSize}/[1] tabular-nums whitespace-nowrap ${neutral ? "text-muted-foreground" : "text-ink"}`}
       >
         {value}
       </span>

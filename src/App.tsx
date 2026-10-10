@@ -195,14 +195,14 @@ function App() {
   return (
     <main className="h-screen overflow-hidden bg-background text-foreground flex flex-col">
       {/* ── Header ──────────────────────────────────────────────────────── */}
-      <header className="border-b border-border bg-card px-6 py-3 shell-enter" style={{ ["--shell-delay" as string]: "0ms" }}>
+      <header className="border-b-2 border-ink bg-white px-6 py-3 shell-enter" style={{ ["--shell-delay" as string]: "0ms" }}>
         <div className="flex items-center justify-between gap-x-4">
           <div className="flex min-w-0 items-center gap-x-4">
             <LogoMark />
-            <h1 className="truncate text-base text-foreground font-sans" style={{ letterSpacing: "-0.024em" }}>
+            <h1 className="truncate font-display text-lg font-extrabold uppercase tracking-wide text-ink">
               <span className="font-bold">C</span>hromaDec<span className="font-bold">k</span>
             </h1>
-            <span className="rounded-lg border border-border bg-popover px-1.5 py-0.5 text-xs text-muted-foreground mono">
+            <span className="rounded-lg border-2 border-ink bg-tint px-1.5 py-0.5 text-xs font-bold text-ink mono">
               v{appVersion}
             </span>
           </div>
@@ -212,14 +212,14 @@ function App() {
 
       {/* ── Error banner ────────────────────────────────────────────────── */}
       {error && (
-        <div className="mx-6 mt-4 rounded-lg border border-border bg-card error-banner-enter">
-          <div className="bg-destructive/20 px-4 py-1.5 rounded-md">
-            <span className="text-xs font-medium text-foreground">
+        <div className="mx-6 mt-4 rounded-brutal border-2 border-ink bg-white shadow-brutal-sm error-banner-enter">
+          <div className="bg-danger px-4 py-1.5 rounded-t-lg">
+            <span className="text-xs font-bold text-ink">
               Failed to load: {error}
             </span>
           </div>
           <div className="flex items-center justify-end px-4 py-2">
-            <button onClick={() => void fetchData()} data-slot="button" className="inline-flex items-center justify-center rounded-lg border border-border bg-card px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground active:translate-y-px">
+            <button onClick={() => void fetchData()} data-slot="button" className="inline-flex items-center justify-center rounded-lg border-2 border-ink bg-white px-2 py-1 text-xs font-bold text-ink shadow-brutal-sm hover:bg-muted active:translate-y-px">
               <span className="btn-label">Retry</span>
             </button>
           </div>
@@ -256,7 +256,7 @@ function App() {
       </div>
 
       {/* ── Footer / status bar ─────────────────────────────────────────── */}
-      <footer className="border-t border-border bg-card px-6 py-3 flex flex-col sm:flex-row items-center sm:items-center justify-between text-xs gap-1 shell-enter" style={{ ["--shell-delay" as string]: "180ms" }}>
+      <footer className="border-t-2 border-ink bg-white px-6 py-3 flex flex-col sm:flex-row items-center sm:items-center justify-between text-xs gap-1 shell-enter" style={{ ["--shell-delay" as string]: "180ms" }}>
         {(() => {
           const t = loading ? "LOADING…" : `${presets.length} PRESET${presets.length !== 1 ? "S" : ""} · ${monitors.filter((m) => m.connected).length} MONITOR${monitors.filter((m) => m.connected).length !== 1 ? "S" : ""} CONNECTED · ${Object.keys(pins).length} PINNED`;
           return <span key={t} className="uppercase tracking-widest mono text-muted-foreground footer-crossfade">{t}</span>;
@@ -277,7 +277,7 @@ function App() {
               setTimeout(() => setReapplyMsg(null), 5000);
               fetchData();
             }}
-            className="inline-flex items-center justify-center rounded-lg border border-border bg-card px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="inline-flex items-center justify-center rounded-lg border-2 border-ink bg-white px-2 py-1 text-xs font-bold text-ink shadow-brutal-sm hover:bg-muted"
             title="Re-run enforcement now"
           >
             <span className="btn-label">Reapply</span>

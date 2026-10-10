@@ -43,7 +43,7 @@ export default function IdentifyOverlay({ number, total: totalProp, monitorName:
 
   return (
     <div
-      className="fixed inset-0 flex items-center justify-center bg-background/60"
+      className="fixed inset-0 flex items-center justify-center bg-ink/60"
       style={
         prefersReducedMotion
           ? { transition: "none" }
@@ -53,7 +53,7 @@ export default function IdentifyOverlay({ number, total: totalProp, monitorName:
       <div className="flex flex-col items-center gap-3 px-6">
         {/* Giant monitor number */}
         <span
-          className="text-[128px] font-bold leading-none text-foreground select-none"
+          className="font-display text-[128px] font-extrabold leading-none text-lime select-none"
           aria-label={`Monitor ${number}`}
         >
           {number}
@@ -61,16 +61,16 @@ export default function IdentifyOverlay({ number, total: totalProp, monitorName:
 
         {/* Monitor display name — the point of the overlay */}
         {name && (
-          <p className="max-w-[380px] break-words text-center text-xl font-semibold text-foreground">
+          <p className="max-w-[380px] break-words text-center text-xl font-semibold text-white">
             {name}
           </p>
         )}
 
         {/* Caption */}
-        <p className="text-base font-mono text-muted-foreground tracking-widest uppercase">
+        <p className="text-base font-mono text-white/80 tracking-widest uppercase">
           CHROMADECK · Monitor {number}
           {total !== null && total !== undefined && total > 1 && (
-            <span className="text-muted-foreground/70">
+            <span className="text-white/60">
               {" "}of {total}
             </span>
           )}

@@ -215,7 +215,7 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
               placeholder="My color preset"
               aria-invalid={errors.name ? ("true" as const) : undefined}
             />
-            {errors.name && <p className="mt-1 text-xs text-destructive validation-slide">{errors.name}</p>}
+            {errors.name && <p className="mt-1 text-xs text-danger-ink validation-slide">{errors.name}</p>}
           </div>
 
           {/* NVCP capture source */}
@@ -257,9 +257,9 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
                 {nvcpImporting ? "Importing…" : "Import NVCP"}
               </Button>
             </div>
-            {errors.nvcp && <p className="mt-1 text-xs text-destructive validation-slide">{errors.nvcp}</p>}
+            {errors.nvcp && <p className="mt-1 text-xs text-danger-ink validation-slide">{errors.nvcp}</p>}
             {connectedMonitors.length === 0 && (
-              <p className="mt-1 text-xs text-destructive">No connected monitors detected.</p>
+              <p className="mt-1 text-xs text-danger-ink">No connected monitors detected.</p>
             )}
           </div>
 
@@ -273,12 +273,12 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
                 {iccImporting ? "Importing…" : "Browse…"}
               </Button>
               {iccStatus ? (
-                <span className="min-w-0 flex-1 text-xs text-primary truncate mono icc-pop" title={iccStatus.filename}>{iccStatus.filename}</span>
+                <span className="min-w-0 flex-1 text-xs text-ink font-bold truncate mono icc-pop" title={iccStatus.filename}>{iccStatus.filename}</span>
               ) : (
                 <span className="min-w-0 flex-1 text-xs text-muted-foreground mono truncate">No ICC profile selected</span>
               )}
             </div>
-            {errors.icc_path && <p className="mt-1 text-xs text-destructive validation-slide">{errors.icc_path}</p>}
+            {errors.icc_path && <p className="mt-1 text-xs text-danger-ink validation-slide">{errors.icc_path}</p>}
           </div>
 
           {/* Tag color — fully custom: native picker + hex field */}
@@ -318,7 +318,7 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
                     (e.target as HTMLInputElement).blur();
                   }
                 }}
-                className="min-w-0 flex-1 bg-transparent p-0 text-xs mono outline-none border-b border-transparent text-muted-foreground hover:text-foreground focus:text-foreground focus:border-primary"
+                className="min-w-0 flex-1 bg-transparent p-0 text-xs mono outline-none border-b border-transparent text-muted-foreground hover:text-foreground focus:text-foreground focus:border-ink"
               />
               <Button
                 variant="ghost"
@@ -344,7 +344,7 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
                 }
               />
             </div>
-            {errors.color_tag && <p className="mt-1 text-xs text-destructive validation-slide">{errors.color_tag}</p>}
+            {errors.color_tag && <p className="mt-1 text-xs text-danger-ink validation-slide">{errors.color_tag}</p>}
           </div>
           </div>
 
@@ -432,7 +432,7 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
                 );
               })}
             </div>
-            {errors.rgb_gains && <p className="mt-1 text-xs text-destructive">{errors.rgb_gains}</p>}
+            {errors.rgb_gains && <p className="mt-1 text-xs text-danger-ink">{errors.rgb_gains}</p>}
           </div>
 
           {/* Hue — full width */}
@@ -448,7 +448,7 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
             disabled={nvSupported === false}
           />
           {nvSupported === false && (
-            <p className="text-xs text-destructive">Digital vibrance/hue need an NVIDIA-driven display.</p>
+            <p className="text-xs text-danger-ink">Digital vibrance/hue need an NVIDIA-driven display.</p>
           )}
           </div>
 
@@ -527,7 +527,7 @@ function EditableNumber({
           (e.target as HTMLInputElement).blur();
         }
       }}
-      className={`bg-transparent p-0 text-right text-xs mono outline-none border-b border-transparent text-muted-foreground hover:text-foreground focus:text-foreground focus:border-primary disabled:pointer-events-none disabled:opacity-50 ${className ?? ""}`}
+      className={`bg-transparent p-0 text-right text-xs mono outline-none border-b border-transparent text-muted-foreground hover:text-foreground focus:text-foreground focus:border-ink disabled:pointer-events-none disabled:opacity-50 ${className ?? ""}`}
     />
   );
 }
@@ -595,7 +595,7 @@ function SliderField({
           );
         })}
       </div>
-      {error && <p className="mt-1 text-xs text-destructive validation-slide">{error}</p>}
+      {error && <p className="mt-1 text-xs text-danger-ink validation-slide">{error}</p>}
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { deletePreset } from "../lib/tauri";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import WindowDots from "@/components/ui/window-dots";
 import { consumeStagger } from "../lib/motion";
 
 interface Props {
@@ -27,7 +28,7 @@ interface Props {
 /** Loading skeleton */
 function SkeletonRow() {
   return (
-    <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+    <div className="rounded-lg border-2 border-ink bg-white p-4 space-y-3">
       <Skeleton className="h-4 w-1/3" />
       <Skeleton className="h-3 w-1/2" />
     </div>
@@ -38,12 +39,12 @@ function SkeletonRow() {
 function EmptyState({ onCreateNew }: { onCreateNew: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center py-16 text-center space-y-4 empty-state-enter">
-      <div className="rounded-lg border border-border bg-card p-5">
-        <svg className="size-10 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <div className="rounded-brutal border-2 border-ink bg-white p-5 shadow-brutal">
+        <svg className="size-10 text-ink" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25m18 0A2.25 2.25 0 0018.75 3H5.25A2.25 2.25 0 003 5.25m18 0V12a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 12V5.25" />
         </svg>
       </div>
-      <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-widest">No presets yet</h3>
+      <h3 className="font-display text-lg font-extrabold uppercase tracking-wide text-ink">No presets yet</h3>
       <p className="text-xs text-muted-foreground max-w-xs">
         Create your first colour preset to apply an ICC profile and gamma adjustment to a monitor.
       </p>
@@ -185,11 +186,13 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
   if (monitors.length === 0 && presets.length === 0) {
     return (
       <div className="flex-1 min-w-0 min-h-0 w-full space-y-6 overflow-y-auto shell-enter" style={{ ["--shell-delay" as string]: "120ms" }}>
-      {/* Sticky header with melting background: solid up top so text and
-          Create stay legible, dissolving to transparent over the bottom
-          ~20px so scrolling cards emerge through a gradient, not an edge. */}
-      <div className="flex items-center justify-between sticky top-0 z-10 pb-6 bg-[linear-gradient(to_bottom,var(--color-background)_60%,transparent)]">
-          <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-widest mono">Library</h2>
+      {/* Sticky header: solid paper so text and Create stay legible over
+          scrolling cards, with a hard rule underneath instead of an edge. */}
+      <div className="flex items-center justify-between sticky top-0 z-10 pb-4 bg-paper border-b-2 border-ink">
+          <span className="inline-flex items-center gap-2">
+            <WindowDots />
+            <h2 className="font-display text-base font-extrabold uppercase tracking-wide text-ink mono">Library</h2>
+          </span>
           <Button variant="secondary" size="sm" onClick={() => onCreateNew()}>
             + Create
           </Button>
@@ -216,18 +219,21 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
         }
       }}
     >
-      {batchDeleteErrors.length > 0 && (
-        <div className="px-1.5 pb-2">
-          <span className="text-xs text-destructive block validation-slide">
-            Failed to delete: {batchDeleteErrors.join(", ")}
-          </span>
-        </div>
-      )}
+          {batchDeleteErrors.length > 0 && (
+            <div className="px-1.5 pb-2">
+              <span className="text-xs font-bold text-danger-ink block validation-slide">
+                Failed to delete: {batchDeleteErrors.join(", ")}
+              </span>
+            </div>
+          )}
       <LibraryScrollRoot
         header={
           selecting ? (
             <div className="flex items-center justify-between pb-2">
-              <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-widest mono">Library</h2>
+              <span className="inline-flex items-center gap-2">
+                <WindowDots />
+                <h2 className="font-display text-base font-extrabold uppercase tracking-wide text-ink mono">Library</h2>
+              </span>
               <div className="flex items-center gap-2">
                 <Button variant="outline" size="sm" onClick={exitSelecting} disabled={deletingBatch}>
                   Cancel
@@ -239,7 +245,10 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
             </div>
           ) : (
             <div className="flex items-center justify-between pb-2">
-              <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-widest mono">Library</h2>
+              <span className="inline-flex items-center gap-2">
+                <WindowDots />
+                <h2 className="font-display text-base font-extrabold uppercase tracking-wide text-ink mono">Library</h2>
+              </span>
               <div className="flex items-center gap-2">
                 <Button variant="secondary" size="sm" onClick={() => { setSelecting(true); setBatchDeleteErrors([]); }}>
                   Select
@@ -254,7 +263,7 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
       >
         {/* ── Global preset deck ──────────────────────────────────────── */}
         {presets.length === 0 ? (
-          <div className="flex flex-col items-center justify-center flex-1 min-h-64 py-12 text-center space-y-3 rounded-lg border border-dashed bg-background">
+          <div className="flex flex-col items-center justify-center flex-1 min-h-64 py-12 text-center space-y-3 rounded-lg border-2 border-dashed border-ink bg-white">
             <p className="text-xs text-muted-foreground">No presets yet</p>
             <Button variant="secondary" size="sm" onClick={() => onCreateNew()}>
               Create preset

@@ -10,8 +10,9 @@ import {
 } from "../lib/presetCard";
 import StatTile from "./StatTile";
 import { Checkbox, CheckboxIndicator } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Copy, Pencil, PinOff, Trash2, Pin } from "lucide-react";
+import { Copy, Pencil, PinOff, Trash2 } from "lucide-react";
 import { cn } from "cn";
 
 interface Props {
@@ -112,23 +113,22 @@ export default function PresetCard({
 
   // Custom tag color tints the whole pad. Format-guarded: a hand-edited
   // presets.json could hold a non-hex string, which must never reach CSS.
-  // Flat 25% tint, no glow: the card itself carries the color. Border also
-  // follows the tag via inset outline (not box-shadow, so the Tailwind
-  // rings and the focus-visible ring keep working untouched).
-  // IN USE keeps its accent ring + badge on top of the custom tint.
+  // Flat 25% tint over the white card, no glow. Border follows the tag via
+  // inset outline (not box-shadow, so the hard offset shadow and the
+  // focus-visible ring keep working untouched).
+  // Applied (lime fill) is a class below; an explicit tag tint wins over it
+  // via inline style, same precedence as before.
   const tag = /^#[0-9a-fA-F]{6}$/.test(preset.color_tag ?? "")
     ? (preset.color_tag as string)
     : null;
   const padBackground = tag
     ? `color-mix(in srgb, var(--color-card), ${tag} 25%)`
-    : isActive
-      ? "color-mix(in srgb, var(--color-card), var(--color-primary) 12%)"
-      : undefined;
+    : undefined;
   const padStyle: Record<string, string> | undefined =
     padBackground || tag
       ? ({
           ...(padBackground ? { backgroundColor: padBackground } : {}),
-          ...(tag ? { outline: `1px solid ${tag}`, outlineOffset: "-1px" } : {}),
+          ...(tag ? { outline: `2px solid ${tag}`, outlineOffset: "-2px" } : {}),
         } as Record<string, string>)
       : undefined;
 
@@ -138,7 +138,7 @@ export default function PresetCard({
   // Title is a fixed 32px for every card; overflow is handled by
   // truncation + hover marquee + full-name tooltip, never by resizing.
   const titleSize = "32px";
-  const titleTextClass = "text-[#f2f5fa] font-display font-extrabold";
+  const titleTextClass = "text-ink font-display font-extrabold";
   const titleTextStyle = {
     fontSize: titleSize,
     lineHeight: "1",
@@ -188,9 +188,9 @@ export default function PresetCard({
         data-slot="card"
         className={cn(
           "card-ring",
-          "flex flex-col gap-3.5 w-full rounded-xl border-2 border-[#272b38] bg-[#0e1118] p-[18px] outline-none",
-          "focus-visible:ring-3 focus-visible:ring-ring/50",
-          isActive ? "ring-1 ring-primary/60" : "",
+          "flex flex-col gap-3.5 w-full rounded-brutal border-2 border-ink bg-white p-[18px] shadow-brutal outline-none",
+          "focus-visible:ring-[3px] focus-visible:ring-ring",
+          isActive ? "bg-lime" : "",
           highlightEnter ? "pop-in" : "",
           selectable && !detonating ? "card-tremble" : "",
           detonating ? "card-explode" : "",
@@ -204,13 +204,6 @@ export default function PresetCard({
           // of travel). Tremble runs sync now; explosion keeps its cascade.
           ...(detonating && explodeDelayMs !== undefined
             ? ({ animationDelay: `${explodeDelayMs}ms` } as Record<string, string>)
-            : {}),
-          // Pinned: accent border + hard offset shadow
-          ...(isPinned
-            ? ({
-                borderColor: "#34D399",
-                boxShadow: "6px 6px 0 #34D399",
-              } as Record<string, string>)
             : {}),
         }}
         role="button"
@@ -237,42 +230,38 @@ export default function PresetCard({
               </span>
             )}
             <>
-              {/* Filled pin icon when pinned */}
+              {/* Black pin tag when pinned */}
               {isPinned && (
-                  <span
-                    className="inline-flex items-center gap-1"
-                    title={`Pinned to ${pinnedMonitorNames.join(", ")}`}
-                    aria-label={`Preset pinned to ${pinnedMonitorNames.join(", ")}`}
-                  >
-                    <Pin className="size-[14px] text-[#34D399]" strokeWidth={2} />
-                    <span className="sr-only">Pinned</span>
-                  </span>
-                )}
+                <span title={`Pinned to ${pinnedMonitorNames.join(", ")}`}>
+                  <Badge variant="pinned">PINNED</Badge>
+                  <span className="sr-only">Pinned</span>
+                </span>
+              )}
 
-                {/* Category label */}
-                {category && (
-                  <span className="text-[11px] font-mono font-bold tracking-[0.14em] uppercase text-[#8b92a6]">
-                    {category}
-                  </span>
-                )}
+              {/* Category label */}
+              {category && (
+                <span className="text-[11px] font-mono font-bold tracking-[0.14em] uppercase text-muted-foreground">
+                  {category}
+                </span>
+              )}
 
-                {/* ICC tag */}
-                {preset.icc_hash && (
-                  <span className="pop-in rounded-[6px] border border-[#3a4054] px-[6px] py-px text-[10px] font-mono tracking-[0.1em] text-[#8b92a6]">
-                    ICC
-                  </span>
-                )}
+              {/* ICC tag */}
+              {preset.icc_hash && (
+                <span className="pop-in rounded-[6px] border-2 border-ink bg-white px-[6px] py-px text-[10px] font-mono font-bold tracking-[0.1em] text-ink">
+                  ICC
+                </span>
+              )}
 
-                {/* IN USE marker: solid accent badge, dark text for contrast */}
-                {isActive && (
-                  <span
-                    className="pop-in rounded-[6px] bg-[#34D399] px-[6px] py-px text-[10px] font-mono font-bold tracking-[0.1em] text-[#06202e]"
-                    title="Currently applied to a connected monitor"
-                  >
-                    IN USE
-                  </span>
-                )}
-              </>
+              {/* IN USE marker: lime fill, black text + border */}
+              {isActive && (
+                <span
+                  className="pop-in rounded-[6px] border-2 border-ink bg-lime px-[6px] py-px text-[10px] font-mono font-bold tracking-[0.1em] text-ink"
+                  title="Currently applied to a connected monitor"
+                >
+                  IN USE
+                </span>
+              )}
+            </>
           </div>
 
           {/* Right: action icons — hidden in selection mode */}
@@ -282,7 +271,7 @@ export default function PresetCard({
                 <span className="pop-in">
                   <button
                     type="button"
-                    className="inline-flex items-center justify-center size-8 rounded-lg bg-transparent text-[#6b7285] hover:text-[#34D399] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#34D399]/60" data-slot="button"
+                    className="inline-flex items-center justify-center size-8 rounded-lg border-2 border-transparent text-ink hover:border-ink hover:bg-lime focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-slot="button"
                     onClick={(e) => {
                       e.stopPropagation();
                       void (async () => {
@@ -304,7 +293,7 @@ export default function PresetCard({
 
               <button
                 type="button"
-                className="inline-flex items-center justify-center size-8 rounded-lg bg-transparent text-[#6b7285] hover:text-[#34D399] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#34D399]/60" data-slot="button"
+                className="inline-flex items-center justify-center size-8 rounded-lg border-2 border-transparent text-ink hover:border-ink hover:bg-lime focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-slot="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   onEdit(preset);
@@ -318,7 +307,7 @@ export default function PresetCard({
 
               <button
                 type="button"
-                className="inline-flex items-center justify-center size-8 rounded-lg bg-transparent text-[#6b7285] hover:text-[#34D399] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#34D399]/60" data-slot="button"
+                className="inline-flex items-center justify-center size-8 rounded-lg border-2 border-transparent text-ink hover:border-ink hover:bg-lime focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-slot="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   void handleDuplicate();
@@ -332,7 +321,7 @@ export default function PresetCard({
 
               <button
                 type="button"
-                className="inline-flex items-center justify-center size-8 rounded-lg bg-transparent text-[#6b7285] hover:text-[#ff2e7e] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#34D399]/60" data-slot="button"
+                className="inline-flex items-center justify-center size-8 rounded-lg border-2 border-transparent text-ink hover:border-ink hover:bg-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-slot="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   setShowDeleteModal(true);
@@ -351,7 +340,7 @@ export default function PresetCard({
         <button
           ref={titleBtnRef}
           type="button"
-          className="preset-title relative flex items-center text-left w-full bg-transparent border-0 cursor-pointer rounded transition-opacity hover:opacity-85 focus-visible:outline-2 focus-visible:outline-[#34D399] focus-visible:outline-offset-2"
+          className="preset-title relative flex items-center text-left w-full bg-transparent border-0 cursor-pointer rounded transition-opacity hover:opacity-85 focus-visible:outline-2 focus-visible:outline-ink focus-visible:outline-offset-2"
           onClick={(e) => {
             // Pad already applies/toggles; don't fire twice.
             e.stopPropagation();
@@ -439,7 +428,7 @@ export default function PresetCard({
               <button
                 type="button"
                 data-slot="button"
-                className="inline-flex items-center justify-center rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#34D399]/60"
+                className="inline-flex items-center justify-center rounded-lg border-2 border-ink bg-white px-3 py-1.5 text-xs font-bold text-ink shadow-brutal-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 onClick={() => setShowDeleteModal(false)}
                 disabled={deleting}
               >
@@ -448,7 +437,7 @@ export default function PresetCard({
               <button
                 type="button"
                 data-slot="button"
-                className="inline-flex items-center justify-center rounded-lg bg-destructive/20 px-3 py-1.5 text-xs font-medium text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#34D399]/60"
+                className="inline-flex items-center justify-center rounded-lg border-2 border-ink bg-danger px-3 py-1.5 text-xs font-bold text-ink shadow-brutal-sm hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 onClick={() => void handleDelete()}
                 disabled={deleting}
               >

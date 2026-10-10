@@ -111,7 +111,7 @@ export default function ApplyDialog({ preset, monitors, pins, initialEdid, onClo
             Monitors
           </p>
           {monitors.length === 0 && (
-            <p className="text-xs text-destructive">No monitors detected.</p>
+            <p className="text-xs text-danger-ink">No monitors detected.</p>
           )}
           {monitors.map((m) => {
             const isSelected = m.edid_id === selectedEdid;
@@ -119,12 +119,12 @@ export default function ApplyDialog({ preset, monitors, pins, initialEdid, onClo
             return (
               <label
                 key={m.edid_id}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border border-border cursor-pointer select-none ${
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border-2 border-ink cursor-pointer select-none ${
                   isSelected
-                    ? "bg-muted border-primary"
+                    ? "bg-tint"
                     : m.connected
-                      ? "bg-card"
-                      : "bg-card/50 text-muted-foreground"
+                      ? "bg-white"
+                      : "bg-paper text-muted-foreground border-dashed"
                 }`}
               >
                 <RadioGroupItem
@@ -145,7 +145,7 @@ export default function ApplyDialog({ preset, monitors, pins, initialEdid, onClo
                   {isPinnedHere && (
                     <span className="inline-flex items-center gap-1">
                       <span className="status-dot status-dot-pinned" title="Pinned" />
-                      <Badge variant="outline" className="text-accent border-accent">
+                      <Badge variant="pinned">
                         PINNED
                       </Badge>
                     </span>
@@ -177,7 +177,7 @@ export default function ApplyDialog({ preset, monitors, pins, initialEdid, onClo
             </span>
           </Label>
           {isPinnedOnTarget && pinToggle && (
-            <span className="text-xs text-primary transient-enter">Already pinned</span>
+            <span className="text-xs font-bold text-ink transient-enter">Already pinned</span>
           )}
         </div>
 
@@ -185,9 +185,9 @@ export default function ApplyDialog({ preset, monitors, pins, initialEdid, onClo
         {lastResult && (
           <div aria-live="polite" className={lastResult.error ? "exit-fade" : "feedback-enter"}>
             {lastResult.error ? (
-              <span className="text-xs text-destructive block validation-slide">Apply failed: {lastResult.error}</span>
+              <span className="text-xs text-danger-ink block validation-slide">Apply failed: {lastResult.error}</span>
             ) : (
-              <span className="text-xs text-primary block mono feedback-enter">
+              <span className="text-xs text-ink font-bold block mono feedback-enter">
                 {[
                   lastResult.icc_applied && "ICC applied",
                   lastResult.gamma_applied && "gamma applied",
