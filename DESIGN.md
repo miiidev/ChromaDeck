@@ -69,8 +69,8 @@ Dialogs and popovers use `rounded-2xl` (16px); all other geometry matches the ta
 | Element | Classes |
 |---|---|
 | APPLY / primary action button | `bg-lime text-ink border-ink shadow-brutal-sm` |
-| CREATE / secondary button | `bg-white text-ink border-ink shadow-brutal-sm` |
-| Cancel / outline | `bg-white text-ink border-ink shadow-brutal-sm` |
+| + Create / empty-state CTA | lime primary — the view's main forward action |
+| Select / Cancel / outline | `bg-white text-ink border-ink shadow-brutal-sm` |
 | DELETE / destructive | `bg-danger text-ink border-ink shadow-brutal-sm` |
 | Applied pad | full `bg-lime` fill (black text, neutral stat tiles) |
 | PINNED tag | `pinned` variant: black tag, lime text |

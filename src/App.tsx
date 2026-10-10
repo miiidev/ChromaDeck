@@ -202,7 +202,7 @@ function App() {
             <h1 className="truncate font-display text-lg font-extrabold uppercase tracking-wide text-ink">
               <span className="font-bold">C</span>hromaDec<span className="font-bold">k</span>
             </h1>
-            <span className="rounded-lg border-2 border-ink bg-tint px-1.5 py-0.5 text-xs font-bold text-ink mono">
+            <span className="rounded-lg border-2 border-ink bg-lime px-1.5 py-0.5 text-xs font-bold text-ink mono">
               v{appVersion}
             </span>
           </div>

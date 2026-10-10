@@ -48,7 +48,7 @@ function EmptyState({ onCreateNew }: { onCreateNew: () => void }) {
       <p className="text-xs text-muted-foreground max-w-xs">
         Create your first colour preset to apply an ICC profile and gamma adjustment to a monitor.
       </p>
-      <Button variant="secondary" size="sm" onClick={() => onCreateNew()}>
+      <Button variant="default" size="sm" onClick={() => onCreateNew()}>
         Create preset
       </Button>
     </div>
@@ -193,7 +193,7 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
             <WindowDots />
             <h2 className="font-display text-base font-extrabold uppercase tracking-wide text-ink mono">Library</h2>
           </span>
-          <Button variant="secondary" size="sm" onClick={() => onCreateNew()}>
+          <Button variant="default" size="sm" onClick={() => onCreateNew()}>
             + Create
           </Button>
         </div>
@@ -253,7 +253,7 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
                 <Button variant="secondary" size="sm" onClick={() => { setSelecting(true); setBatchDeleteErrors([]); }}>
                   Select
                 </Button>
-                <Button variant="secondary" size="sm" onClick={() => onCreateNew()}>
+                <Button variant="default" size="sm" onClick={() => onCreateNew()}>
                   + Create
                 </Button>
               </div>
@@ -265,7 +265,7 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
         {presets.length === 0 ? (
           <div className="flex flex-col items-center justify-center flex-1 min-h-64 py-12 text-center space-y-3 rounded-lg border-2 border-dashed border-ink bg-white">
             <p className="text-xs text-muted-foreground">No presets yet</p>
-            <Button variant="secondary" size="sm" onClick={() => onCreateNew()}>
+            <Button variant="default" size="sm" onClick={() => onCreateNew()}>
               Create preset
             </Button>
           </div>
