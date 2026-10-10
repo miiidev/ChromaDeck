@@ -62,7 +62,7 @@ UI components in `src/components/ui/` follow shadcn `base-nova` conventions
 - Button, Badge, Card, Dialog, Input, Label, Select, Checkbox, Radio Group, Skeleton (Base UI); Slider (Radix)
 - Icon library: Lucide
 
-Dialogs and popovers use `rounded-2xl` (16px); all other geometry matches the table above.
+Dialogs and popovers use the 12px brutal radius; all other geometry matches the table above.
 
 ## Color Roles
 
@@ -96,7 +96,7 @@ reference and clears AAA; it never appears on light surfaces.
 [deck-pad logo]  ChromaDeck  [v{package.json} badge]
 ```
 
-Single row (`flex justify-between`): left cluster (logo + title + version); the right cluster is intentionally empty — actions live in the footer status bar. No theme toggle — dark-only. The version badge renders `v{version}` imported from `package.json` (never hardcoded); the mark is the deck-pad logo at 32px (`.logo-lockup`).
+Single row (`flex justify-between`): left cluster (logo + title + version); the right cluster is intentionally empty — actions live in the footer status bar. No theme toggle — light-only. The version badge renders `v{version}` imported from `package.json` (never hardcoded); the mark is the deck-pad logo at 32px (`.logo-lockup`).
 
 ## Footer status bar
 

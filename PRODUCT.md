@@ -34,7 +34,7 @@ What this should NOT look like:
 2. **Status is shape first, hue second.** Connected, pinned, warning, and offline states carry a distinct shape and label, so meaning survives color blindness and dim rooms.
 3. **Density without clutter.** Power users want every control within reach, but every visible element must earn its place; transient feedback appears, confirms, and leaves.
 4. **Enforcement is silent, actions are decisive.** Background work never interrupts; foreground actions acknowledge input within ~100ms and settle fast, like a well-built instrument panel.
-5. **Dark is a working condition, not a theme.** The UI lives next to fullscreen games and color-critical work; it stays dark, low-glare, and out of the way.
+5. **Contrast is a working condition, not a theme.** The UI lives next to fullscreen games and color-critical work; it stays high-contrast, matte, and out of the way — no glow, no translucency, nothing competing with the display being judged.
 
 ## Accessibility & Inclusion
 

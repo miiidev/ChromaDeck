@@ -484,8 +484,8 @@ h6,
    'view()') returns false (e.g. older WebView2 without CSS scroll-driven
    animations). The .no-view-timeline class is added to the scroll
    container, and an IntersectionObserver writes --edge-o to each card
-   wrapper so CSS can gate opacity on it. Cards without pop-in/tremble/
-   explode get their base animation killed here: on an unsupported runtime
+   wrapper so CSS can gate opacity on it. Cards without pop-in/explode
+   get their base animation killed here: on an unsupported runtime
    the card-edge-vanish keyframes would play on the auto timeline (animating
    cards to opacity 0 and staying there), so we must kill them to prevent
    that. Other animations (pop-in snap, detonation) compose
