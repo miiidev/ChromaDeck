@@ -2,7 +2,7 @@
 // Mirror the Rust backend commands defined in src-tauri/src/monitor.rs and store.rs.
 
 import { invoke } from "@tauri-apps/api/core";
-import type { ApplyResult, CapturedState, EnforceEvent, Monitor, Preset, PresetInput } from "./types";
+import type { ApplyResult, CapturedState, EnforceEvent, Monitor, MonitorProbe, Preset, PresetInput } from "./types";
 
 /** Fetch the list of connected monitors with their EDID identifiers. */
 export async function listMonitors(): Promise<Monitor[]> {
@@ -77,12 +77,23 @@ export async function applyPreset(id: string, targetEdid: string): Promise<Apply
 
 /**
  * Reset a monitor to system defaults (identity gamma ramp).
- * ICC associations are left untouched.
+ * ICC associations are left untouched. Writes are verified by
+ * read-back: a panel that doesn't reflect the reset surfaces an
+ * error instead of reporting false success.
  */
 export async function resetMonitor(edidId: string): Promise<ApplyResult> {
   // Tauri v2 maps camelCase JS keys to snake_case Rust params
   // (cf. importIcc/srcPath); the backend expects `edidId`.
   return invoke<ApplyResult>("reset_monitor_cmd", { edidId });
+}
+
+/**
+ * Read live hardware state for a monitor without changing anything:
+ * gamma engine, vibrance/hue levels (when supported), OS ramp peak
+ * and whether the ramp is identity. Answers "did it land?".
+ */
+export async function probeMonitor(edidId: string): Promise<MonitorProbe> {
+  return invoke<MonitorProbe>("probe_monitor_cmd", { edidId });
 }
 
 /**

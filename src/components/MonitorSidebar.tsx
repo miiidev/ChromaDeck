@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import type { Monitor, Preset } from "../lib/types";
-import { identifyMonitors, resetMonitor, setMonitorName, unpinMonitor } from "../lib/tauri";
+import { identifyMonitors, resetMonitor, setMonitorName, unpinMonitor, probeMonitor } from "../lib/tauri";
 import { prefersReducedMotion } from "../lib/motion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -115,6 +115,46 @@ function MonitorResetButton({ edidId, onPinChange }: { edidId: string; onPinChan
         title="Reset this monitor to default colours (identity gamma)"
       >
         {resetting ? "Resetting…" : "Reset"}
+      </Button>
+    </span>
+  );
+}
+
+/** Monitor hardware probe button: read live state, change nothing */
+function MonitorProbeButton({ edidId }: { edidId: string }) {
+  const [probing, setProbing] = useState(false);
+  const [report, setReport] = useState<string | null>(null);
+
+  const handleProbe = async () => {
+    setProbing(true);
+    setReport(null);
+    try {
+      const p = await probeMonitor(edidId);
+      const vib =
+        p.vibrance_supported && p.vibrance !== null && p.vibrance !== undefined
+          ? `vib ${p.vibrance} hue ${p.hue ?? "?"}`
+          : "vib n/a";
+      const ramp =
+        p.ramp_peak !== null && p.ramp_peak !== undefined
+          ? `ramp ${p.ramp_peak.toFixed(2)}${p.ramp_identity ? "" : " !"}`
+          : "ramp n/a";
+      setReport(`${p.engine} · ${vib} · ${ramp}`);
+      setTimeout(() => setReport(null), 8000);
+    } catch (err) {
+      setReport(`Probe failed: ${String(err)}`);
+      setTimeout(() => setReport(null), 6000);
+    } finally {
+      setProbing(false);
+    }
+  };
+
+  return (
+    <span className="inline-flex items-center gap-2">
+      {report && (
+        <span key={report} aria-live="polite" className="text-xs mono text-muted-foreground">{report}</span>
+      )}
+      <Button variant="ghost" size="xs" onClick={() => void handleProbe()} disabled={probing} title="Read live hardware state for this monitor (changes nothing)">
+        {probing ? "…" : "Probe"}
       </Button>
     </span>
   );
@@ -250,6 +290,7 @@ export default function MonitorSidebar({ monitors, presets, pins, onRefresh, onP
                     </Button>
                   )}
                   <MonitorResetButton edidId={m.edid_id} onPinChange={onPinChange} />
+                  <MonitorProbeButton edidId={m.edid_id} />
                 </div>
               </div>
             );

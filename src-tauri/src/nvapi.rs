@@ -181,6 +181,9 @@ pub trait NvColorApi {
     fn supported(&self, edid_id: &str) -> bool;
     /// Set vibrance (0–100, 50 neutral) and hue (0–359°, 0 neutral).
     fn set(&self, edid_id: &str, vibrance: f64, hue_deg: f64) -> Result<(), String>;
+    /// Read back current (vibrance, hue). Used to verify a reset actually
+    /// landed instead of reporting blind success.
+    fn levels(&self, edid_id: &str) -> Result<(f64, f64), String>;
 }
 
 // ── Display-ID resolution helpers (owned by this task) ───────────────────
@@ -316,6 +319,10 @@ impl NvColorApi for RealNvapi {
 
         Ok(())
     }
+
+    fn levels(&self, edid_id: &str) -> Result<(f64, f64), String> {
+        read_levels(edid_id)
+    }
 }
 
 // ── Tauri command (defined here, registered in lib.rs in Task 3) ─────────
@@ -332,6 +339,10 @@ pub struct MockNvapi {
     pub calls: Mutex<Vec<(String, f64, f64)>>,
     pub supported: bool,
     pub fail_set: bool,
+    /// Levels returned by `levels()`. Defaults to neutral so existing
+    /// tests (which assert clean resets) keep passing.
+    pub levels: (f64, f64),
+    pub fail_levels: bool,
 }
 
 #[cfg(test)]
@@ -341,6 +352,8 @@ impl MockNvapi {
             calls: Mutex::new(Vec::new()),
             supported,
             fail_set: false,
+            levels: (VIBRANCE_NEUTRAL, HUE_NEUTRAL),
+            fail_levels: false,
         }
     }
 }
@@ -359,6 +372,13 @@ impl NvColorApi for MockNvapi {
             Err("mock vibrance failure".into())
         } else {
             Ok(())
+        }
+    }
+    fn levels(&self, _edid_id: &str) -> Result<(f64, f64), String> {
+        if self.fail_levels {
+            Err("mock levels failure".into())
+        } else {
+            Ok(self.levels)
         }
     }
 }

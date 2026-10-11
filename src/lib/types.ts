@@ -63,3 +63,12 @@ export interface CapturedState {
   vibrance: number;
   hue_deg: number;
 }
+
+export interface MonitorProbe {
+  engine: string; // "nvapi" | "gdi"
+  vibrance_supported: boolean;
+  vibrance: number | null;
+  hue: number | null;
+  ramp_peak: number | null; // 0..1 fraction of full scale
+  ramp_identity: boolean | null;
+}

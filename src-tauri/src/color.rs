@@ -11,7 +11,7 @@ use windows::core::PCWSTR;
 use windows::Win32::Graphics::Gdi::{CreateDCW, DeleteDC, HDC};
 use windows::Win32::UI::ColorSystem::GetDeviceGammaRamp;
 
-use crate::nvapi::{fns, display_id_for_device, resolve_device_name};
+use crate::nvapi::{fns, display_id_for_device, resolve_device_name, NvColorApi};
 use crate::nvgamma::{display_luid, nvcp_ramp, persist_nvcp, set_target_gamma, ui_to_internal};
 
 // ── ApplyResult ─────────────────────────────────────────────────────────────
@@ -95,6 +95,10 @@ pub trait ColorApi {
         rgb_gains: [f64; 3],
         gamma: f64,
     ) -> Result<(), String>;
+
+    /// Read back the live OS gamma ramp (3×256 WORDs). Used to verify a
+    /// reset actually landed instead of reporting blind success.
+    fn read_gamma_ramp(&self, edid_id: &str) -> Result<[u16; 256 * 3], String>;
 }
 
 // ── Real implementation (Win32) ─────────────────────────────────────────────
@@ -233,6 +237,12 @@ impl ColorApi for RealColorApi {
             Ok(())
         }
     }
+
+    fn read_gamma_ramp(&self, edid_id: &str) -> Result<[u16; 256 * 3], String> {
+        let device_name = Self::device_name_for_edid(edid_id)
+            .ok_or_else(|| format!("no display device found for EDID {edid_id}"))?;
+        read_gamma_ramp(&device_name)
+    }
 }
 
 // ── Gamma ramp builder ──────────────────────────────────────────────────────
@@ -352,6 +362,22 @@ pub(crate) fn read_gamma_ramp(device_name: &str) -> Result<[u16; 256 * 3], Strin
 
 // ── Shared apply core (gamma + vibrance, no ICC) ────────────────────────────
 
+/// Expected identity ramp: exactly what `set_gamma_ramp` builds for
+/// neutral parameters. Read-backs are compared against this byte-exact
+/// (the OS LUT stores what was written; any deviation is real signal).
+fn identity_ramp() -> [u16; 256 * 3] {
+    build_gamma_ramp(1.0, 1.0, [1.0, 1.0, 1.0], 1.0)
+}
+
+/// Best-effort GDI identity purge, shared by apply (before NVAPI writes)
+/// and reset (NVAPI branch). Returns the error text on failure; callers
+/// append it without failing (the driver write is authoritative).
+fn gdi_identity_purge(api: &dyn ColorApi, edid_id: &str) -> Option<String> {
+    api.set_gamma_ramp(edid_id, 1.0, 1.0, [1.0, 1.0, 1.0], 1.0)
+        .err()
+        .map(|e| format!("gdi-purge: {e}"))
+}
+
 /// Apply driver-level color state (gamma LUT + NVAPI vibrance/hue),
 /// without ICC association. Shared by manual Apply and the enforcer.
 pub fn apply_color(
@@ -377,9 +403,7 @@ pub fn apply_color(
             // GDI LUT (the canonical evaporation case); this guarantees
             // the NVAPI path owns the full pipeline on every apply.
             // Best-effort — failure appends error but does NOT block NVAPI.
-            let gdi_purge_err = api.set_gamma_ramp(
-                target_edid, 1.0, 1.0, [1.0, 1.0, 1.0], 1.0,
-            ).err().map(|e| format!("gdi-purge: {e}"));
+            let gdi_purge_err = gdi_identity_purge(api, target_edid);
 
             // NVAPI path: NVCP transfer math + set_target_gamma + persist
             let nvapi_result = (|| -> Result<(), String> {
@@ -541,7 +565,10 @@ pub fn apply_preset(
 /// Reset a monitor to system defaults: identity gamma ramp
 /// (brightness 1, contrast 1, unit RGB gains, gamma 1) plus neutral
 /// vibrance (50) and hue (0). ICC associations are left untouched.
-/// Vibrance is skipped silently where NVAPI reports unsupported.
+/// Vibrance is attempted even where NVAPI reports unsupported (best
+/// effort, those failures swallowed); supported failures are reported.
+/// Every write is verified by read-back: a panel that doesn't reflect
+/// the reset becomes an actionable error instead of false success.
 /// Returns an `ApplyResult` with `icc_applied: false`.
 pub fn reset_monitor(
     api: &dyn ColorApi,
@@ -559,6 +586,14 @@ pub fn reset_monitor(
     let engine = gamma_engine(edid_id);
     match engine {
         GammaEngine::Nvapi => {
+            // GDI purge first (mirrors apply): clear any stale OS LUT so
+            // only the driver ramp governs the panel.
+            if let Some(e) = gdi_identity_purge(api, edid_id) {
+                error = Some(match error {
+                    Some(ref prev) => format!("{prev}; {e}"),
+                    None => e,
+                });
+            }
             // NVAPI reset: identity ramp + neutral 100s persist
             let nvapi_result = (|| -> Result<(), String> {
                 let fns = fns().ok_or_else(|| "NVAPI unavailable".to_string())?;
@@ -592,7 +627,10 @@ pub fn reset_monitor(
                             None => e,
                         });
                     } else {
-                        error = Some(format!("reset: {e}"));
+                        error = Some(match error {
+                            Some(ref prev) => format!("{prev}; reset: {e}"),
+                            None => format!("reset: {e}"),
+                        });
                     }
                 }
             }
@@ -602,12 +640,18 @@ pub fn reset_monitor(
             match api.set_gamma_ramp(edid_id, 1.0, 1.0, [1.0, 1.0, 1.0], 1.0) {
                 Ok(()) => gamma_applied = true,
                 Err(e) => {
-                    error = Some(format!("reset: {e}"));
+                    error = Some(match error {
+                        Some(ref prev) => format!("{prev}; reset: {e}"),
+                        None => format!("reset: {e}"),
+                    });
                 }
             }
         }
     }
 
+    // Neutral vibrance/hue. Attempted whenever supported (failures
+    // reported), plus best-effort when unsupported (failures swallowed)
+    // so a write-works-but-probe-fails display can't get stuck silently.
     if nv.supported(edid_id) {
         match nv.set(
             edid_id,
@@ -623,6 +667,48 @@ pub fn reset_monitor(
                 });
             }
         }
+        // Verify the panel reflects neutral (catches accepted-but-ineffective writes).
+        match nv.levels(edid_id) {
+            Ok((v, h))
+                if v == crate::nvapi::VIBRANCE_NEUTRAL
+                    && h == crate::nvapi::HUE_NEUTRAL => {}
+            Ok((v, h)) => {
+                let msg = format!(
+                    "reset: panel still reports vibrance {v} hue {h} (expected neutral 50/0)"
+                );
+                error = Some(match error {
+                    Some(ref prev) => format!("{prev}; {msg}"),
+                    None => msg,
+                });
+            }
+            // Unreadable ≠ evidence of stuckness; the write-Ok stands.
+            Err(_) => {}
+        }
+    } else {
+        let _ = nv.set(
+            edid_id,
+            crate::nvapi::VIBRANCE_NEUTRAL,
+            crate::nvapi::HUE_NEUTRAL,
+        );
+    }
+
+    // Final GDI-LUT check (both engines must leave it identity: the GDI
+    // branch wrote it, the NVAPI branch purged it). A mismatch means the
+    // panel doesn't reflect the reset — report, don't claim success.
+    // An unreadable LUT is not evidence either way; stay silent.
+    match api.read_gamma_ramp(edid_id) {
+        Ok(ramp) if ramp == identity_ramp() => {}
+        Ok(ramp) => {
+            let peak = ramp.iter().max().copied().unwrap_or(0) as f64 / 65535.0;
+            let msg = format!(
+                "reset: gamma ramp read-back differs from identity (peak {peak:.2})"
+            );
+            error = Some(match error {
+                Some(ref prev) => format!("{prev}; {msg}"),
+                None => msg,
+            });
+        }
+        Err(_) => {}
     }
 
     ApplyResult {
@@ -642,6 +728,10 @@ pub struct TestRecorder {
     pub connected: bool,
     pub icc_should_fail: bool,
     pub gamma_should_fail: bool,
+    /// Ramp returned by read_gamma_ramp. Defaults to identity so existing
+    /// tests (which assert clean resets) keep passing; tests for the
+    /// read-back check overwrite it with a deviating ramp.
+    pub ramp_to_return: std::sync::Mutex<[u16; 256 * 3]>,
 }
 
 #[cfg(test)]
@@ -653,6 +743,9 @@ impl TestRecorder {
             connected,
             icc_should_fail: false,
             gamma_should_fail: false,
+            ramp_to_return: std::sync::Mutex::new(build_gamma_ramp(
+                1.0, 1.0, [1.0, 1.0, 1.0], 1.0,
+            )),
         }
     }
 }
@@ -690,6 +783,10 @@ impl ColorApi for TestRecorder {
         } else {
             Ok(())
         }
+    }
+
+    fn read_gamma_ramp(&self, _edid_id: &str) -> Result<[u16; 256 * 3], String> {
+        Ok(*self.ramp_to_return.lock().unwrap())
     }
 }
 
@@ -745,6 +842,52 @@ pub fn apply_preset_cmd(
     }
 
     result
+}
+
+/// Live hardware readout for one monitor — answers "did the last write
+/// actually land?" without changing anything.
+#[derive(Debug, Clone, Serialize)]
+pub struct MonitorProbe {
+    pub engine: String,
+    pub vibrance_supported: bool,
+    pub vibrance: Option<f64>,
+    pub hue: Option<f64>,
+    pub ramp_peak: Option<f64>,
+    pub ramp_identity: Option<bool>,
+}
+
+#[tauri::command]
+pub fn probe_monitor_cmd(edid_id: String) -> Result<MonitorProbe, String> {
+    let api = RealColorApi;
+    let nv = crate::nvapi::RealNvapi;
+    let engine = match gamma_engine(&edid_id) {
+        GammaEngine::Nvapi => "nvapi",
+        GammaEngine::Gdi => "gdi",
+    };
+    let supported = nv.supported(&edid_id);
+    let (vibrance, hue) = if supported {
+        match nv.levels(&edid_id) {
+            Ok((v, h)) => (Some(v), Some(h)),
+            Err(_) => (None, None),
+        }
+    } else {
+        (None, None)
+    };
+    let (ramp_peak, ramp_identity) = match api.read_gamma_ramp(&edid_id) {
+        Ok(ramp) => {
+            let peak = ramp.iter().max().copied().unwrap_or(0) as f64 / 65535.0;
+            (Some(peak), Some(ramp == identity_ramp()))
+        }
+        Err(_) => (None, None),
+    };
+    Ok(MonitorProbe {
+        engine: engine.into(),
+        vibrance_supported: supported,
+        vibrance,
+        hue,
+        ramp_peak,
+        ramp_identity,
+    })
 }
 
 #[tauri::command]
@@ -1042,10 +1185,12 @@ mod tests {
         assert!(result.error.as_ref().unwrap().contains("offline"));
     }
 
-    /// Reset skips vibrance silently where NVAPI reports unsupported
-    /// (e.g. iGPU-driven panels): gamma still applies, no error.
+    /// Reset attempts a best-effort neutral vibrance write even where
+    /// NVAPI reports unsupported (e.g. iGPU-driven panels): the attempt
+    /// is recorded, failures are swallowed, gamma still applies, no error.
+    /// (A write-works-but-probe-fails display must not get stuck.)
     #[test]
-    fn reset_skips_vibrance_when_unsupported() {
+    fn reset_attempts_neutral_vibrance_best_effort_when_unsupported() {
         let recorder = TestRecorder::new(true);
         let nv = MockNvapi::new(false);
 
@@ -1053,8 +1198,72 @@ mod tests {
 
         assert!(result.gamma_applied);
         assert!(!result.vibrance_applied);
-        assert!(nv.calls.lock().unwrap().is_empty());
+        assert_eq!(
+            *nv.calls.lock().unwrap(),
+            vec![("set".to_string(), VIBRANCE_NEUTRAL, HUE_NEUTRAL)],
+            "reset must attempt the neutral write even when unsupported"
+        );
         assert!(result.error.is_none());
+    }
+
+    /// Best-effort failure on an unsupported display stays silent: the
+    /// panel was never addressable, so there is nothing stuck to report.
+    #[test]
+    fn reset_swallows_best_effort_vibrance_failure_when_unsupported() {
+        let recorder = TestRecorder::new(true);
+        let mut nv = MockNvapi::new(false);
+        nv.fail_set = true;
+
+        let result = reset_monitor(&recorder, &nv, "EDID-001");
+
+        assert!(result.gamma_applied);
+        assert!(!result.vibrance_applied);
+        assert!(result.error.is_none());
+    }
+
+    /// A panel that still reports non-neutral vibrance after a successful
+    /// neutral write fails verification instead of false success.
+    #[test]
+    fn reset_flags_vibrance_readback_mismatch() {
+        let recorder = TestRecorder::new(true);
+        let mut nv = MockNvapi::new(true);
+        nv.levels = (100.0, 0.0);
+
+        let result = reset_monitor(&recorder, &nv, "EDID-001");
+
+        assert!(result.gamma_applied);
+        assert!(result.vibrance_applied);
+        assert!(result.error.as_ref().unwrap().contains("still reports"));
+    }
+
+    /// A GDI ramp that doesn't read back as identity fails verification
+    /// (write accepted, panel unchanged) instead of false success.
+    #[test]
+    fn reset_flags_gamma_ramp_readback_mismatch() {
+        let recorder = TestRecorder::new(true);
+        *recorder.ramp_to_return.lock().unwrap() =
+            build_gamma_ramp(0.5, 0.5, [1.0, 1.0, 1.0], 1.25);
+        let nv = MockNvapi::new(false);
+
+        let result = reset_monitor(&recorder, &nv, "EDID-001");
+
+        assert!(result.gamma_applied, "write itself succeeded");
+        assert!(result.error.as_ref().unwrap().contains("read-back"));
+    }
+
+    /// The shared GDI identity purge writes neutral parameters.
+    #[test]
+    fn gdi_identity_purge_writes_identity() {
+        let recorder = TestRecorder::new(true);
+
+        let err = gdi_identity_purge(&recorder, "EDID-001");
+
+        assert!(err.is_none());
+        assert_eq!(*recorder.calls.lock().unwrap(), vec!["gamma"]);
+        assert_eq!(
+            *recorder.last_gamma_params.lock().unwrap(),
+            Some((1.0, 1.0, [1.0, 1.0, 1.0], 1.0))
+        );
     }
 
     /// Vibrance failure during reset still reports gamma success with a

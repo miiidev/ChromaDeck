@@ -6,7 +6,7 @@ mod nvapi;
 mod nvgamma;
 mod store;
 
-use color::{apply_preset_cmd, reset_monitor_cmd};
+use color::{apply_preset_cmd, probe_monitor_cmd, reset_monitor_cmd};
 use enforce::reapply_now_cmd;
 use identify::{identify_info_cmd, identify_monitors_cmd};
 use monitor::list_monitors_cmd;
@@ -126,6 +126,7 @@ pub fn run() {
             apply_preset_cmd,
             vibrance_supported_cmd,
             reset_monitor_cmd,
+            probe_monitor_cmd,
             pin_preset_cmd,
             unpin_monitor_cmd,
             list_pins_cmd,
