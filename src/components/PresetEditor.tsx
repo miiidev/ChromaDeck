@@ -4,6 +4,7 @@ import type { Monitor, Preset, PresetInput } from "../lib/types";
 import { createPreset, updatePreset, importIcc } from "../lib/tauri";
 import { vibranceSupported, captureNvcp } from "../lib/tauri";
 import { validatePresetForm, type ValidationErrors } from "../lib/validation";
+import { NEUTRAL } from "../lib/presetCard";
 import { open } from "@tauri-apps/plugin-dialog";
 import PreviewStrip from "@/components/PreviewStrip";
 import { Button } from "@/components/ui/button";
@@ -170,6 +171,24 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
   };
 
   const connectedMonitors = monitors.filter((m) => m.connected);
+
+  // Restore every color setting to its neutral default. Name, ICC
+  // selection, tag color, and capture source are left untouched.
+  const handleResetSliders = () => {
+    setForm((prev) => ({
+      ...prev,
+      brightness: NEUTRAL.brightness,
+      contrast: NEUTRAL.contrast,
+      rgb_gains: [1.0, 1.0, 1.0],
+      gamma: NEUTRAL.gamma,
+      vibrance: NEUTRAL.vibrance,
+      hue_deg: 0,
+    }));
+    setErrors((prev) => {
+      const { brightness: _, contrast: __, rgb_gains: ___, gamma: ____, vibrance: _____, hue_deg: ______, ...rest } = prev;
+      return rest;
+    });
+  };
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -357,7 +376,7 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
             value={form.gamma}
             display={form.gamma.toFixed(2)}
             onChange={(v) => updateField("gamma", v)}
-            markers={[{ value: 0.3, label: "0.3" }, { value: 1.0, label: "1.0 (neutral)" }, { value: 2.8, label: "2.8" }]}
+            markers={[{ value: 0.3, label: "0.3" }, { value: 2.8, label: "2.8" }]}
             error={errors.gamma}
           />
 
@@ -461,6 +480,9 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
 
           {/* Actions — full width */}
           <DialogFooter className="sm:col-span-2">
+            <Button variant="outline" size="sm" type="button" onClick={handleResetSliders} title="Restore all color settings to their neutral defaults">
+              Reset
+            </Button>
             <Button variant="outline" size="sm" onClick={onClose}>
               Cancel
             </Button>
@@ -580,15 +602,19 @@ function SliderField({
       {/* Markers sit exactly under their track positions: the row is
           inset by the readout column (w-12 + gap-3 = 60px) so its center
           matches the track center, and each label is centered on the
-          thumb-center position for its value (8px half-thumb insets). */}
+          thumb-center position for its value (10px half-thumb insets for
+          the size-5 thumb). End markers are edge-pinned (first left-aligned,
+          last right-aligned) so short labels like "0.3" never hang past the
+          row edge and get clipped by the dialog's overflow-x-clip. */}
       <div className="relative mt-0.5 h-4 mono text-xs text-muted-foreground" style={{ marginRight: "60px" }}>
-        {markers.map((m) => {
+        {markers.map((m, i) => {
           const frac = Math.min(1, Math.max(0, (m.value - min) / (max - min)));
+          const align = i === 0 ? "translateX(0)" : i === markers.length - 1 ? "translateX(-100%)" : "translateX(-50%)";
           return (
             <span
               key={m.label}
               className="absolute whitespace-nowrap"
-              style={{ left: `calc(8px + ${frac} * (100% - 16px))`, transform: "translateX(-50%)" }}
+              style={{ left: `calc(10px + ${frac} * (100% - 20px))`, transform: align }}
             >
               {m.label}
             </span>
