@@ -41,6 +41,16 @@ Requirements: Windows 10/11 x64 and the WebView2 runtime (preinstalled on Window
 
 All values show their neutral points in the editor (e.g. brightness/contrast 50, gamma 1.0): a fresh preset changes nothing until you move a slider.
 
+## Troubleshooting
+
+**A monitor still looks wrong after Reset.** Reset restores driver gamma/vibrance to neutral and verifies by read-back — if it reports an error, that text names the stuck part. If it reports success but the panel looks off, something below the app owns the look:
+- Reboot. Clears OS ramps; if the wrong look *returns*, it's persisted at driver level.
+- NVIDIA Control Panel → Adjust desktop color settings → select the display → Restore defaults (or Intel Graphics Command Center / AMD Software → restore defaults).
+- Windows Settings → System → Display (per display): Night Light off, HDR off.
+- In-game video settings and OEM display apps (PremierColor, LegionZone, …) override everything silently.
+- The sidebar **Probe** button reads live hardware state without changing anything — if it disagrees with Reset's report, that's the lead.
+- Note: Reset never removes ICC profile associations (by design); remove those in Windows Color Management if a preset installed one.
+
 ## How it works
 
 - **Frontend:** React + Vite + Tailwind CSS v4, light neobrutalist theme (paper, black borders, hard shadows, mint accent fills; see `DESIGN.md`).
