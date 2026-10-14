@@ -2,8 +2,9 @@
  * ChromaDeck motion/animation utilities.
  *
  * Thin helpers for stagger entrance, reduced-motion detection,
- * and CSS custom-property generation.  No animation engine —
- * all motion is CSS-driven (transform + opacity only).
+ * CSS custom-property generation, masked-reveal/value-swap helpers,
+ * and entrance replay.  No animation engine — all motion is CSS-driven
+ * (transform + opacity only).
  */
 
 /* ── Stagger-once flag ──────────────────────────────────────────────── */
@@ -43,14 +44,52 @@ export const REDUCED_MOTION: boolean =
     ? prefersReducedMotion()
     : false;
 
+/* ── shouldAnimate — global gate ────────────────────────────────────── */
+
+/**
+ * Returns `false` when the user prefers reduced motion, so callers can skip
+ * adding animated CSS classes.  Also returns `false` in SSR/test envs where
+ * `window` is absent.
+ */
+export function shouldAnimate(): boolean {
+  if (typeof window === "undefined") return false;
+  return !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
 /* ── CSS custom-property helpers ────────────────────────────────────── */
 
 /**
  * Returns a CSS custom-property declaration for stagger animation delay.
  * Usage: `style={staggerCss(i)}` on an element with class `enter-stagger`.
+ * Default baseMs is 60ms (not 80ms) so the cap of 5 cards × 60ms = 300ms
+ * total stagger fits well within the --motion-std 350ms glide window.
  */
-export function staggerCss(index: number, baseMs = 80): Record<string, string> {
+export function staggerCss(index: number, baseMs = 60): Record<string, string> {
   return { "--stagger-ms": `${index * baseMs}ms` };
+}
+
+/**
+ * Returns the CSS class and inline style for a masked-reveal entrance.
+ * On reduced-motion systems only the class is returned (no animation).
+ *
+ * Usage:
+ *   <h1 className={maskedRevealClass(40).cls} style={maskedRevealClass(40).style}>
+ */
+export function maskedRevealClass(delayMs = 0): {
+  cls: string;
+  style: Record<string, string>;
+} {
+  const cls = "enter-reveal";
+  const style: Record<string, string> = { "--reveal-delay": `${delayMs}ms` };
+  return { cls, style };
+}
+
+/**
+ * Returns the CSS class for a value-swap crossfade.
+ * On reduced-motion systems returns an empty string (instant swap).
+ */
+export function valueSwapClass(): string {
+  return shouldAnimate() ? "value-swap" : "";
 }
 
 /* ── Entrance replay (window re-show) ─────────────────────────────────── */
@@ -65,6 +104,9 @@ export function staggerCss(index: number, baseMs = 80): Record<string, string> {
  * animations in place. State, scroll position, and open dialogs are
  * preserved (only the `animation` inline override is touched, then
  * cleared so the stylesheet value applies again).
+ *
+ * **Card limit**: only the first 6 cards are restarted to avoid a
+ * performance spike on large libraries.
  */
 export function replayEntrance(): void {
   if (typeof window === "undefined" || typeof document === "undefined") return;
@@ -87,11 +129,13 @@ export function replayEntrance(): void {
 
   // Preset cards: the `enter-stagger` class is only attached on first load
   // (see consumeStagger), so re-attach it with per-card delays before
-  // restarting.
+  // restarting.  Cap to 6 cards to avoid performance spike.
   const cards = document.querySelectorAll<HTMLElement>(".preset-deck > *");
-  cards.forEach((card, i) => {
+  const capped = Math.min(cards.length, 6);
+  for (let i = 0; i < capped; i++) {
+    const card = cards[i];
     card.classList.add("enter-stagger");
-    card.style.setProperty("--stagger-ms", `${i * 80}ms`);
+    card.style.setProperty("--stagger-ms", `${i * 60}ms`);
     restart(card);
-  });
+  }
 }

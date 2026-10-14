@@ -199,8 +199,8 @@ function App() {
         <div className="flex items-center justify-between gap-x-4">
           <div className="flex min-w-0 items-center gap-x-4">
             <LogoMark />
-            <h1 className="truncate font-display text-lg font-extrabold uppercase tracking-wide text-ink">
-              <span className="font-bold">C</span>hromaDec<span className="font-bold">k</span>
+            <h1 className="truncate font-display text-lg font-extrabold uppercase tracking-wide text-ink enter-reveal pb-1" style={{ "--reveal-delay": "40ms" } as Record<string, string>}>
+              <span className="enter-reveal-child"><span className="font-bold">C</span>hromaDec<span className="font-bold">k</span></span>
             </h1>
             <span className="rounded-lg border-2 border-ink bg-mint px-1.5 py-0.5 text-xs font-bold text-ink mono">
               v{appVersion}
@@ -259,7 +259,7 @@ function App() {
       <footer className="border-t-2 border-ink bg-white px-6 py-3 flex flex-col sm:flex-row items-center sm:items-center justify-between text-xs gap-1 shell-enter" style={{ ["--shell-delay" as string]: "180ms" }}>
         {(() => {
           const t = loading ? "LOADING…" : `${presets.length} PRESET${presets.length !== 1 ? "S" : ""} · ${monitors.filter((m) => m.connected).length} MONITOR${monitors.filter((m) => m.connected).length !== 1 ? "S" : ""} CONNECTED · ${Object.keys(pins).length} PINNED`;
-          return <span key={t} className="uppercase tracking-widest mono text-muted-foreground footer-crossfade">{t}</span>;
+          return <span key={t} className="uppercase tracking-widest mono text-muted-foreground value-swap">{t}</span>;
         })()}
         <span className="inline-flex items-center gap-3">
           {reapplyMsg && <span className="text-muted-foreground transient-enter">{reapplyMsg}</span>}

@@ -222,6 +222,27 @@ h6,
   to   { opacity: 1; transform: scale(1); }
 }
 
+/* ── Masked reveal: text/content slides up clipped by overflow:hidden ──
+   The outer container hides overflow; the inner element slides up and fades
+   in, creating a clipped reveal effect.  Replaces the old slide-up for
+   heading text to avoid reflow on first mount. */
+
+@keyframes motion-mask-reveal {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Value swap: brief crossfade for changing numbers/counts ──────────
+   A fast opacity dip-and-recover so the user sees the value change without
+   a hard blink.  Used for footer counts, StatTile values, and PresetCard
+   stat numbers.  Short enough (200ms) that it never feels sluggish. */
+
+@keyframes motion-value-swap {
+  0%   { opacity: 1; }
+  40%  { opacity: 0.3; }
+  100% { opacity: 1; }
+}
+
 /* (No bounce keyframes: pop-ins use the overshoot-free snap below so
    utility feedback never wobbles.) */
 
@@ -249,6 +270,29 @@ h6,
   animation-timing-function: var(--ease-out);
   animation-fill-mode: both;
   animation-delay: calc(var(--stagger-ms, 0ms));
+}
+
+/* ── Masked reveal: clips overflow so content appears to slide out of
+   a hidden container.  The element itself must be overflow:hidden; the
+   inner content gets the motion-mask-reveal keyframes.  Delay via
+   --reveal-delay.  The `enter-reveal-child` class is what actually
+   animates; the parent clips it. */
+
+.enter-reveal {
+  overflow: hidden;
+}
+
+.enter-reveal > .enter-reveal-child {
+  display: block;
+  animation: motion-mask-reveal var(--motion-std) var(--ease-out) both;
+  animation-delay: var(--reveal-delay, 0ms);
+}
+
+/* ── Value swap: keyed on content change, runs once per swap.  Used
+   inline on the element whose numeric/text value changes. */
+
+.value-swap {
+  animation: motion-value-swap 200ms var(--ease-out);
 }
 
 /* ── Exit utilities (exits ~30% faster than entrances) ──────────── */
@@ -295,6 +339,14 @@ h6,
   transition-duration: var(--motion-press);
 }
 
+/* Hover lift for buttons with shadow (exclude ghost/link via .shadow-brutal-sm class match
+   — all non-ghost variants include shadow-brutal-sm in their cva classes). */
+[data-slot="button"].shadow-brutal-sm:not(:disabled):not(:active):hover,
+[data-slot="button"].shadow-brutal:not(:disabled):not(:active):hover {
+  translate: -1px -1px;
+  box-shadow: 3px 3px 0 0 #000;
+}
+
 [data-slot="card"]:active {
   translate: 4px 4px;
   box-shadow: none;
@@ -308,16 +360,17 @@ h6,
   transition-duration: var(--motion-fast);
 }
 
-[data-slot="dialog-content"] {
-  animation-duration: var(--motion-std);
-  transition-duration: var(--motion-std);
-}
-
 /* ── Select dropdown timing ──────────────────────────────────── */
 
 [data-slot="select-content"] {
   animation-duration: var(--motion-fast);
   transition-duration: var(--motion-fast);
+}
+
+/* ── Dialog title entrance ──────────────────────────────────── */
+
+[data-slot="dialog-content"] [data-slot="dialog-title"] {
+  animation: motion-fade-in 200ms var(--ease-out) both;
 }
 
 /* ── Sidebar content entrance ──────────────────────────────────── */

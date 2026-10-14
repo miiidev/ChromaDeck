@@ -18,7 +18,7 @@ export default function StatTile({ label, value, neutral }: StatTileProps): Reac
         {label}
       </span>
       <span
-        className={`font-mono font-bold ${valueSize}/[1] tabular-nums whitespace-nowrap ${neutral ? "text-muted-foreground" : "text-ink"}`}
+        className={`font-mono font-bold ${valueSize}/[1] tabular-nums whitespace-nowrap ${neutral ? "text-muted-foreground" : "text-ink"} value-swap`}
       >
         {value}
       </span>

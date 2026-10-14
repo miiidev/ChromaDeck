@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { consumeStagger, resetStagger, staggerCss, prefersReducedMotion, REDUCED_MOTION, replayEntrance } from "./motion";
+import { consumeStagger, resetStagger, staggerCss, prefersReducedMotion, REDUCED_MOTION, replayEntrance, maskedRevealClass, valueSwapClass } from "./motion";
 
 describe("motion utilities (server-safe)", () => {
   beforeEach(() => {
@@ -37,14 +37,44 @@ describe("motion utilities (server-safe)", () => {
     expect(result).toEqual({ "--stagger-ms": "240ms" });
   });
 
-  it("staggerCss defaults baseMs to 80", () => {
+  it("staggerCss defaults baseMs to 60", () => {
     const result = staggerCss(2);
-    expect(result).toEqual({ "--stagger-ms": "160ms" });
+    expect(result).toEqual({ "--stagger-ms": "120ms" });
   });
 
   it("staggerCss index 0 gives 0ms", () => {
     const result = staggerCss(0);
     expect(result).toEqual({ "--stagger-ms": "0ms" });
+  });
+});
+
+describe("maskedRevealClass / valueSwapClass", () => {
+  it("maskedRevealClass returns class + style with delay", () => {
+    const r = maskedRevealClass(40);
+    expect(r.cls).toBe("enter-reveal");
+    expect(r.style).toEqual({ "--reveal-delay": "40ms" });
+  });
+
+  it("maskedRevealClass defaults delay to 0", () => {
+    const r = maskedRevealClass();
+    expect(r.style).toEqual({ "--reveal-delay": "0ms" });
+  });
+
+  it("valueSwapClass returns class in normal env", () => {
+    // In test env (no DOM), shouldAnimate returns false → empty string
+    const g = globalThis as any;
+    const realWindow = g.window;
+    g.window = { matchMedia: () => ({ matches: false }) };
+    expect(valueSwapClass()).toBe("value-swap");
+    g.window = realWindow;
+  });
+
+  it("valueSwapClass returns empty under reduced motion", () => {
+    const g = globalThis as any;
+    const realWindow = g.window;
+    g.window = { matchMedia: () => ({ matches: true }) };
+    expect(valueSwapClass()).toBe("");
+    g.window = realWindow;
   });
 });
 
@@ -108,19 +138,24 @@ describe("replayEntrance (fake DOM)", () => {
     expect(() => replayEntrance()).not.toThrow();
   });
 
-  it("restarts shell regions and staggers deck cards", () => {
+  it("restarts shell regions and staggers up to 6 deck cards", () => {
     const shell = makeEl();
-    const cards = [makeEl(), makeEl(), makeEl()];
+    const cards = [makeEl(), makeEl(), makeEl(), makeEl(), makeEl(), makeEl(), makeEl(), makeEl()];
     installDom([shell], cards, false);
 
     replayEntrance();
 
     // Restart trick leaves no inline animation override behind.
     expect(shell.style.animation).toBe("");
-    for (const [i, card] of cards.entries()) {
+    // First 6 cards get stagger
+    for (const [i, card] of cards.slice(0, 6).entries()) {
       expect(card.classList.contains("enter-stagger")).toBe(true);
-      expect(card.style.getPropertyValue("--stagger-ms")).toBe(`${i * 80}ms`);
+      expect(card.style.getPropertyValue("--stagger-ms")).toBe(`${i * 60}ms`);
       expect(card.style.animation).toBe("");
+    }
+    // Cards beyond index 5 are NOT restarted
+    for (const card of cards.slice(6)) {
+      expect(card.classList.contains("enter-stagger")).toBe(false);
     }
   });
 
