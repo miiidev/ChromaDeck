@@ -35,7 +35,7 @@ function AutostartToggle() {
   return (
     <label className="inline-flex items-center gap-1.5 text-xs cursor-pointer">
       <input type="checkbox" checked={on ?? false} onChange={toggle} className="accent-primary" />
-      <span className="uppercase tracking-widest text-[10px] text-muted-foreground">
+      <span className="uppercase tracking-[0.12em] text-[10px] text-muted-foreground">
         Start with Windows
       </span>
     </label>
@@ -194,35 +194,36 @@ function App() {
 
   return (
     <main className="h-screen overflow-hidden bg-background text-foreground flex flex-col">
-      {/* ── Header ──────────────────────────────────────────────────────── */}
-      <header className="border-b-2 border-ink bg-white px-6 py-3 shell-enter" style={{ ["--shell-delay" as string]: "0ms" }}>
-        <div className="flex items-center justify-between gap-x-4">
-          <div className="flex min-w-0 items-center gap-x-4">
-            <LogoMark />
-            <h1 className="truncate font-display text-lg font-extrabold uppercase tracking-wide text-ink enter-reveal pb-1" style={{ "--reveal-delay": "40ms" } as Record<string, string>}>
-              <span className="enter-reveal-child"><span className="font-bold">C</span>hromaDec<span className="font-bold">k</span></span>
-            </h1>
-            <span className="rounded-lg border-2 border-ink bg-mint px-1.5 py-0.5 text-xs font-bold text-ink mono">
-              v{appVersion}
-            </span>
+      {/* ── Header: Floating Glass Pill ───────────────────────────────────────────── */}
+      <header className="flex justify-center px-6 pt-6 shell-enter" style={{ ["--shell-delay" as string]: "0ms" }}>
+        <div className="bg-surface/50 backdrop-blur-xl border border-border rounded-full p-3 px-6 w-max">
+          <div className="flex items-center justify-between gap-x-4">
+            <div className="flex min-w-0 items-center gap-x-4">
+              <LogoMark />
+              <h1 className="truncate font-display text-lg font-extrabold uppercase tracking-wide text-foreground enter-reveal" style={{ "--reveal-delay": "40ms" } as Record<string, string>}>
+                <span className="enter-reveal-child tracking-[0.14em]">ChromaDeck</span>
+              </h1>
+              <span className="rounded-full border border-border bg-transparent px-2 py-0.5 text-[11px] font-bold text-muted-foreground mono">
+                v{appVersion}
+              </span>
+            </div>
+            <div className="flex items-center gap-3" />
           </div>
-          <div className="flex items-center gap-3" />
         </div>
       </header>
 
       {/* ── Error banner ────────────────────────────────────────────────── */}
       {error && (
-        <div className="mx-6 mt-4 rounded-brutal border-2 border-ink bg-white shadow-brutal-sm error-banner-enter">
-          <div className="bg-danger px-4 py-1.5 rounded-t-lg">
-            <span className="text-xs font-bold text-ink">
-              Failed to load: {error}
-            </span>
-          </div>
-          <div className="flex items-center justify-end px-4 py-2">
-            <button onClick={() => void fetchData()} data-slot="button" className="inline-flex items-center justify-center rounded-lg border-2 border-ink bg-white px-2 py-1 text-xs font-bold text-ink shadow-brutal-sm hover:bg-muted">
-              <span className="btn-label">Retry</span>
-            </button>
-          </div>
+        <div className="mx-6 mt-4 flex items-center gap-2.5 rounded-brutal border border-border bg-surface px-3 py-2 error-banner-enter">
+          <svg className="size-4 shrink-0 text-danger-ink" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+          </svg>
+          <span className="flex-1 min-w-0 truncate text-xs font-bold text-danger-ink">
+            Failed to load: {error}
+          </span>
+          <button onClick={() => void fetchData()} data-slot="button" className="inline-flex shrink-0 items-center justify-center rounded-brutal border border-border bg-surface px-2.5 py-1 text-xs font-bold text-foreground hover:bg-surface-hover">
+            <span className="btn-label">Retry</span>
+          </button>
         </div>
       )}
 
@@ -255,35 +256,39 @@ function App() {
         />
       </div>
 
-      {/* ── Footer / status bar ─────────────────────────────────────────── */}
-      <footer className="border-t-2 border-ink bg-white px-6 py-3 flex flex-col sm:flex-row items-center sm:items-center justify-between text-xs gap-1 shell-enter" style={{ ["--shell-delay" as string]: "180ms" }}>
-        {(() => {
-          const t = loading ? "LOADING…" : `${presets.length} PRESET${presets.length !== 1 ? "S" : ""} · ${monitors.filter((m) => m.connected).length} MONITOR${monitors.filter((m) => m.connected).length !== 1 ? "S" : ""} CONNECTED · ${Object.keys(pins).length} PINNED`;
-          return <span key={t} className="uppercase tracking-widest mono text-muted-foreground value-swap">{t}</span>;
-        })()}
-        <span className="inline-flex items-center gap-3">
-          {reapplyMsg && <span className="text-muted-foreground transient-enter">{reapplyMsg}</span>}
-          <button
-            data-slot="button"
-            onClick={async () => {
-              try {
-                const events: EnforceEvent[] = await reapplyNow();
-                const applied = events.filter((e) => e.applied).length;
-                const firstErr = events.find((e) => e.error)?.error;
-                setReapplyMsg(firstErr ? `Reapply: ${firstErr}` : `Reapplied ${applied}/${events.length}`);
-              } catch (err) {
-                setReapplyMsg(`Reapply failed: ${String(err)}`);
-              }
-              setTimeout(() => setReapplyMsg(null), 5000);
-              fetchData();
-            }}
-            className="inline-flex items-center justify-center rounded-lg border-2 border-ink bg-white px-2 py-1 text-xs font-bold text-ink shadow-brutal-sm hover:bg-muted"
-            title="Re-run enforcement now"
-          >
-            <span className="btn-label">Reapply</span>
-          </button>
-          <AutostartToggle />
-        </span>
+      {/* ── Footer / status bar: Floating Glass Pill ─────────────────────────────────────── */}
+      <footer className="flex justify-center pb-6 shell-enter" style={{ ["--shell-delay" as string]: "180ms" }}>
+        <div className="bg-surface/50 backdrop-blur-xl border border-border rounded-full p-3 px-6 w-max">
+          <div className="flex flex-col sm:flex-row items-center sm:items-center justify-between text-xs gap-1">
+            {(() => {
+              const t = loading ? "LOADING…" : `${presets.length} PRESET${presets.length !== 1 ? "S" : ""} · ${monitors.filter((m) => m.connected).length} MONITOR${monitors.filter((m) => m.connected).length !== 1 ? "S" : ""} CONNECTED · ${Object.keys(pins).length} PINNED`;
+              return <span key={t} className="uppercase tracking-[0.12em] mono tabular-nums text-muted-foreground value-swap">{t}</span>;
+            })()}
+            <span className="inline-flex items-center gap-3">
+              {reapplyMsg && <span className="text-muted-foreground transient-enter">{reapplyMsg}</span>}
+              <button
+                data-slot="button"
+                onClick={async () => {
+                  try {
+                    const events: EnforceEvent[] = await reapplyNow();
+                    const applied = events.filter((e) => e.applied).length;
+                    const firstErr = events.find((e) => e.error)?.error;
+                    setReapplyMsg(firstErr ? `Reapply: ${firstErr}` : `Reapplied ${applied}/${events.length}`);
+                  } catch (err) {
+                    setReapplyMsg(`Reapply failed: ${String(err)}`);
+                  }
+                  setTimeout(() => setReapplyMsg(null), 5000);
+                  fetchData();
+                }}
+                className="inline-flex items-center justify-center rounded-brutal border border-border bg-surface px-2.5 py-1 text-xs font-bold text-foreground hover:bg-surface-hover"
+                title="Re-run enforcement now"
+              >
+                <span className="btn-label">Reapply</span>
+              </button>
+              <AutostartToggle />
+            </span>
+          </div>
+        </div>
       </footer>
 
       {/* ── Apply dialog ──────────────────────────────────────────────── */}

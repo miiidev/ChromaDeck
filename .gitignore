@@ -25,3 +25,4 @@ dist-ssr
 
 # Rust / Tauri build artifacts
 src-tauri/target/
+spikes/**/target/

@@ -12,6 +12,12 @@ describe("vibrance validation", () => {
     expect(validatePreset({ hue_deg: 360 }).hue_deg).toContain("0 and 359");
     expect(validatePreset({ hue_deg: 0 }).hue_deg).toBeUndefined();
   });
+
+  it("rejects saturation out of range", () => {
+    expect(validatePreset({ saturation: 101 }).saturation).toContain("0 and 100");
+    expect(validatePreset({ saturation: -1 }).saturation).toBeDefined();
+    expect(validatePreset({ saturation: 50 }).saturation).toBeUndefined();
+  });
 });
 
 describe("validatePreset", () => {

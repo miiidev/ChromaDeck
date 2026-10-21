@@ -21,6 +21,11 @@ pub trait StateReader {
     fn read_nvcp_registry(&self, edid_id: &str) -> Option<(f64, f64, f64)>;
     /// The gamma engine active for this display (NVAPI or GDI).
     fn engine(&self, edid_id: &str) -> crate::color::GammaEngine;
+    /// Whether this display is routed to the Intel IGCL backend (pixtx). The
+    /// GDI/NVAPI drift paths are inapplicable to Intel: Intel apply purges the
+    /// GDI ramp to identity and drives a pixtx LUT, so a GDI read-back would
+    /// always look "drifted" and re-apply every cycle.
+    fn is_intel(&self, edid_id: &str) -> bool;
 }
 
 pub struct RealStateReader;
@@ -46,6 +51,13 @@ impl StateReader for RealStateReader {
 
     fn engine(&self, edid_id: &str) -> crate::color::GammaEngine {
         crate::color::gamma_engine(edid_id)
+    }
+
+    fn is_intel(&self, edid_id: &str) -> bool {
+        // Cached negative verdicts avoid a DriverStore re-scan every drift
+        // cycle on non-Intel machines (L-4). The uncached path stays for
+        // backend selection, which must remain hot-plug correct.
+        crate::backend::intel::correlates_to_intel_cached(edid_id)
     }
 }
 
@@ -79,8 +91,31 @@ let preset = match presets.iter().find(|p| &p.id == preset_id) {
             || match reader.engine(edid_id) {
                 crate::color::GammaEngine::Nvapi => nvapi_drifted(preset, nv, reader, edid_id),
                 crate::color::GammaEngine::Gdi => {
-                    lut_drifted(preset, reader, edid_id)
-                        || color_drifted(preset, nv, reader, edid_id)
+                    // Intel displays report the GDI engine (`gamma_engine`
+                    // probes NVAPI, which Intel lacks), but Intel apply drives
+                    // a pixtx LUT and purges the GDI ramp to identity. A GDI
+                    // ramp read-back would therefore always differ from the
+                    // expected preset ramp and force a re-apply every 10s
+                    // (H1). A real Intel drift check would read the pixtx 1D
+                    // LUT and compare against the composed expectation — but
+                    // the pixtx 3×3 matrix (saturation/hue/rgb_gains) is NOT
+                    // readable on this driver (spec §6/§10), so even a "real"
+                    // check is partial, and running a full output-enumeration +
+                    // pixtx read + compose each 10s cycle is disproportionate
+                    // for that partial signal. Honest interim: skip drift
+                    // enforcement for Intel and document the gap — an in-sync
+                    // Intel display is never re-applied, and a genuinely
+                    // drifted one is healed only by an explicit re-apply
+                    // (`reapply_now_cmd`, force=true) or restart. pixtx state
+                    // is runtime-only driver state (a reboot resets it), and
+                    // only ChromaDeck writes it, so the foreign-clobber case
+                    // the loop exists for is rare for Intel.
+                    if reader.is_intel(edid_id) {
+                        false
+                    } else {
+                        lut_drifted(preset, reader, edid_id)
+                            || color_drifted(preset, nv, reader, edid_id)
+                    }
                 }
             };
 
@@ -228,6 +263,402 @@ pub fn reapply_now_cmd(state: tauri::State<'_, crate::store::AppStore>) -> Vec<E
     check_once(&api, &nv, &reader, &pins, &presets, true)
 }
 
+// ── Lifecycle: startup reassertion + exit semantics ──────────────────────────
+//
+// ChromaDeck's documented promise (README "Pin & enforce", PRODUCT "enforcement
+// just holds", and the driver-registry persistence feature) is that applied
+// colour SURVIVES a clean exit and is reasserted on the next launch. The app
+// has never promised to wipe displays on quit; "Reset" is the explicit action
+// that does that. Phase F therefore:
+//
+//   STARTUP — every connected display with a pin OR an applied record is
+//   re-applied through the backend registry. If the recorded preset no longer
+//   exists (removed while the app was closed), the display is restored through
+//   the same backend path `reset_monitor` uses, and the stale records are
+//   cleared. Disconnected displays are skipped untouched.
+//
+//   EXIT — policy is `KeepApplied` (see `ExitPolicy`). Per backend:
+//     • nvapi — NVCP registry persistence is the documented feature; quitting
+//       must not erase it.
+//     • gdi   — the OS gamma ramp is session state; Windows clears it on
+//       logoff/reboot. Nothing to do.
+//     • intel — the pixtx pipeline is driver state and its unattended reset is
+//       best-effort only (`ctlDisplayFeatureReset` is not exported on this
+//       driver), so the exit path never claims a restore it cannot verify.
+//   A `Restore` policy exists as a tested seam for an explicit
+//   "quit and reset" flow, but the tray does NOT use it today.
+//
+// Shutdown never panics on a disconnected display: connectivity is checked
+// first and a disconnected target is reported as skipped, with no write.
+
+/// Divergence between persisted records and the store's presets.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LifecycleAction {
+    /// Preset still exists and the display is connected: re-apply it.
+    Apply(String),
+    /// Recorded preset no longer exists: restore the display to defaults.
+    Restore(String),
+    /// Display is disconnected: leave it (and its records) untouched.
+    Skip,
+}
+
+/// One startup lifecycle outcome (also useful as an honest diagnostic log).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LifecycleEvent {
+    pub edid_id: String,
+    pub preset_id: Option<String>,
+    /// "apply" | "restore" | "skip"
+    pub action: String,
+    pub applied: bool,
+    pub error: Option<String>,
+}
+
+/// Merge pins and applied records into one target list, pins winning, sorted
+/// by EDID for deterministic behaviour and tests.
+pub fn lifecycle_targets(
+    pins: &HashMap<String, String>,
+    applied: &HashMap<String, String>,
+) -> Vec<(String, String)> {
+    let mut targets = pins.clone();
+    for (edid_id, preset_id) in applied {
+        targets
+            .entry(edid_id.clone())
+            .or_insert_with(|| preset_id.clone());
+    }
+    let mut ordered: Vec<(String, String)> = targets.into_iter().collect();
+    ordered.sort_by(|a, b| a.0.cmp(&b.0));
+    ordered
+}
+
+/// Pure startup plan. No hardware: connectivity is injected.
+pub fn startup_plan(
+    targets: &[(String, String)],
+    presets: &[crate::store::Preset],
+    connected: &dyn Fn(&str) -> bool,
+) -> Vec<(String, LifecycleAction)> {
+    targets
+        .iter()
+        .map(|(edid_id, preset_id)| {
+            let action = if !connected(edid_id) {
+                LifecycleAction::Skip
+            } else if presets.iter().any(|p| &p.id == preset_id) {
+                LifecycleAction::Apply(preset_id.clone())
+            } else {
+                LifecycleAction::Restore(preset_id.clone())
+            };
+            (edid_id.clone(), action)
+        })
+        .collect()
+}
+
+/// Execute the startup plan through the backend abstraction.
+///
+/// `is_intel` reports whether a display routes to the Intel IGCL backend.
+/// Intel displays are NOT auto-reapplied at startup (see C1): pixtx state is
+/// runtime-only driver state — a reboot resets it to factory default, while a
+/// restart-without-reboot may still carry the previous session's applied
+/// curve. A startup apply would capture whichever of those is present as the
+/// "pre-apply" state, so a later Reset would return the panel to that
+/// (possibly non-factory) state and falsely report success. Skipping the Intel
+/// reapply keeps the restore guarantee honest: Reset on a display never
+/// applied this session reports "no capture" rather than faking a restore.
+///
+/// As a side effect (M-4), Intel-correlated targets with a persisted record
+/// are marked capture-untrusted via `intel::mark_capture_untrusted`, so a
+/// later first apply cannot capture the leftover curve as its baseline.
+pub fn run_startup(
+    api: &dyn crate::color::ColorApi,
+    nv: &dyn crate::nvapi::NvColorApi,
+    targets: &[(String, String)],
+    presets: &[crate::store::Preset],
+    is_intel: &dyn Fn(&str) -> bool,
+) -> Vec<LifecycleEvent> {
+    // M-4: mark every Intel-correlated target (a persisted applied/pin record)
+    // as capture-untrusted for this session. The persisted record means the
+    // pixtx state may be ChromaDeck's own leftover curve after a
+    // restart-without-reboot; the first apply must not capture that leftover as
+    // a trusted factory baseline. `IntelBackend::apply` refuses (or verifies
+    // the LUT is the factory-identity default) accordingly. Displays with no
+    // persisted record are never marked, so a fresh-boot/no-record apply is
+    // unaffected.
+    for (edid_id, _preset_id) in targets {
+        if is_intel(edid_id) {
+            crate::backend::intel::mark_capture_untrusted(edid_id);
+        }
+    }
+
+    startup_plan(targets, presets, &|edid_id| api.is_connected(edid_id))
+        .into_iter()
+        .map(|(edid_id, action)| match action {
+            LifecycleAction::Skip => LifecycleEvent {
+                edid_id,
+                preset_id: None,
+                action: "skip".into(),
+                applied: false,
+                error: None,
+            },
+            LifecycleAction::Apply(preset_id) => {
+                // Skip Intel auto-reapply at startup (documented above).
+                if is_intel(&edid_id) {
+                    return LifecycleEvent {
+                        edid_id,
+                        preset_id: Some(preset_id),
+                        action: "skip".into(),
+                        applied: false,
+                        error: Some(
+                            "skipped Intel startup reapply: pixtx state is runtime-only and \
+                             capturing it here would poison Reset's restore guarantee (a reboot \
+                             restores the factory default)"
+                                .into(),
+                        ),
+                    };
+                }
+                let preset = match presets.iter().find(|p| p.id == preset_id) {
+                    Some(p) => p,
+                    None => {
+                        return LifecycleEvent {
+                            edid_id,
+                            preset_id: Some(preset_id),
+                            action: "apply".into(),
+                            applied: false,
+                            error: Some("preset disappeared during startup".into()),
+                        }
+                    }
+                };
+                let result = crate::color::apply_color(api, nv, preset, &edid_id);
+                LifecycleEvent {
+                    edid_id,
+                    preset_id: Some(preset_id),
+                    action: "apply".into(),
+                    applied: result.gamma_applied || result.vibrance_applied,
+                    error: result.error,
+                }
+            }
+            LifecycleAction::Restore(preset_id) => {
+                // Parity with the explicit Reset action: the backend owns the
+                // reset path (GDI identity ramp, NVAPI identity+persist, Intel
+                // RESTORE_DEFAULT).
+                let result = crate::color::reset_monitor(api, nv, &edid_id);
+                LifecycleEvent {
+                    edid_id,
+                    preset_id: Some(preset_id),
+                    action: "restore".into(),
+                    applied: result.gamma_applied || result.vibrance_applied,
+                    error: result.error,
+                }
+            }
+        })
+        .collect()
+}
+
+/// Startup entry point: reassert pins/applied presets, restore stale records,
+/// then clear those stale records. Runs off the main thread (spawned in setup).
+pub fn startup_reapply(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    let state = match app.try_state::<crate::store::AppStore>() {
+        Some(s) => s,
+        None => return,
+    };
+    let (targets, presets) = match state.0.lock() {
+        Ok(store) => (
+            lifecycle_targets(&store.list_pins(), &store.list_applied()),
+            store.list_presets(),
+        ),
+        Err(_) => return,
+    };
+    if targets.is_empty() {
+        return;
+    }
+
+    let api = crate::color::RealColorApi;
+    let nv = crate::nvapi::RealNvapi;
+    let events = run_startup(
+        &api,
+        &nv,
+        &targets,
+        &presets,
+        &|edid_id| crate::backend::intel::correlates_to_intel(edid_id),
+    );
+
+    let stale: Vec<String> = events
+        .iter()
+        .filter(|e| e.action == "restore")
+        .map(|e| e.edid_id.clone())
+        .collect();
+
+    for event in &events {
+        if let Some(error) = &event.error {
+            eprintln!(
+                "ChromaDeck startup: {} {} failed: {error}",
+                event.action, event.edid_id
+            );
+        }
+    }
+
+    // A preset no longer exists, so its records can never apply again. Clear
+    // them even when the restore write failed (the failure is logged): keeping
+    // a ghost IN USE record would over-claim.
+    if !stale.is_empty() {
+        if let Ok(mut store) = state.0.lock() {
+            for edid_id in stale {
+                store.clear_applied(&edid_id);
+                store.unpin_monitor(&edid_id);
+            }
+        }
+    }
+}
+
+/// Quit policy. `KeepApplied` is the documented behaviour; `Restore` is the
+/// tested seam for an explicit "quit and reset" flow and is not wired to the
+/// tray today.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExitPolicy {
+    /// Leave applied colour in place (documented: enforcement persists).
+    KeepApplied,
+    /// Explicitly restore every connected target through its backend.
+    #[allow(dead_code)]
+    Restore,
+}
+
+/// One display's exit outcome. `restored` is true only when a backend restore
+/// reported success; `detail` states plainly what happened (or why nothing was
+/// attempted) so logs never fake a cleanup.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ExitOutcome {
+    pub edid_id: String,
+    pub backend: String,
+    pub restored: bool,
+    pub detail: String,
+}
+
+/// Backend lookup seam so exit routing is testable without hardware.
+pub trait BackendSelector {
+    fn select_backend(&self, edid_id: &str) -> &dyn crate::backend::ColorBackend;
+
+    /// Cheap backend identity for classification-only paths (`KeepApplied`).
+    /// Implementations MUST NOT load a driver library; the default is
+    /// deliberately non-committal so a test double without a hint still works.
+    fn backend_id_hint(&self, _edid_id: &str) -> &'static str {
+        "unknown"
+    }
+}
+
+impl BackendSelector for crate::backend::BackendRegistry {
+    fn select_backend(&self, edid_id: &str) -> &dyn crate::backend::ColorBackend {
+        crate::backend::BackendRegistry::select(self, edid_id)
+    }
+
+    fn backend_id_hint(&self, edid_id: &str) -> &'static str {
+        crate::backend::BackendRegistry::backend_id_hint(self, edid_id)
+    }
+}
+
+fn keep_detail(backend_id: &str) -> &'static str {
+    match backend_id {
+        "nvapi" => {
+            "kept: NVCP driver-registry persistence (only an explicit Reset clears it)"
+        }
+        "gdi" => "kept: OS gamma ramp is session state, cleared by Windows at logoff/reboot",
+        "intel" => {
+            "kept: Intel pixtx state is driver-level; unattended reset is best-effort only"
+        }
+        _ => "kept: applied colour persists by design",
+    }
+}
+
+/// Compute/execute exit semantics per display.
+///
+/// With `KeepApplied` this is a pure classification: no backend write happens.
+/// With `Restore` every connected target goes through its selected backend's
+/// `restore`. Disconnected displays are skipped before any write, so a
+/// display unplugged during shutdown cannot cause a failed driver call.
+pub fn run_exit(
+    policy: ExitPolicy,
+    selector: &dyn BackendSelector,
+    api: &dyn crate::color::ColorApi,
+    nv: &dyn crate::nvapi::NvColorApi,
+    targets: &[(String, String)],
+    connected: &dyn Fn(&str) -> bool,
+) -> Vec<ExitOutcome> {
+    let mut outcomes: Vec<ExitOutcome> = Vec::new();
+    for (edid_id, _preset_id) in targets {
+        // Connectivity first: never probe/load a driver for a display that
+        // vanished during shutdown.
+        if !connected(edid_id) {
+            outcomes.push(ExitOutcome {
+                edid_id: edid_id.clone(),
+                backend: "n/a".into(),
+                restored: false,
+                detail: "skipped: display disconnected during shutdown (no write attempted)"
+                    .into(),
+            });
+            continue;
+        }
+        match policy {
+            // Classification only: never call `select_backend` here, because
+            // selection probes NVAPI/IGCL and can stall tray quit. The cheap
+            // hint never loads a driver library.
+            ExitPolicy::KeepApplied => {
+                let backend_id = selector.backend_id_hint(edid_id);
+                outcomes.push(ExitOutcome {
+                    edid_id: edid_id.clone(),
+                    backend: backend_id.to_string(),
+                    restored: false,
+                    detail: keep_detail(backend_id).into(),
+                });
+            }
+            ExitPolicy::Restore => {
+                let backend = selector.select_backend(edid_id);
+                let result = backend.restore(api, nv, edid_id);
+                outcomes.push(ExitOutcome {
+                    edid_id: edid_id.clone(),
+                    backend: backend.id().to_string(),
+                    restored: result.gamma_applied || result.vibrance_applied,
+                    detail: result
+                        .error
+                        .unwrap_or_else(|| "restored through the selected backend".into()),
+                });
+            }
+        }
+    }
+    outcomes
+}
+
+/// Tray-quit entry point. Documents the chosen policy in the log and never
+/// writes to hardware; safe when a display disconnects mid-shutdown.
+pub fn shutdown_sweep(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    let state = match app.try_state::<crate::store::AppStore>() {
+        Some(s) => s,
+        None => return,
+    };
+    let targets = match state.0.lock() {
+        Ok(store) => lifecycle_targets(&store.list_pins(), &store.list_applied()),
+        Err(_) => return,
+    };
+    if targets.is_empty() {
+        return;
+    }
+
+    let selector = crate::backend::BackendRegistry::new();
+    let api = crate::color::RealColorApi;
+    let nv = crate::nvapi::RealNvapi;
+    let outcomes = run_exit(
+        ExitPolicy::KeepApplied,
+        &selector,
+        &api,
+        &nv,
+        &targets,
+        &|edid_id| crate::color::ColorApi::is_connected(&api, edid_id),
+    );
+    for outcome in outcomes {
+        eprintln!(
+            "ChromaDeck exit: {} [{}] {}",
+            outcome.edid_id, outcome.backend, outcome.detail
+        );
+    }
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -243,6 +674,7 @@ mod tests {
         pub fail: bool,
         pub nvcp_registry: Option<(f64, f64, f64)>,
         pub engine: crate::color::GammaEngine,
+        pub is_intel: bool,
     }
 
     impl MockStateReader {
@@ -254,6 +686,7 @@ mod tests {
                 fail: false,
                 nvcp_registry: None,
                 engine: crate::color::GammaEngine::Gdi,
+                is_intel: false,
             }
         }
     }
@@ -286,6 +719,10 @@ mod tests {
         fn engine(&self, _edid_id: &str) -> crate::color::GammaEngine {
             self.engine
         }
+
+        fn is_intel(&self, _edid_id: &str) -> bool {
+            self.is_intel
+        }
     }
 
     /// Build a minimal preset for tests.
@@ -300,6 +737,7 @@ fn p(id: &str, _edid: &str, brightness: f64, vibrance: f64, hue: f64) -> crate::
             rgb_gains: [1.0, 1.0, 1.0],
             gamma: 2.2,
             vibrance,
+            saturation: 50.0,
             hue_deg: hue,
 color_model: "nvcp-v1".into(),
             color_tag: None,
@@ -350,6 +788,7 @@ color_model: "nvcp-v1".into(),
             fail: false,
             nvcp_registry: None,
             engine: crate::color::GammaEngine::Gdi,
+            is_intel: false,
         };
 
         let events = check_once(&color, &nv, &reader, &pins, &[preset], false);
@@ -411,6 +850,7 @@ color_model: "nvcp-v1".into(),
             fail: false,
             nvcp_registry: None,
             engine: crate::color::GammaEngine::Gdi,
+            is_intel: false,
         };
 
         let events = check_once(&color, &nv, &reader, &pins, &[preset], false);
@@ -493,6 +933,7 @@ color_model: "nvcp-v1".into(),
             fail: false,
             nvcp_registry: None,
             engine: crate::color::GammaEngine::Gdi,
+            is_intel: false,
         };
 
         // force = true
@@ -530,6 +971,7 @@ color_model: "nvcp-v1".into(),
             fail: false,
             nvcp_registry: Some((100.0, 100.0, 100.0)), // matches ui_to_internal(50)
             engine: crate::color::GammaEngine::Nvapi,
+            is_intel: false,
         };
 
         let events = check_once(&color, &nv, &reader, &pins, &[preset], false);
@@ -568,6 +1010,7 @@ color_model: "nvcp-v1".into(),
             fail: false,
             nvcp_registry: Some((90.0, 100.0, 100.0)), // brightness 90 ≠ expected 100
             engine: crate::color::GammaEngine::Nvapi,
+            is_intel: false,
         };
 
         let events = check_once(&color, &nv, &reader, &pins, &[preset], false);
@@ -606,6 +1049,7 @@ color_model: "nvcp-v1".into(),
             fail: false,
             nvcp_registry: None,
             engine: crate::color::GammaEngine::Gdi,
+            is_intel: false,
         };
 
         let events = check_once(&color, &nv, &reader, &pins, &[preset], false);
@@ -639,6 +1083,7 @@ color_model: "nvcp-v1".into(),
             fail: false,
             nvcp_registry: Some((100.0, 100.0, 100.0)), // pristine registry
             engine: crate::color::GammaEngine::Nvapi,
+            is_intel: false,
         };
 
         let events = check_once(&color, &nv, &reader, &pins, &[preset], false);
@@ -679,6 +1124,7 @@ color_model: "nvcp-v1".into(),
             fail: false,
             nvcp_registry: Some((stored_b as f64, 100.0, 100.0)),
             engine: crate::color::GammaEngine::Nvapi,
+            is_intel: false,
         };
         let events = check_once(&color, &nv, &reader_match, &pins, &[preset.clone()], false);
         assert_eq!(events.len(), 1);
@@ -692,10 +1138,407 @@ color_model: "nvcp-v1".into(),
             fail: false,
             nvcp_registry: Some((94.0, 100.0, 100.0)),
             engine: crate::color::GammaEngine::Nvapi,
+            is_intel: false,
         };
         let events2 = check_once(&color, &nv, &reader_drift, &pins, &[preset], false);
         assert_eq!(events2.len(), 1);
         assert!(events2[0].applied, "94 ≠ rounded 95 → drift detected");
         assert!(events2[0].error.is_none());
+    }
+
+    // ── Test 13: Intel display is NOT reapplied by the drift loop ─────
+    //
+    // Intel displays report the GDI engine (NVAPI is absent), but Intel apply
+    // drives a pixtx LUT and purges the GDI ramp to identity. Without routing,
+    // the GDI branch reads the identity ramp, sees it differ from a non-neutral
+    // preset's expected ramp, and re-applies every 10s (H1). The `is_intel`
+    // skip must prevent that re-apply.
+
+    #[test]
+    fn intel_display_is_not_reapplied_by_drift_loop() {
+        let color = TestRecorder::new(true);
+        let nv = MockNvapi::new(true);
+        let preset = p("p1", "E", 0.5, 50.0, 0.0); // non-neutral brightness → GDI LUT would "drift"
+        let mut pins = HashMap::new();
+        pins.insert("E".to_string(), preset.id.clone());
+
+        // Intel display: GDI engine with an identity ramp that differs from the
+        // preset's expected ramp — the exact condition that used to re-apply.
+        let reader = MockStateReader {
+            lut: build_gamma_ramp(1.0, 1.0, [1.0, 1.0, 1.0], 1.0),
+            color: (50.0, 0.0),
+            fail: false,
+            nvcp_registry: None,
+            engine: crate::color::GammaEngine::Gdi,
+            is_intel: true,
+        };
+
+        let events = check_once(&color, &nv, &reader, &pins, &[preset], false);
+        assert_eq!(events.len(), 1);
+        assert!(!events[0].applied, "Intel display must NOT be re-applied by the drift loop");
+        assert!(events[0].error.is_none());
+        assert!(
+            color.calls.lock().unwrap().is_empty(),
+            "no gamma/apply calls for an in-sync Intel display"
+        );
+        assert!(nv.calls.lock().unwrap().is_empty(), "no NV calls for Intel");
+    }
+
+    // ── Lifecycle: startup ──────────────────────────────────────────────
+
+    fn connected_true(_: &str) -> bool {
+        true
+    }
+
+    fn pin_map(entries: &[(&str, &str)]) -> HashMap<String, String> {
+        entries
+            .iter()
+            .map(|(edid, preset)| (edid.to_string(), preset.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn lifecycle_targets_prefers_pins_over_applied_and_sorts() {
+        let pins = pin_map(&[("E2", "pin-preset")]);
+        let applied = pin_map(&[("E1", "applied-preset"), ("E2", "stale-applied")]);
+        let targets = lifecycle_targets(&pins, &applied);
+        assert_eq!(
+            targets,
+            vec![
+                ("E1".to_string(), "applied-preset".to_string()),
+                ("E2".to_string(), "pin-preset".to_string()),
+            ],
+            "pins win; output is sorted by EDID"
+        );
+    }
+
+    #[test]
+    fn startup_plan_marks_missing_preset_for_restore() {
+        let targets = vec![
+            ("E1".to_string(), "exists".to_string()),
+            ("E2".to_string(), "gone".to_string()),
+        ];
+        let presets = vec![p("exists", "E1", 1.0, 50.0, 0.0)];
+        let plan = startup_plan(&targets, &presets, &connected_true);
+        assert_eq!(plan[0].1, LifecycleAction::Apply("exists".into()));
+        assert_eq!(plan[1].1, LifecycleAction::Restore("gone".into()));
+    }
+
+    #[test]
+    fn startup_skips_offline_display_without_writes() {
+        let color = TestRecorder::new(false);
+        let nv = MockNvapi::new(false);
+        let preset = p("p1", "E", 1.0, 50.0, 0.0);
+        let targets = vec![("E".to_string(), preset.id.clone())];
+        let events = run_startup(&color, &nv, &targets, &[preset], &|_| false);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].action, "skip");
+        assert!(!events[0].applied);
+        assert!(events[0].error.is_none());
+        assert!(color.calls.lock().unwrap().is_empty());
+        assert!(nv.calls.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn startup_applies_existing_preset_through_backend() {
+        let color = TestRecorder::new(true);
+        let nv = MockNvapi::new(true);
+        let preset = p("p1", "E", 0.5, 50.0, 0.0);
+        let targets = vec![("E".to_string(), preset.id.clone())];
+        let events = run_startup(&color, &nv, &targets, &[preset], &|_| false);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].action, "apply");
+        assert!(events[0].applied);
+        assert!(events[0].error.is_none());
+        assert!(
+            color.calls.lock().unwrap().contains(&"gamma".to_string()),
+            "startup reapply must reach the backend"
+        );
+    }
+
+    #[test]
+    fn startup_skips_intel_reapply_to_preserve_restore_guarantee() {
+        let color = TestRecorder::new(true);
+        let nv = MockNvapi::new(true);
+        let preset = p("p1", "E", 0.5, 50.0, 0.0);
+        let targets = vec![("E".to_string(), preset.id.clone())];
+        // A display that routes to Intel must be skipped at startup (C1): a
+        // startup apply would capture leftover pixtx state as "pre-apply" and
+        // later Reset would falsely claim a restore to non-factory state.
+        let events = run_startup(&color, &nv, &targets, &[preset], &|_| true);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].action, "skip", "Intel must skip startup reapply");
+        assert!(!events[0].applied);
+        assert!(events[0].error.as_ref().unwrap().contains("Intel"), "got: {:?}", events[0].error);
+        assert!(
+            color.calls.lock().unwrap().is_empty(),
+            "no driver write for Intel at startup"
+        );
+        assert!(nv.calls.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn startup_restores_when_recorded_preset_is_gone() {
+        let color = TestRecorder::new(true);
+        let nv = MockNvapi::new(true);
+        let targets = vec![("E".to_string(), "deleted-preset".to_string())];
+        let events = run_startup(&color, &nv, &targets, &[], &|_| false);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].action, "restore");
+        assert!(events[0].applied, "reset should report the identity ramp write");
+        assert!(events[0].error.is_none());
+        assert_eq!(
+            *color.last_gamma_params.lock().unwrap(),
+            Some((1.0, 1.0, [1.0, 1.0, 1.0], 1.0)),
+            "stale record must use reset_monitor's identity-ramp parity path"
+        );
+    }
+
+    #[test]
+    fn startup_offline_stale_record_is_skipped_not_restored() {
+        let color = TestRecorder::new(false);
+        let nv = MockNvapi::new(false);
+        let targets = vec![("E".to_string(), "deleted-preset".to_string())];
+        let events = run_startup(&color, &nv, &targets, &[], &|_| false);
+        assert_eq!(events[0].action, "skip");
+        assert!(color.calls.lock().unwrap().is_empty());
+    }
+
+    // ── Lifecycle: exit ─────────────────────────────────────────────────
+
+    struct RecordingBackend {
+        id: &'static str,
+        calls: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+        restore_result: crate::color::ApplyResult,
+    }
+
+    impl RecordingBackend {
+        fn new(id: &'static str, calls: &std::sync::Arc<std::sync::Mutex<Vec<String>>>) -> Self {
+            RecordingBackend {
+                id,
+                calls: calls.clone(),
+                restore_result: crate::color::ApplyResult {
+                    icc_applied: false,
+                    gamma_applied: true,
+                    vibrance_applied: false,
+                    error: None,
+                },
+            }
+        }
+    }
+
+    impl crate::backend::ColorBackend for RecordingBackend {
+        fn id(&self) -> &'static str {
+            self.id
+        }
+
+        fn probe(&self, _edid_id: &str) -> Vec<crate::backend::AdjustmentCapability> {
+            Vec::new()
+        }
+
+        fn apply(
+            &self,
+            _api: &dyn crate::color::ColorApi,
+            _nv: &dyn crate::nvapi::NvColorApi,
+            _preset: &crate::store::Preset,
+            _edid_id: &str,
+        ) -> crate::color::ApplyResult {
+            crate::color::ApplyResult {
+                icc_applied: false,
+                gamma_applied: false,
+                vibrance_applied: false,
+                error: Some("apply not expected on the exit path".into()),
+            }
+        }
+
+        fn restore(
+            &self,
+            _api: &dyn crate::color::ColorApi,
+            _nv: &dyn crate::nvapi::NvColorApi,
+            _edid_id: &str,
+        ) -> crate::color::ApplyResult {
+            self.calls.lock().unwrap().push(format!("restore:{}", self.id));
+            self.restore_result.clone()
+        }
+    }
+
+    struct MapSelector {
+        backends: HashMap<String, RecordingBackend>,
+    }
+
+    impl BackendSelector for MapSelector {
+        fn select_backend(&self, edid_id: &str) -> &dyn crate::backend::ColorBackend {
+            &self.backends[edid_id]
+        }
+
+        fn backend_id_hint(&self, edid_id: &str) -> &'static str {
+            self.backends[edid_id].id
+        }
+    }
+
+    #[test]
+    fn exit_keep_policy_never_writes() {
+        let calls = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut backends = HashMap::new();
+        backends.insert("E1".to_string(), RecordingBackend::new("nvapi", &calls));
+        let selector = MapSelector { backends };
+        let color = TestRecorder::new(true);
+        let nv = MockNvapi::new(true);
+        let targets = vec![("E1".to_string(), "p1".to_string())];
+
+        let outcomes = run_exit(
+            ExitPolicy::KeepApplied,
+            &selector,
+            &color,
+            &nv,
+            &targets,
+            &connected_true,
+        );
+        assert_eq!(outcomes.len(), 1);
+        assert!(!outcomes[0].restored, "keep policy must not claim a restore");
+        assert!(outcomes[0].detail.contains("kept"));
+        assert!(calls.lock().unwrap().is_empty(), "no backend write on quit");
+    }
+
+    /// Selector whose `select_backend` panics: KeepApplied must classify from
+    /// the cheap hint instead of loading a driver library.
+    struct NoSelectSelector;
+
+    impl BackendSelector for NoSelectSelector {
+        fn select_backend(&self, _edid_id: &str) -> &dyn crate::backend::ColorBackend {
+            panic!("select_backend must not be called on the KeepApplied path");
+        }
+
+        fn backend_id_hint(&self, _edid_id: &str) -> &'static str {
+            "intel"
+        }
+    }
+
+    #[test]
+    fn exit_keep_policy_classifies_without_selecting_a_backend() {
+        let color = TestRecorder::new(true);
+        let nv = MockNvapi::new(true);
+        let targets = vec![("E1".to_string(), "p1".to_string())];
+
+        let outcomes = run_exit(
+            ExitPolicy::KeepApplied,
+            &NoSelectSelector,
+            &color,
+            &nv,
+            &targets,
+            &connected_true,
+        );
+        assert_eq!(outcomes.len(), 1);
+        assert_eq!(outcomes[0].backend, "intel");
+        assert!(!outcomes[0].restored);
+        assert!(outcomes[0].detail.contains("best-effort"));
+    }
+
+    #[test]
+    fn exit_restore_routes_each_display_to_its_backend() {
+        let calls = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut backends = HashMap::new();
+        backends.insert("E2".to_string(), RecordingBackend::new("gdi", &calls));
+        backends.insert("E1".to_string(), RecordingBackend::new("nvapi", &calls));
+        let selector = MapSelector { backends };
+        let color = TestRecorder::new(true);
+        let nv = MockNvapi::new(true);
+        let targets = vec![
+            ("E1".to_string(), "p1".to_string()),
+            ("E2".to_string(), "p2".to_string()),
+        ];
+
+        let outcomes = run_exit(
+            ExitPolicy::Restore,
+            &selector,
+            &color,
+            &nv,
+            &targets,
+            &connected_true,
+        );
+        assert_eq!(outcomes.len(), 2);
+        assert!(outcomes.iter().all(|o| o.restored));
+        assert_eq!(outcomes[0].backend, "nvapi");
+        assert_eq!(outcomes[1].backend, "gdi");
+        assert_eq!(
+            *calls.lock().unwrap(),
+            vec!["restore:nvapi".to_string(), "restore:gdi".to_string()]
+        );
+    }
+
+    #[test]
+    fn exit_disconnected_display_is_skipped_without_writes() {
+        let calls = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut backends = HashMap::new();
+        backends.insert("E1".to_string(), RecordingBackend::new("nvapi", &calls));
+        let selector = MapSelector { backends };
+        let color = TestRecorder::new(true);
+        let nv = MockNvapi::new(true);
+        let targets = vec![("E1".to_string(), "p1".to_string())];
+
+        let outcomes = run_exit(
+            ExitPolicy::Restore,
+            &selector,
+            &color,
+            &nv,
+            &targets,
+            &|_| false,
+        );
+        assert_eq!(outcomes.len(), 1);
+        assert!(!outcomes[0].restored);
+        assert!(outcomes[0].detail.contains("disconnected"));
+        assert!(calls.lock().unwrap().is_empty(), "no write to a vanished display");
+    }
+
+    #[test]
+    fn exit_restore_failure_is_reported_not_hidden() {
+        let calls = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut backend = RecordingBackend::new("intel", &calls);
+        backend.restore_result = crate::color::ApplyResult {
+            icc_applied: false,
+            gamma_applied: false,
+            vibrance_applied: false,
+            error: Some("intel reset: driver refused".into()),
+        };
+        let mut backends = HashMap::new();
+        backends.insert("E1".to_string(), backend);
+        let selector = MapSelector { backends };
+        let color = TestRecorder::new(true);
+        let nv = MockNvapi::new(true);
+        let targets = vec![("E1".to_string(), "p1".to_string())];
+
+        let outcomes = run_exit(
+            ExitPolicy::Restore,
+            &selector,
+            &color,
+            &nv,
+            &targets,
+            &connected_true,
+        );
+        assert!(!outcomes[0].restored);
+        assert!(outcomes[0].detail.contains("driver refused"));
+    }
+
+    #[test]
+    fn exit_keep_detail_for_intel_does_not_claim_restore() {
+        let calls = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut backends = HashMap::new();
+        backends.insert("E1".to_string(), RecordingBackend::new("intel", &calls));
+        let selector = MapSelector { backends };
+        let color = TestRecorder::new(true);
+        let nv = MockNvapi::new(true);
+        let targets = vec![("E1".to_string(), "p1".to_string())];
+
+        let outcomes = run_exit(
+            ExitPolicy::KeepApplied,
+            &selector,
+            &color,
+            &nv,
+            &targets,
+            &connected_true,
+        );
+        assert!(!outcomes[0].restored);
+        assert!(outcomes[0].detail.contains("best-effort"));
+        assert!(!outcomes[0].detail.contains("restored"));
     }
 }

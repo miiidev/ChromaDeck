@@ -1,24 +1,29 @@
 import { type ReactNode } from "react";
 
-/** Neutral-dimming stat tile: label + mono value, dimmed when default. */
+/** Elevated stat tile: label + mono value, dimmed when neutral. Double-Bezel inner. */
 interface StatTileProps {
   label: string;
   value: string;
   neutral: boolean;
+  size?: "16" | "20" | "24" | "32";
 }
 
-export default function StatTile({ label, value, neutral }: StatTileProps): ReactNode {
-  // Long values (e.g. gamma "2.80") shrink instead of overflowing the tile
-  // at narrow grid columns. Grid items also need min-w-0 to shrink at all.
-  const valueSize =
-    value.length > 4 ? "text-[22px]" : value.length > 3 ? "text-[26px]" : "text-[30px]";
+const valueSizes = {
+  "16": "text-[18px]",
+  "20": "text-[22px]",
+  "24": "text-[26px]",
+  "32": "text-[30px]",
+} as const;
+
+export default function StatTile({ label, value, neutral, size = "24" }: StatTileProps): ReactNode {
+  const valueSize = valueSizes[size] ?? "text-[24px]";
   return (
-    <div className="flex flex-col items-stretch gap-1 min-w-0 overflow-hidden rounded-[10px] border border-ink/15 bg-paper px-3 py-[9px]">
-      <span className="text-[10px] font-mono font-medium tracking-[0.12em] uppercase text-muted-foreground truncate">
+    <div className="flex flex-col items-stretch gap-1 min-w-0 overflow-hidden rounded-brutal border border-border bg-inset px-3 py-2.5">
+      <span className="text-[10px] font-mono font-bold tracking-[0.12em] uppercase text-muted-foreground truncate">
         {label}
       </span>
       <span
-        className={`font-mono font-bold ${valueSize}/[1] tabular-nums whitespace-nowrap ${neutral ? "text-muted-foreground" : "text-ink"} value-swap`}
+        className={`font-mono font-bold ${valueSize}/[1] tabular-nums whitespace-nowrap ${neutral ? "text-muted-foreground" : "text-foreground"} value-swap`}
       >
         {value}
       </span>

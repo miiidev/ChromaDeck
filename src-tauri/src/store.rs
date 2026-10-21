@@ -2,12 +2,14 @@
 // Windows-only.  Persists presets as presets.json under %APPDATA%/ChromaDeck
 // and ICC profiles as profiles/{sha256}.icc, keyed by edid_id.
 
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
 
 fn default_vibrance() -> f64 { 50.0 }
+fn default_saturation() -> f64 { 50.0 }
 fn default_hue() -> f64 { 0.0 }
 fn legacy_model() -> String { "gain-v1".into() }
 
@@ -81,6 +83,8 @@ pub struct Preset {
     pub gamma: f64,
     #[serde(default = "default_vibrance")]
     pub vibrance: f64, // 0–100, 50 = neutral
+    #[serde(default = "default_saturation")]
+    pub saturation: f64, // 0–100, 50 = neutral (legacy JSON migrates to 50)
     #[serde(default = "default_hue")]
     pub hue_deg: f64, // 0–359 degrees
     #[serde(default = "legacy_model")]
@@ -99,6 +103,8 @@ pub struct PresetInput {
     pub rgb_gains: [f64; 3],
     pub gamma: f64,
     pub vibrance: f64,
+    #[serde(default = "default_saturation")]
+    pub saturation: f64, // 0–100, 50 = neutral
     pub hue_deg: f64,
     #[serde(default)]
     pub color_tag: Option<String>,
@@ -112,6 +118,10 @@ pub enum StoreError {
     Json(serde_json::Error),
     NotFound(String),
     InvalidInput(String),
+    /// The store opened degraded because a data file could not be parsed.
+    /// The file was backed up and every write is refused until it is
+    /// restored or removed, so an unreadable library is never replaced.
+    LoadFault(String),
 }
 
 impl std::fmt::Display for StoreError {
@@ -121,6 +131,7 @@ impl std::fmt::Display for StoreError {
             StoreError::Json(e) => write!(f, "JSON error: {e}"),
             StoreError::NotFound(id) => write!(f, "preset not found: {id}"),
             StoreError::InvalidInput(msg) => write!(f, "invalid input: {msg}"),
+            StoreError::LoadFault(msg) => write!(f, "write refused: {msg}"),
         }
     }
 }
@@ -150,8 +161,59 @@ fn is_neutral_standard(p: &Preset) -> bool {
         && p.gamma == 1.0
         && p.rgb_gains == [1.0, 1.0, 1.0]
         && p.vibrance == 50.0
+        && p.saturation == 50.0
         && p.hue_deg == 0.0
         && p.icc_hash.is_empty()
+}
+
+/// Files that failed to parse at load time. Non-empty means the store is
+/// read-only: an unreadable file must never be replaced by a later flush.
+#[derive(Debug, Default)]
+struct LoadFaults {
+    messages: Vec<String>,
+}
+
+impl LoadFaults {
+    fn any(&self) -> bool {
+        !self.messages.is_empty()
+    }
+
+    fn message(&self) -> Option<&str> {
+        self.messages.first().map(String::as_str)
+    }
+}
+
+/// Read and parse a JSON file. A missing file is `Ok(None)`. A file that
+/// exists but cannot be parsed is copied to `<name>.bak-<timestamp>-corrupt`
+/// and recorded in `faults`; the caller gets `None` so the app can still
+/// open, but `Store` refuses all writes so the bad file is never overwritten.
+fn read_json_or_backup<T: DeserializeOwned>(
+    path: &Path,
+    faults: &mut LoadFaults,
+) -> Result<Option<T>, StoreError> {
+    if !path.exists() {
+        return Ok(None);
+    }
+    let content = std::fs::read_to_string(path)?;
+    match serde_json::from_str(&content) {
+        Ok(value) => Ok(Some(value)),
+        Err(err) => {
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "data.json".into());
+            let bak_name = format!("{name}.bak-{}-corrupt", local_timestamp());
+            let bak_path = path.with_file_name(&bak_name);
+            let backup = match std::fs::copy(path, &bak_path) {
+                Ok(_) => format!("backed up as {bak_name}"),
+                Err(e) => format!("backup failed: {e}"),
+            };
+            let message = format!("{name} could not be parsed ({err}); {backup}");
+            eprintln!("ChromaDeck: {message}. Writes are blocked so the file is preserved.");
+            faults.messages.push(message);
+            Ok(None)
+        }
+    }
 }
 
 /// Manages the preset store on disk.
@@ -166,6 +228,7 @@ pub struct Store {
     applied: HashMap<String, String>, // edid_id -> preset_id (last manual apply; not verified)
     names_path: PathBuf,
     monitor_names: HashMap<String, String>, // edid_id -> user alias
+    faults: LoadFaults,
 }
 
 impl Store {
@@ -176,44 +239,32 @@ impl Store {
 
         std::fs::create_dir_all(&profiles_dir)?;
 
-        let presets: Vec<Preset> = if presets_path.exists() {
-            let content = std::fs::read_to_string(&presets_path)?;
-            serde_json::from_str(&content).unwrap_or_default()
-        } else {
-            Vec::new()
-        };
+        // A parse failure is reported and backed up, never treated as an
+        // empty collection: the next flush would otherwise overwrite the
+        // user's library. The store opens read-only until the file is fixed.
+        let mut faults = LoadFaults::default();
+        let presets: Vec<Preset> =
+            read_json_or_backup(&presets_path, &mut faults)?.unwrap_or_default();
 
         let pins_path = data_dir.join("pins.json");
-        let pinned: HashMap<String, String> = if pins_path.exists() {
-            let content = std::fs::read_to_string(&pins_path)?;
-            serde_json::from_str(&content).unwrap_or_default()
-        } else {
-            HashMap::new()
-        };
+        let pinned: HashMap<String, String> =
+            read_json_or_backup(&pins_path, &mut faults)?.unwrap_or_default();
 
         let names_path = data_dir.join("monitor_names.json");
-        let monitor_names: HashMap<String, String> = if names_path.exists() {
-            let content = std::fs::read_to_string(&names_path)?;
-            serde_json::from_str(&content).unwrap_or_default()
-        } else {
-            HashMap::new()
-        };
+        let monitor_names: HashMap<String, String> =
+            read_json_or_backup(&names_path, &mut faults)?.unwrap_or_default();
 
         let applied_path = data_dir.join("applied.json");
         // ── Stale-record honesty ─────────────────────────────────────────────
-        // The applied map is a session-recency hint: it records the last
-        // manually applied preset per monitor from the same process lifetime.
-        // Unlike pins, it is NOT verified against hardware — an unpinned record
-        // can over-claim if something external (game, HDR toggle, reboot) clears
-        // the gamma LUT or NVAPI registers. Hardware capture-and-compare is a
-        // separate future build; pins + the enforce loop remain the definitive
+        // The applied map is a recency hint: it records the last manually
+        // applied preset per monitor. Unlike pins, it is NOT continuously
+        // verified against hardware — an unpinned record can over-claim if
+        // something external (game, HDR toggle, reboot) clears the gamma LUT
+        // or NVAPI registers. Startup reasserts it once through the backend
+        // registry (Phase F); pins + the enforce loop remain the definitive
         // source of truth for guaranteed state.
-        let applied: HashMap<String, String> = if applied_path.exists() {
-            let content = std::fs::read_to_string(&applied_path)?;
-            serde_json::from_str(&content).unwrap_or_default()
-        } else {
-            HashMap::new()
-        };
+        let applied: HashMap<String, String> =
+            read_json_or_backup(&applied_path, &mut faults)?.unwrap_or_default();
 
         // ── Legacy migration: NVCP-scale preset upgrade ─────────────────────
         let mut store = Store {
@@ -227,7 +278,15 @@ impl Store {
             applied,
             names_path,
             monitor_names,
+            faults,
         };
+
+        // A corrupt file leaves the store read-only. Do not run any migration
+        // or sentinel write over data we could not parse — that is exactly how
+        // an unreadable library could be replaced by an empty one.
+        if store.faults.any() {
+            return Ok(store);
+        }
 
         // ── Monitor-enumeration generation wipe (one-shot, user-approved)
         // First run under real-monitor identities: back up legacy data,
@@ -305,6 +364,17 @@ impl Store {
         Ok(store)
     }
 
+    /// Refuse every write while any backing file is unreadable. This is what
+    /// keeps a corrupt `presets.json` from being replaced by an empty library.
+    fn ensure_writable(&self) -> Result<(), StoreError> {
+        match self.faults.message() {
+            Some(msg) => Err(StoreError::LoadFault(format!(
+                "{msg}; restore or remove it, then restart ChromaDeck"
+            ))),
+            None => Ok(()),
+        }
+    }
+
     /// Return all stored presets.
     pub fn list_presets(&self) -> Vec<Preset> {
         self.presets.clone()
@@ -312,6 +382,7 @@ impl Store {
 
     /// Create a new preset from `input`.  Returns the created `Preset`.
     pub fn create_preset(&mut self, input: PresetInput) -> Result<Preset, StoreError> {
+        self.ensure_writable()?;
         // Validate
         if input.name.trim().is_empty() {
             return Err(StoreError::InvalidInput("name cannot be empty".into()));
@@ -334,6 +405,11 @@ impl Store {
         if !(0.0..=100.0).contains(&input.vibrance) {
             return Err(StoreError::InvalidInput(
                 "vibrance must be in 0.0..=100.0".into(),
+            ));
+        }
+        if !(0.0..=100.0).contains(&input.saturation) {
+            return Err(StoreError::InvalidInput(
+                "saturation must be in 0.0..=100.0".into(),
             ));
         }
         if !(0.0..=359.0).contains(&input.hue_deg) {
@@ -379,6 +455,7 @@ impl Store {
             rgb_gains: input.rgb_gains,
             gamma: input.gamma,
             vibrance: input.vibrance,
+            saturation: input.saturation,
             hue_deg: input.hue_deg,
             color_model: "nvcp-v1".into(),
             color_tag: if let Some(tag) = input.color_tag {
@@ -397,6 +474,7 @@ impl Store {
         id: &str,
         input: PresetInput,
     ) -> Result<Preset, StoreError> {
+        self.ensure_writable()?;
         let idx = self
             .presets
             .iter()
@@ -424,6 +502,11 @@ impl Store {
         if !(0.0..=100.0).contains(&input.vibrance) {
             return Err(StoreError::InvalidInput(
                 "vibrance must be in 0.0..=100.0".into(),
+            ));
+        }
+        if !(0.0..=100.0).contains(&input.saturation) {
+            return Err(StoreError::InvalidInput(
+                "saturation must be in 0.0..=100.0".into(),
             ));
         }
         if !(0.0..=359.0).contains(&input.hue_deg) {
@@ -463,6 +546,7 @@ impl Store {
             rgb_gains: input.rgb_gains,
             gamma: input.gamma,
             vibrance: input.vibrance,
+            saturation: input.saturation,
             hue_deg: input.hue_deg,
             color_model: self.presets[idx].color_model.clone(),
             color_tag: if let Some(tag) = input.color_tag {
@@ -477,6 +561,7 @@ impl Store {
 
     /// Delete a preset by `id`.  Returns the deleted preset.
     pub fn delete_preset(&mut self, id: &str) -> Result<Preset, StoreError> {
+        self.ensure_writable()?;
         let idx = self
             .presets
             .iter()
@@ -537,6 +622,7 @@ impl Store {
 
     /// Persist the in-memory preset list to disk atomically.
     fn flush(&self) -> Result<(), StoreError> {
+        self.ensure_writable()?;
         let json = serde_json::to_string_pretty(&self.presets)?;
         let tmp = self.data_dir.join("presets.json.tmp");
         std::fs::write(&tmp, &json)?;
@@ -546,6 +632,7 @@ impl Store {
 
     /// Pin a preset to a monitor. Returns error when preset does not exist.
     pub fn pin_preset(&mut self, edid_id: &str, preset_id: &str) -> Result<(), StoreError> {
+        self.ensure_writable()?;
         let _ = self
             .presets
             .iter()
@@ -557,6 +644,9 @@ impl Store {
 
     /// Remove the pin for a monitor (no-op when absent).
     pub fn unpin_monitor(&mut self, edid_id: &str) {
+        if self.ensure_writable().is_err() {
+            return;
+        }
         if self.pinned.remove(edid_id).is_some() {
             let _ = self.flush_pins();
         }
@@ -570,6 +660,7 @@ impl Store {
     /// Set (or clear, when the trimmed alias is empty) a monitor's display
     /// name. Rejects aliases longer than 64 characters.
     pub fn set_monitor_name(&mut self, edid_id: &str, alias: &str) -> Result<(), StoreError> {
+        self.ensure_writable()?;
         let trimmed = alias.trim();
         if trimmed.chars().count() > 64 {
             return Err(StoreError::InvalidInput(
@@ -594,6 +685,7 @@ impl Store {
     /// Record a manual preset application for a monitor.
     /// Flushes to applied.json atomically.
     pub fn record_applied(&mut self, edid_id: &str, preset_id: &str) -> Result<(), StoreError> {
+        self.ensure_writable()?;
         self.applied.insert(edid_id.into(), preset_id.into());
         self.flush_applied()
     }
@@ -601,6 +693,9 @@ impl Store {
     /// Clear the applied record for a monitor (e.g. after reset).
     /// No-op when no record exists. Flushes only on change.
     pub fn clear_applied(&mut self, edid_id: &str) {
+        if self.ensure_writable().is_err() {
+            return;
+        }
         if self.applied.remove(edid_id).is_some() {
             let _ = self.flush_applied();
         }
@@ -611,8 +706,31 @@ impl Store {
         self.applied.clone()
     }
 
+    /// Every monitor that currently references `preset_id`, as the union of
+    /// pins and applied records (sorted, de-duplicated). Captured before a
+    /// preset delete so the affected displays can be restored through the
+    /// backend abstraction.
+    pub fn monitors_using(&self, preset_id: &str) -> Vec<String> {
+        let mut edids: Vec<String> = self
+            .pinned
+            .iter()
+            .filter(|(_, id)| id.as_str() == preset_id)
+            .map(|(edid, _)| edid.clone())
+            .chain(
+                self.applied
+                    .iter()
+                    .filter(|(_, id)| id.as_str() == preset_id)
+                    .map(|(edid, _)| edid.clone()),
+            )
+            .collect();
+        edids.sort();
+        edids.dedup();
+        edids
+    }
+
     /// Atomically persist the applied map to `applied.json`.
     fn flush_applied(&self) -> Result<(), StoreError> {
+        self.ensure_writable()?;
         let json = serde_json::to_string_pretty(&self.applied)?;
         let tmp = self.data_dir.join("applied.json.tmp");
         std::fs::write(&tmp, &json)?;
@@ -622,6 +740,7 @@ impl Store {
 
     /// Atomically persist the alias map to `monitor_names.json`.
     fn flush_names(&self) -> Result<(), StoreError> {
+        self.ensure_writable()?;
         let json = serde_json::to_string_pretty(&self.monitor_names)?;
         let tmp = self.data_dir.join("monitor_names.json.tmp");
         std::fs::write(&tmp, &json)?;
@@ -631,6 +750,7 @@ impl Store {
 
     /// Atomically persist the pin map to `pins.json`.
     fn flush_pins(&self) -> Result<(), StoreError> {
+        self.ensure_writable()?;
         let json = serde_json::to_string_pretty(&self.pinned)?;
         let tmp = self.data_dir.join("pins.json.tmp");
         std::fs::write(&tmp, &json)?;
@@ -717,8 +837,31 @@ pub fn delete_preset_cmd(
     state: tauri::State<'_, AppStore>,
     id: String,
 ) -> Result<Preset, String> {
-    let mut store = state.0.lock().map_err(|e| e.to_string())?;
-    store.delete_preset(&id).map_err(|e| e.to_string())
+    // Capture affected displays before the delete cascades pins/applied.
+    let (removed, affected) = {
+        let mut store = state.0.lock().map_err(|e| e.to_string())?;
+        let affected = store.monitors_using(&id);
+        let removed = store.delete_preset(&id).map_err(|e| e.to_string())?;
+        (removed, affected)
+    };
+
+    // Removing a preset restores every display that referenced it, with the
+    // same backend path as `reset_monitor` (parity with explicit Reset).
+    // Restore is best-effort: the delete itself already succeeded, and a
+    // disconnected display simply returns an offline result.
+    if !affected.is_empty() {
+        let api = crate::color::RealColorApi;
+        let nv = crate::nvapi::RealNvapi;
+        for (edid_id, result) in crate::color::restore_monitors(&api, &nv, &affected) {
+            if let Some(error) = result.error {
+                eprintln!(
+                    "ChromaDeck: preset {id} removed but {edid_id} could not be restored: {error}"
+                );
+            }
+        }
+    }
+
+    Ok(removed)
 }
 
 #[tauri::command]
@@ -812,6 +955,7 @@ mod tests {
             rgb_gains: [1.0, 1.0, 1.0],
             gamma: 2.2,
             vibrance: 50.0,
+            saturation: 50.0,
             hue_deg: 0.0,
             color_tag: None,
         }
@@ -950,6 +1094,7 @@ mod tests {
                     rgb_gains: [0.8, 0.9, 1.0],
                     gamma: 2.0,
                     vibrance: 50.0,
+                    saturation: 50.0,
                     hue_deg: 0.0,
                     color_tag: None,
                 },
@@ -1064,6 +1209,7 @@ mod tests {
                     rgb_gains: [0.5, 0.5, 0.5],
                     gamma: 2.5,
                     vibrance: 50.0,
+                    saturation: 50.0,
                     hue_deg: 0.0,
                     color_tag: None,
                 })
@@ -1091,7 +1237,75 @@ mod tests {
         let json = r#"{"id":"x","name":"Old","icc_hash":"","icc_filename":"","brightness":0.5,"contrast":0.5,"rgb_gains":[1.0,1.0,1.0],"gamma":2.2}"#;
         let preset: Preset = serde_json::from_str(json).unwrap();
         assert_eq!(preset.vibrance, 50.0);
+        assert_eq!(preset.saturation, 50.0);
         assert_eq!(preset.hue_deg, 0.0);
+    }
+
+    #[test]
+    fn legacy_json_without_saturation_gets_neutral_50() {
+        // Exact legacy presets.json shape: no `saturation` key at all.
+        let json = r#"{"id":"x","name":"Legacy","icc_hash":"","icc_filename":"","brightness":55.0,"contrast":60.0,"rgb_gains":[1.0,1.0,1.0],"gamma":2.2,"vibrance":75.0,"hue_deg":0.0,"color_model":"nvcp-v1","color_tag":null}"#;
+        let preset: Preset = serde_json::from_str(json).unwrap();
+        assert_eq!(preset.saturation, 50.0);
+        // The rest of the legacy record is unchanged.
+        assert_eq!(preset.brightness, 55.0);
+        assert_eq!(preset.contrast, 60.0);
+        assert_eq!(preset.vibrance, 75.0);
+    }
+
+    #[test]
+    fn preset_input_without_saturation_defaults_to_neutral() {
+        // Older clients / hand-written payloads may omit `saturation`. It must
+        // deserialize to the neutral 50 rather than hard-erroring on the
+        // command boundary.
+        let json = r#"{
+            "name": "No saturation",
+            "icc_path": null,
+            "brightness": 50.0,
+            "contrast": 50.0,
+            "rgb_gains": [1.0, 1.0, 1.0],
+            "gamma": 1.0,
+            "vibrance": 50.0,
+            "hue_deg": 0.0,
+            "color_tag": null
+        }"#;
+        let input: PresetInput = serde_json::from_str(json).unwrap();
+        assert_eq!(input.saturation, 50.0);
+    }
+
+    #[test]
+    fn saturation_round_trips_through_store() {
+        let dir = test_store_dir_unique();
+        let mut store = test_store_at(dir.clone());
+        let mut input = minimal_input();
+        input.saturation = 70.0;
+        let preset = store.create_preset(input).unwrap();
+        assert_eq!(preset.saturation, 70.0);
+        drop(store);
+
+        let reopened = Store::new(dir.clone()).unwrap();
+        assert_eq!(reopened.list_presets()[0].saturation, 70.0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn create_preset_rejects_bad_saturation() {
+        for bad in [-1.0, 101.0] {
+            let mut input = minimal_input();
+            input.saturation = bad;
+            let err = test_store().create_preset(input).unwrap_err();
+            assert!(err.to_string().contains("saturation"), "bad value {bad}");
+        }
+    }
+
+    #[test]
+    fn update_preset_carries_saturation() {
+        let mut store = test_store();
+        let preset = store.create_preset(minimal_input()).unwrap();
+        let mut input = minimal_input();
+        input.saturation = 20.0;
+        let updated = store.update_preset(&preset.id, input).unwrap();
+        assert_eq!(updated.saturation, 20.0);
     }
 
     #[test]
@@ -1111,13 +1325,15 @@ mod tests {
     }
 
     #[test]
-    fn create_preset_carries_vibrance_and_hue() {
+    fn create_preset_carries_vibrance_hue_and_saturation() {
         let mut store = test_store();
         let mut input = minimal_input();
         input.vibrance = 75.0;
+        input.saturation = 65.0;
         input.hue_deg = 120.0;
         let preset = store.create_preset(input).unwrap();
         assert_eq!(preset.vibrance, 75.0);
+        assert_eq!(preset.saturation, 65.0);
         assert_eq!(preset.hue_deg, 120.0);
     }
 
@@ -1190,6 +1406,7 @@ mod tests {
                     rgb_gains: [1.0, 1.0, 1.0],
                     gamma: 2.2,
                     vibrance: 50.0,
+                    saturation: 50.0,
                     hue_deg: 0.0,
                     color_tag: Some("#ef4444".into()),
                 },
@@ -1217,6 +1434,7 @@ mod tests {
                     rgb_gains: [1.0, 1.0, 1.0],
                     gamma: 2.2,
                     vibrance: 50.0,
+                    saturation: 50.0,
                     hue_deg: 0.0,
                     color_tag: Some("".into()),
                 },
@@ -1241,6 +1459,7 @@ mod tests {
                     rgb_gains: [1.0, 1.0, 1.0],
                     gamma: 2.2,
                     vibrance: 50.0,
+                    saturation: 50.0,
                     hue_deg: 0.0,
                     color_tag: Some("invalid".into()),
                 },
@@ -1387,18 +1606,68 @@ mod tests {
     }
 
     #[test]
-    fn malformed_applied_defaults_empty() {
+    fn malformed_applied_is_backed_up_and_blocks_writes() {
         let dir = test_store_dir_unique();
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(
-            dir.join("applied.json"),
-            br#"this is not json at all"#,
-        )
-        .unwrap();
+        let corrupt = br#"this is not json at all"#;
+        std::fs::write(dir.join("applied.json"), corrupt).unwrap();
         std::fs::write(dir.join("presets.json"), b"[]").unwrap();
-        std::fs::write(dir.join(".monitor-enumeration-v2"), b"").unwrap();
-        let store = Store::new(dir).unwrap();
+
+        let mut store = Store::new(dir.clone()).unwrap();
         assert!(store.list_applied().is_empty());
+
+        let backups: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|n| n.starts_with("applied.json.bak-") && n.ends_with("-corrupt"))
+            .collect();
+        assert_eq!(backups.len(), 1, "corrupt applied file is backed up");
+        assert_eq!(std::fs::read(dir.join(&backups[0])).unwrap(), corrupt);
+
+        // Every write is refused, so the unreadable file is never replaced.
+        let err = store
+            .record_applied("EDID-001", "preset-1")
+            .unwrap_err();
+        assert!(matches!(err, StoreError::LoadFault(_)), "{err}");
+        assert_eq!(std::fs::read(dir.join("applied.json")).unwrap(), corrupt);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn corrupt_presets_json_is_backed_up_and_writes_refused() {
+        let dir = test_store_dir_unique();
+        std::fs::create_dir_all(&dir).unwrap();
+        // Truncated record: valid prefix, invalid JSON overall.
+        let corrupt = br#"[{"id":"x","name":"Broken""#;
+        std::fs::write(dir.join("presets.json"), corrupt).unwrap();
+
+        let mut store = Store::new(dir.clone()).unwrap();
+        assert!(
+            store.list_presets().is_empty(),
+            "unparseable data must not be served as an empty library"
+        );
+
+        let backups: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|n| n.starts_with("presets.json.bak-") && n.ends_with("-corrupt"))
+            .collect();
+        assert_eq!(backups.len(), 1, "corrupt preset file is backed up");
+        assert_eq!(std::fs::read(dir.join(&backups[0])).unwrap(), corrupt);
+
+        // The next save must be refused: the corrupt library stays on disk
+        // for recovery instead of being overwritten by an empty one.
+        let err = store.create_preset(minimal_input()).unwrap_err();
+        assert!(matches!(err, StoreError::LoadFault(_)), "{err}");
+        assert_eq!(std::fs::read(dir.join("presets.json")).unwrap(), corrupt);
+        assert!(
+            !dir.join("presets.json.tmp").exists(),
+            "a refused save must not leave a temp file behind"
+        );
+
+        // No migration sentinels were written over unreadable data.
+        assert!(!dir.join(".monitor-enumeration-v2").exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // ── monitor-enumeration wipe (backup + sentinel) ──────────────────────
@@ -1596,5 +1865,52 @@ mod tests {
             Some(&"std-1".to_string()),
             "user-tweaked Standard keeps its applied record"
         );
+    }
+
+    #[test]
+    fn standard_seed_purge_keeps_saturation_tweaked_standard() {
+        let dir = test_store_dir_unique();
+        // Saturation defaults to 50 on legacy JSON; an explicit non-neutral
+        // value means the user tuned it, so the Standard must survive.
+        let tweaked = NEUTRAL_STANDARD_JSON.replace(
+            "\"vibrance\":50.0",
+            "\"vibrance\":50.0,\"saturation\":60.0",
+        );
+        write_standard_purge_fixture(&dir, &tweaked);
+        let store = Store::new(dir).unwrap();
+        assert_eq!(
+            store.list_presets().len(),
+            2,
+            "saturation-tweaked Standard survives the purge"
+        );
+        assert_eq!(
+            store.list_pins().get("EDID-A"),
+            Some(&"std-1".to_string()),
+            "saturation-tweaked Standard keeps its pin"
+        );
+    }
+
+    // ── removal restore targeting ─────────────────────────────────────────
+
+    #[test]
+    fn monitors_using_unions_pinned_and_applied_records() {
+        let mut store = test_store();
+        let preset = store.create_preset(minimal_input()).unwrap();
+        let other = store.create_preset(minimal_input()).unwrap();
+
+        store.pin_preset("EDID-A", &preset.id).unwrap();
+        store.record_applied("EDID-B", &preset.id).unwrap();
+        // A display that appears in both maps must be reported once.
+        store.pin_preset("EDID-C", &preset.id).unwrap();
+        store.record_applied("EDID-C", &preset.id).unwrap();
+        // Another preset's displays must not leak in.
+        store.pin_preset("EDID-D", &other.id).unwrap();
+        store.record_applied("EDID-E", &other.id).unwrap();
+
+        assert_eq!(
+            store.monitors_using(&preset.id),
+            vec!["EDID-A".to_string(), "EDID-B".to_string(), "EDID-C".to_string()]
+        );
+        assert!(store.monitors_using("does-not-exist").is_empty());
     }
 }

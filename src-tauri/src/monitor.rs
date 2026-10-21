@@ -225,6 +225,20 @@ fn identify_monitor(
     (instance_id.to_string(), model, String::new())
 }
 
+/// Derive ChromaDeck's stable `edid_id` from a raw 128‑byte EDID block, using
+/// the exact same chain as `identify_monitor`: EDID serial string if present,
+/// else `EDID:{mfr:04X}-{prod:04X}-{ser:08X}`. Shared by the Intel backend so
+/// its IGCL EDID read produces byte-identical keys to `list_monitors`.
+pub(crate) fn edid_id_from_bytes(ed: &[u8; 128]) -> String {
+    if let Some(serial) = parse_edid_serial(ed) {
+        return serial;
+    }
+    let mfr = u16::from_be_bytes([ed[8], ed[9]]);
+    let prod = u16::from_le_bytes([ed[10], ed[11]]);
+    let ser = u32::from_le_bytes([ed[12], ed[13], ed[14], ed[15]]);
+    format!("EDID:{mfr:04X}-{prod:04X}-{ser:08X}")
+}
+
 // ── EDID registry reader ─────────────────────────────────────────────────
 struct EdidBlob(Vec<u8>);
 
@@ -476,6 +490,21 @@ mod tests {
         assert_eq!(id, "EDID:0443-1234-00000000");
         assert_eq!(model, "ABC 1234");
         assert_eq!(serial, "");
+    }
+
+    #[test]
+    fn edid_id_from_bytes_matches_identify_monitor_unit_id() {
+        // Mirrors the internal AUO panel (mfr 0x06AF, prod 0xF7AD, ser 0).
+        let mut buf = Box::new([0u8; 128]);
+        buf[0..8].copy_from_slice(&[0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00]);
+        buf[8] = 0x06;
+        buf[9] = 0xAF;
+        buf[10] = 0xAD;
+        buf[11] = 0xF7; // product LE 0xF7AD
+        assert_eq!(edid_id_from_bytes(&buf), "EDID:06AF-F7AD-00000000");
+        // And the same bytes through identify_monitor must agree.
+        let (id, _, _) = identify_monitor(Some(&*buf), "MONITOR\\X\\0", "GDI Name");
+        assert_eq!(id, edid_id_from_bytes(&buf));
     }
 
     #[test]

@@ -7,6 +7,7 @@ const NEUTRAL: ChipParams = {
   contrast: 50,
   rgb_gains: [1.0, 1.0, 1.0],
   vibrance: 50,
+  saturation: 50,
   hue_deg: 0,
 };
 
@@ -37,17 +38,24 @@ describe("deviatingChips", () => {
     expect(chips.map((c) => c.key)).toEqual(["gain-R", "gain-G", "gain-B"]);
   });
 
-  it("covers brightness, contrast, vibrance, hue", () => {
+  it("covers brightness, contrast, vibrance, saturation, hue", () => {
     const chips = deviatingChips(
-      withParams({ brightness: 65, contrast: 40, vibrance: 80, hue_deg: 15 }),
+      withParams({ brightness: 65, contrast: 40, vibrance: 80, saturation: 70, hue_deg: 15 }),
     );
     expect(chips.map((c) => c.key)).toEqual([
       "brightness",
       "contrast",
       "vibrance",
+      "saturation",
       "hue",
     ]);
-    expect(chips.map((c) => c.label)).toEqual(["B65", "C40", "V80", "H15°"]);
+    expect(chips.map((c) => c.label)).toEqual(["B65", "C40", "V80", "S70", "H15°"]);
+  });
+
+  it("shows a saturation-only preset", () => {
+    const chips = deviatingChips(withParams({ saturation: 70 }));
+    expect(chips).toHaveLength(1);
+    expect(chips[0]).toMatchObject({ key: "saturation", label: "S70" });
   });
 
   it("ignores float noise at neutral", () => {
@@ -57,10 +65,11 @@ describe("deviatingChips", () => {
     expect(chips).toEqual([]);
   });
 
-  it("keeps chip order stable: gamma, brightness, contrast, gains, vibrance, hue", () => {
+  it("keeps chip order stable: gamma, brightness, contrast, gains, vibrance, saturation, hue", () => {
     const chips = deviatingChips(
       withParams({
         hue_deg: 10,
+        saturation: 65,
         vibrance: 60,
         rgb_gains: [1, 1, 0.9],
         contrast: 55,
@@ -74,6 +83,7 @@ describe("deviatingChips", () => {
       "contrast",
       "gain-B",
       "vibrance",
+      "saturation",
       "hue",
     ]);
   });

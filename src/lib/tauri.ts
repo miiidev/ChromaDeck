@@ -2,7 +2,7 @@
 // Mirror the Rust backend commands defined in src-tauri/src/monitor.rs and store.rs.
 
 import { invoke } from "@tauri-apps/api/core";
-import type { ApplyResult, CapturedState, EnforceEvent, Monitor, MonitorProbe, Preset, PresetInput } from "./types";
+import type { ApplyResult, CapturedState, DisplayCapabilities, EnforceEvent, Monitor, MonitorProbe, Preset, PresetInput } from "./types";
 
 /** Fetch the list of connected monitors with their EDID identifiers. */
 export async function listMonitors(): Promise<Monitor[]> {
@@ -69,7 +69,9 @@ export async function importIcc(srcPath: string): Promise<string> {
 
 /**
  * Apply a colour preset to a target monitor.
- * Returns an ApplyResult indicating which steps succeeded.
+ * Returns an ApplyResult indicating which steps succeeded, plus additive
+ * per-adjustment outcomes (applied/skipped/failed) when the backend reports
+ * them. Legacy fields keep their original meaning.
  */
 export async function applyPreset(id: string, targetEdid: string): Promise<ApplyResult> {
   return invoke<ApplyResult>("apply_preset_cmd", { id, targetEdid });
@@ -102,6 +104,15 @@ export async function probeMonitor(edidId: string): Promise<MonitorProbe> {
  */
 export async function vibranceSupported(edidId: string): Promise<boolean> {
   return invoke<boolean>("vibrance_supported_cmd", { edidId });
+}
+
+/**
+ * Per-adjustment capability report for a monitor: which backend applies the
+ * preset and which adjustments it supports (with reasons when it does not).
+ * Resolves by EDID; arg name must be camelCase (Tauri v2 convention).
+ */
+export async function getDisplayCapabilities(edidId: string): Promise<DisplayCapabilities> {
+  return invoke<DisplayCapabilities>("get_display_capabilities", { edidId });
 }
 
 // ── Pin enforcement ─────────────────────────────────────────────────────────

@@ -1,21 +1,12 @@
-import { useState, useRef, useEffect } from "react";
+import { useState } from "react";
 import type { Monitor, Preset } from "../lib/types";
 import { identifyMonitors, resetMonitor, setMonitorName, unpinMonitor, probeMonitor } from "../lib/tauri";
-import { prefersReducedMotion } from "../lib/motion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import WindowDots from "@/components/ui/window-dots";
-import { MonitorCheck, ChevronLeft, ChevronRight } from "lucide-react";
-
-interface Props {
-  monitors: Monitor[];
-  presets: Preset[];
-  pins: Record<string, string>;
-  onRefresh: () => void;
-  onPinChange: () => void;
-  onApplyFor: (preset: Preset, edidId: string) => void;
-}
+import { MonitorCheck, Pencil, Stethoscope } from "lucide-react";
+import { cn } from "cn";
 
 /** Compact inline monitor rename */
 function MonitorNameEditor({ monitor, onRefreshParent }: { monitor: Monitor; onRefreshParent: () => void }) {
@@ -36,9 +27,9 @@ function MonitorNameEditor({ monitor, onRefreshParent }: { monitor: Monitor; onR
   if (!editing) {
     return (
       <span className="inline-flex items-center gap-1.5 min-w-0">
-        <span className={`text-xs font-medium truncate ${monitor.connected ? "text-foreground" : "text-muted-foreground"}`}>{displayName}</span>
-        <Button variant="ghost" size="xs" onClick={() => { setDraft(monitor.alias); setEditing(true); }} title="Rename monitor" aria-label={`Rename monitor ${displayName}`}>
-          ✎
+        <span className={`text-sm font-medium truncate ${monitor.connected ? "text-foreground" : "text-muted-foreground"}`}>{displayName}</span>
+        <Button variant="ghost" size="icon-xs" onClick={() => { setDraft(monitor.alias); setEditing(true); }} title="Rename monitor" aria-label={`Rename monitor ${displayName}`}>
+          <Pencil className="size-3.5" />
         </Button>
       </span>
     );
@@ -55,12 +46,12 @@ function MonitorNameEditor({ monitor, onRefreshParent }: { monitor: Monitor; onR
         onChange={(e) => setDraft((e.target as HTMLInputElement).value)}
         onKeyDown={(e) => { if (e.key === "Enter") void save(); else if (e.key === "Escape") setEditing(false); }}
         disabled={saving}
-        className="h-7 w-28 px-2 text-xs"
+        className="h-8 w-32 px-2 text-sm"
       />
-      <Button variant="secondary" size="xs" onClick={() => void save()} disabled={saving}>
+      <Button variant="secondary" size="icon-xs" onClick={() => void save()} disabled={saving}>
         {saving ? "…" : "Save"}
       </Button>
-      <Button variant="ghost" size="xs" onClick={() => setEditing(false)} disabled={saving}>
+      <Button variant="ghost" size="icon-xs" onClick={() => setEditing(false)} disabled={saving}>
         Cancel
       </Button>
     </span>
@@ -77,16 +68,19 @@ function MonitorResetButton({ edidId, onPinChange }: { edidId: string; onPinChan
     setMessage(null);
     try {
       try {
-        await unpinMonitor(edidId);
-      } catch {
-        // ignore
-      }
-      try {
         const result = await resetMonitor(edidId);
         if (result.error) {
+          // Keep the pin: a failed restore (e.g. Intel with no captured LUT)
+          // must not silently drop the user's enforcement intent.
           setMessage({ text: `Reset failed: ${result.error}`, ok: false });
           setTimeout(() => setMessage(null), 6000);
         } else {
+          // Unpin only after the restore actually succeeded.
+          try {
+            await unpinMonitor(edidId);
+          } catch {
+            // best-effort: the reset itself already succeeded
+          }
           setMessage({ text: "Reset to default", ok: true });
           setTimeout(() => setMessage(null), 3000);
         }
@@ -103,13 +97,13 @@ function MonitorResetButton({ edidId, onPinChange }: { edidId: string; onPinChan
   return (
     <span className="inline-flex items-center gap-2">
       {message && (
-        <span key={message.text} aria-live="polite" className={`transient-enter text-xs font-bold ${message.ok ? "text-ink" : "text-danger-ink"}`}>
+        <span key={message.text} aria-live="polite" className={`transient-enter text-xs font-bold ${message.ok ? "text-foreground" : "text-danger-ink"}`}>
           {message.text}
         </span>
       )}
       <Button
         variant="outline"
-        size="xs"
+        size="icon-xs"
         onClick={handleReset}
         disabled={resetting}
         title="Reset this monitor to default colours (identity gamma)"
@@ -134,11 +128,13 @@ function MonitorProbeButton({ edidId }: { edidId: string }) {
         p.vibrance_supported && p.vibrance !== null && p.vibrance !== undefined
           ? `vib ${p.vibrance} hue ${p.hue ?? "?"}`
           : "vib n/a";
+      // Intel's colour lives in the pixtx LUT, not the OS ramp.
+      const rampLabel = p.backend_id === "intel" ? "lut" : "ramp";
       const ramp =
         p.ramp_peak !== null && p.ramp_peak !== undefined
-          ? `ramp ${p.ramp_peak.toFixed(2)}${p.ramp_identity ? "" : " !"}`
-          : "ramp n/a";
-      setReport(`${p.engine} · ${vib} · ${ramp}`);
+          ? `${rampLabel} ${p.ramp_peak.toFixed(2)}${p.ramp_identity ? "" : " !"}`
+          : `${rampLabel} n/a`;
+      setReport(`${p.backend_id ?? p.engine} · ${vib} · ${ramp}`);
       setTimeout(() => setReport(null), 8000);
     } catch (err) {
       setReport(`Probe failed: ${String(err)}`);
@@ -153,31 +149,25 @@ function MonitorProbeButton({ edidId }: { edidId: string }) {
       {report && (
         <span key={report} aria-live="polite" className="text-xs mono text-muted-foreground">{report}</span>
       )}
-      <Button variant="ghost" size="xs" onClick={() => void handleProbe()} disabled={probing} title="Read live hardware state for this monitor (changes nothing)">
-        {probing ? "…" : "Probe"}
+      <Button variant="ghost" size="icon-xs" onClick={() => void handleProbe()} disabled={probing} title="Read live hardware state for this monitor (changes nothing)">
+        {probing ? "…" : <Stethoscope className="size-3.5" />}
       </Button>
     </span>
   );
 }
 
-export default function MonitorSidebar({ monitors, presets, pins, onRefresh, onPinChange, onApplyFor }: Props) {
+export default function MonitorSidebar({ monitors, presets, pins, onRefresh, onPinChange, onApplyFor }: {
+  monitors: Monitor[];
+  presets: Preset[];
+  pins: Record<string, string>;
+  onRefresh: () => void;
+  onPinChange: () => void;
+  onApplyFor: (preset: Preset, edidId: string) => void;
+}) {
   const [identifying, setIdentifying] = useState(false);
-  const trackRef = useRef<HTMLDivElement>(null);
-  const [canScroll, setCanScroll] = useState(false);
 
-  // Show carousel arrows only when the track actually overflows.
-  useEffect(() => {
-    const track = trackRef.current;
-    if (!track) {
-      setCanScroll(false);
-      return;
-    }
-    const update = () => setCanScroll(track.scrollWidth > track.clientWidth + 1);
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(track);
-    return () => ro.disconnect();
-  }, [monitors.length]);
+  if (monitors.length === 0) return null;
+
   const handleIdentify = async () => {
     setIdentifying(true);
     try {
@@ -189,47 +179,14 @@ export default function MonitorSidebar({ monitors, presets, pins, onRefresh, onP
     }
   };
 
-  const scrollTrack = (dir: 1 | -1) => {
-    const track = trackRef.current;
-    if (!track) return;
-    track.scrollBy({
-      left: dir * track.clientWidth * 0.8,
-      behavior: prefersReducedMotion() ? "auto" : "smooth",
-    });
-  };
-
-  if (monitors.length === 0) return null;
-
   return (
-    <aside className="w-full shrink-0 rounded-brutal border-2 border-ink bg-white text-ink shadow-brutal-sm shell-enter" style={{ ["--shell-delay" as string]: "60ms" }}>
-      <div className="flex items-center gap-2 px-3 py-2 border-b-2 border-ink">
+    <aside className="w-full shrink-0 rounded-card border border-border bg-surface text-foreground shell-enter" style={{ ["--shell-delay" as string]: "60ms" }}>
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
         <WindowDots />
-        <span className="text-xs font-bold text-ink uppercase tracking-widest mono">
+        <span className="text-xs font-bold text-foreground uppercase tracking-[0.12em] mono">
           Monitors ({monitors.length})
         </span>
         <span className="flex-1" />
-        {canScroll && (
-          <span className="hidden sm:inline-flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="xs"
-              onClick={() => scrollTrack(-1)}
-              title="Scroll monitors left"
-              aria-label="Scroll monitors left"
-            >
-              <ChevronLeft className="size-3.5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="xs"
-              onClick={() => scrollTrack(1)}
-              title="Scroll monitors right"
-              aria-label="Scroll monitors right"
-            >
-              <ChevronRight className="size-3.5" />
-            </Button>
-          </span>
-        )}
         <Button
           variant="outline"
           size="sm"
@@ -237,65 +194,71 @@ export default function MonitorSidebar({ monitors, presets, pins, onRefresh, onP
           disabled={identifying}
           title="Show monitor numbers on each display"
         >
-          <MonitorCheck className="size-3.5" />
+          <MonitorCheck className="size-3.5 stroke-[1.75]" />
           {identifying ? "…" : "Identify"}
         </Button>
       </div>
-      <div ref={trackRef} className="flex gap-2 overflow-x-auto carousel-scroll snap-x snap-mandatory p-2 sidebar-content-enter">
-          {monitors.map((m) => {
-            const pinnedId = pins[m.edid_id];
-            const pinnedPreset = pinnedId ? presets.find((p) => p.id === pinnedId) : null;
-            return (
-              <div
-                key={m.edid_id}
-                className={`flex w-64 shrink-0 snap-start flex-col gap-1.5 rounded-lg border-2 p-2 monitor-row-enter ${
-                  m.connected ? "border-ink bg-white" : "border-dashed border-ink bg-paper"
-                }`}
-                style={{ "--stagger-ms": `${Math.min(monitors.indexOf(m) * 60, 300)}ms` } as Record<string, string>}
-              >
-                <div className="flex items-center gap-2 text-foreground">
-                  <span
-                    className={`status-dot ${m.connected ? "status-dot-connected" : "status-dot-offline"}`}
-                    title={m.connected ? "Connected" : "Offline"}
-                  />
-                  <MonitorNameEditor monitor={m} onRefreshParent={onRefresh} />
-                </div>
-                {m.serial && (
-                  <span className="text-xs text-muted-foreground mono" title={m.serial}>{m.serial}</span>
-                )}
-                <div className="flex flex-wrap items-center gap-1">
-                  {!m.connected && (
-                    <Badge variant="outline">
-                      OFFLINE
-                    </Badge>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 p-3">
+        {monitors.map((m, index) => {
+          const pinnedId = pins[m.edid_id];
+          const pinnedPreset = pinnedId ? presets.find((p) => p.id === pinnedId) : null;
+          const isPinned = !!pinnedPreset;
+          return (
+            <div
+              key={m.edid_id}
+              className={cn(
+                "flex flex-col gap-2 rounded-brutal p-3 border border-border bg-surface transition-colors",
+                isPinned ? "border-primary" : "",
+                m.connected ? "" : "border-dashed bg-surface/50"
+              )}
+              style={{ "--stagger-ms": `${Math.min(index * 60, 180)}ms` } as Record<string, string>}
+            >
+              <div className="flex items-center gap-2 text-foreground">
+                <span
+                  className={cn(
+                    "size-2.5 rounded-full flex-shrink-0",
+                    m.connected ? "bg-primary" : "bg-muted-foreground"
                   )}
-                  {pinnedPreset && (
-                    <span className="inline-flex items-center gap-1">
-                      <span className="status-dot status-dot-pinned" title={`Pinned: ${pinnedPreset.name}`} />
-                      <Badge variant="pinned" title={`Pinned: ${pinnedPreset.name}`}>
-                        PINNED: {pinnedPreset.name}
-                      </Badge>
-                    </span>
-                  )}
-                </div>
-                <div className="flex flex-wrap items-center gap-1">
-                  {pinnedPreset && m.connected && (
-                    <Button variant="default" size="xs" onClick={() => onApplyFor(pinnedPreset, m.edid_id)} title={`Apply presets to ${m.alias || m.model}`}>
-                      Apply…
-                    </Button>
-                  )}
-                  {pinnedId && (
-                    <Button variant="outline" size="xs" onClick={async () => { try { await unpinMonitor(m.edid_id); onPinChange(); } catch { /* silent */ } }} title="Unpin from this monitor">
-                      Unpin
-                    </Button>
-                  )}
-                  <MonitorResetButton edidId={m.edid_id} onPinChange={onPinChange} />
-                  <MonitorProbeButton edidId={m.edid_id} />
-                </div>
+                  title={m.connected ? "Connected" : "Offline"}
+                />
+                <MonitorNameEditor monitor={m} onRefreshParent={onRefresh} />
               </div>
-            );
-          })}
-        </div>
+              {m.serial && (
+                <span className="text-xs text-muted-foreground mono" title={m.serial}>{m.serial}</span>
+              )}
+              <div className="flex flex-wrap items-center gap-1">
+                {!m.connected && (
+                  <Badge variant="outline">
+                    OFFLINE
+                  </Badge>
+                )}
+                {pinnedPreset && (
+                  <span className="inline-flex items-center gap-1">
+                    <span className="size-2 rounded-md bg-primary" title={`Pinned: ${pinnedPreset.name}`} />
+                    <Badge variant="pinned" title={`Pinned: ${pinnedPreset.name}`}>
+                      PINNED: {pinnedPreset.name}
+                    </Badge>
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-1">
+                {pinnedPreset && m.connected && (
+                  <Button variant="default" size="icon-xs" onClick={() => onApplyFor(pinnedPreset, m.edid_id)} title={`Apply ${pinnedPreset.name} to ${m.alias || m.model}`}>
+                    Apply
+                  </Button>
+                )}
+                {pinnedId && (
+                  <Button variant="outline" size="icon-xs" onClick={async () => { try { await unpinMonitor(m.edid_id); onPinChange(); } catch { /* silent */ } }} title="Unpin from this monitor">
+                    Unpin
+                  </Button>
+                )}
+                <MonitorResetButton edidId={m.edid_id} onPinChange={onPinChange} />
+                <MonitorProbeButton edidId={m.edid_id} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </aside>
   );
 }

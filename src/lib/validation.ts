@@ -9,6 +9,7 @@ export interface ValidationErrors {
   rgb_gains?: string;
   icc_path?: string;
   vibrance?: string;
+  saturation?: string;
   hue_deg?: string;
   nvcp?: string;
   color_tag?: string;
@@ -58,6 +59,12 @@ export function validatePreset(input: Partial<PresetInput>): ValidationErrors {
     }
   }
 
+  if (input.saturation !== undefined) {
+    if (typeof input.saturation !== "number" || input.saturation < 0 || input.saturation > 100) {
+      errors.saturation = "Saturation must be between 0 and 100";
+    }
+  }
+
   if (input.hue_deg !== undefined) {
     if (typeof input.hue_deg !== "number" || input.hue_deg < 0 || input.hue_deg > 359) {
       errors.hue_deg = "Hue must be between 0 and 359";
@@ -86,6 +93,7 @@ export function validatePresetForm(
     contrast: input.contrast,
     rgb_gains: input.rgb_gains,
     vibrance: input.vibrance,
+    saturation: input.saturation,
     hue_deg: input.hue_deg,
     color_tag: input.color_tag,
   });

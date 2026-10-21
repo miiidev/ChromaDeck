@@ -71,6 +71,7 @@ export default function PreviewStrip({ preset, height = 72, showTag = false }: P
       gamma: 1.0,
       rgb_gains: [1, 1, 1],
       vibrance: 50,
+      saturation: 50,
       hue_deg: 0,
     };
 

@@ -173,6 +173,13 @@ pub(crate) fn fns() -> Option<&'static NvapiFns> {
     NVAPI.get_or_init(|| load_nvapi("nvapi64.dll")).as_ref()
 }
 
+/// Whether NVAPI has already been initialised. Unlike [`fns`], this never
+/// loads the library, so shutdown/logging classification cannot stall on a
+/// driver load.
+pub(crate) fn loaded() -> bool {
+    NVAPI.get().is_some_and(|fns| fns.is_some())
+}
+
 // ── NvColorApi trait (EDID-keyed, same convention as ColorApi) ───────────
 
 pub trait NvColorApi {

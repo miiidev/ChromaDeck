@@ -8,6 +8,7 @@ function identityParams(overrides?: Partial<PreviewParams>): PreviewParams {
     gamma: 1.0,
     rgb_gains: [1, 1, 1],
     vibrance: 50,
+    saturation: 50,
     hue_deg: 0,
     ...overrides,
   };
@@ -74,6 +75,40 @@ describe("applyPreviewPixel", () => {
     expect(result.r).toBeCloseTo(0.3, 10);
     expect(result.g).toBeCloseTo(0.7, 10);
     expect(result.b).toBeCloseTo(0.1, 10);
+  });
+
+  // ── Saturation=50 neutrality ───────────────────────────────────────────
+
+  it("saturation=50 is a no-op for a colour pixel", () => {
+    const result = applyPreviewPixel(
+      { r: 0.3, g: 0.7, b: 0.1 },
+      identityParams({ saturation: 50 }),
+    );
+    expect(result.r).toBeCloseTo(0.3, 10);
+    expect(result.g).toBeCloseTo(0.7, 10);
+    expect(result.b).toBeCloseTo(0.1, 10);
+  });
+
+  // ── Saturation extremes ────────────────────────────────────────────────
+
+  it("saturation=0 collapses a colour pixel to its luma", () => {
+    const result = applyPreviewPixel(
+      { r: 0.9, g: 0.1, b: 0.1 },
+      identityParams({ saturation: 0 }),
+    );
+    expect(result.r).toBeCloseTo(result.g, 10);
+    expect(result.g).toBeCloseTo(result.b, 10);
+    expect(result.r).toBeCloseTo(0.2126 * 0.9 + 0.7152 * 0.1 + 0.0722 * 0.1, 10);
+  });
+
+  it("saturation=100 doubles chroma around luma", () => {
+    const result = applyPreviewPixel(
+      { r: 0.6, g: 0.4, b: 0.4 },
+      identityParams({ saturation: 100 }),
+    );
+    const luma = 0.2126 * 0.6 + 0.7152 * 0.4 + 0.0722 * 0.4;
+    expect(result.r).toBeCloseTo(luma + (0.6 - luma) * 2, 10);
+    expect(result.g).toBeCloseTo(luma + (0.4 - luma) * 2, 10);
   });
 
   // ── Output clamped 0..1 on extremes ────────────────────────────────────

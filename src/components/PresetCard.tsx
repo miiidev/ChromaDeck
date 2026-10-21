@@ -12,8 +12,17 @@ import StatTile from "./StatTile";
 import { Checkbox, CheckboxIndicator } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { Copy, Pencil, PinOff, Trash2 } from "lucide-react";
 import { cn } from "cn";
+
+/**
+ * Cell inside the card action strip (edit / duplicate / delete / unpin).
+ * Hairline divider on the left, muted icon that brightens on hover.
+ * Button-in-Button pattern for the trailing icon.
+ */
+const iconStripButton =
+  "inline-flex size-7 shrink-0 items-center justify-center border-0 border-l border-border bg-transparent p-0 text-muted-foreground transition-colors first:border-l-0 hover:text-foreground active:scale-95 focus-visible:bg-surface-hover focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring";
 
 interface Props {
   preset: Preset;
@@ -55,6 +64,7 @@ export default function PresetCard({
         rgb_gains: preset.rgb_gains,
         gamma: preset.gamma,
         vibrance: preset.vibrance,
+        saturation: preset.saturation,
         hue_deg: preset.hue_deg,
         color_tag: preset.color_tag,
       });
@@ -122,7 +132,7 @@ export default function PresetCard({
     ? (preset.color_tag as string)
     : null;
   const padBackground = tag
-    ? `color-mix(in srgb, var(--color-card), ${tag} 25%)`
+    ? `color-mix(in srgb, var(--color-surface), ${tag} 25%)`
     : undefined;
   const padStyle: Record<string, string> | undefined =
     padBackground || tag
@@ -138,7 +148,7 @@ export default function PresetCard({
   // Title is a fixed 32px for every card; overflow is handled by
   // truncation + hover marquee + full-name tooltip, never by resizing.
   const titleSize = "32px";
-  const titleTextClass = "text-ink font-display font-extrabold";
+  const titleTextClass = "text-foreground font-display font-extrabold";
   const titleTextStyle = {
     fontSize: titleSize,
     lineHeight: "1",
@@ -171,6 +181,7 @@ export default function PresetCard({
       case "brightness": return preset.brightness;
       case "contrast": return preset.contrast;
       case "vibrance": return preset.vibrance;
+      case "saturation": return preset.saturation;
       default: return 0;
     }
   };
@@ -186,14 +197,14 @@ export default function PresetCard({
         : undefined
       }
     >
-      {/* ── Card shell ───────────────────────────────────────────── */}
+      {/* ── Card shell (Double-Bezel) ───────────────────────────────────────────── */}
       <div
         data-slot="card"
         className={cn(
           "card-ring",
-          "flex flex-col gap-3.5 w-full rounded-brutal border-2 border-ink bg-white p-[18px] shadow-brutal outline-none cursor-pointer",
+          "flex flex-col gap-3.5 w-full rounded-card border border-border bg-surface p-[18px] outline-none cursor-pointer",
           "focus-visible:ring-[3px] focus-visible:ring-ring",
-          isActive ? "bg-mint" : "",
+          isActive ? "border-primary" : "",
           highlightEnter ? "pop-in" : "",
           detonating ? "card-explode" : "",
         )}
@@ -219,10 +230,10 @@ export default function PresetCard({
         aria-pressed={selectable ? (selected ? "true" : "false") : undefined}
       >
         {/* ═══ Row 1: Header ═══ */}
-        <div className="flex items-center justify-between h-8">
+        <div className="flex items-center justify-between gap-2 h-8">
           {/* Left cluster: selection checkbox is ADDED in select mode;
               card content never changes with mode. */}
-          <div className="flex items-center gap-1.5">
+          <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
             {selectable && (
               // Decorative mirror of pad state; the pad itself toggles.
               <span className="pointer-events-none" aria-hidden="true">
@@ -232,32 +243,25 @@ export default function PresetCard({
               </span>
             )}
             <>
-              {/* Black pin tag when pinned */}
-              {isPinned && (
-                <span title={`Pinned to ${pinnedMonitorNames.join(", ")}`}>
-                  <Badge variant="pinned">PINNED</Badge>
-                  <span className="sr-only">Pinned</span>
-                </span>
-              )}
-
-              {/* Category label */}
+              {/* Category label — the only elastic item; it truncates so the
+                  status chips next to it are never pushed under the strip. */}
               {category && (
-                <span className="text-[11px] font-mono font-bold tracking-[0.14em] uppercase text-muted-foreground">
+                <span className="min-w-0 truncate text-[11px] font-mono font-bold tracking-[0.14em] uppercase text-muted-foreground">
                   {category}
                 </span>
               )}
 
               {/* ICC tag */}
               {preset.icc_hash && (
-                <span className="pop-in rounded-[6px] border-2 border-ink bg-white px-[6px] py-px text-[10px] font-mono font-bold tracking-[0.1em] text-ink">
+                <span className="pop-in inline-flex shrink-0 items-center whitespace-nowrap rounded-full border border-border bg-surface px-2 py-px text-[10px] font-mono font-bold tracking-[0.1em] text-muted-foreground">
                   ICC
                 </span>
               )}
 
-                {/* IN USE marker: mint fill, black text + border */}
+              {/* IN USE marker: mint fill, dark text */}
               {isActive && (
                 <span
-                  className="pop-in rounded-[6px] border-2 border-ink bg-mint px-[6px] py-px text-[10px] font-mono font-bold tracking-[0.1em] text-ink"
+                  className="pop-in inline-flex shrink-0 items-center whitespace-nowrap rounded-full bg-primary px-[7px] py-px text-[10px] font-mono font-bold tracking-[0.1em] text-primary-foreground"
                   title="Currently applied to a connected monitor"
                 >
                   IN USE
@@ -268,34 +272,32 @@ export default function PresetCard({
 
           {/* Right: action icons — hidden in selection mode */}
           {!selectable && (
-            <div className="flex items-center gap-1.5">
+            <div className="flex shrink-0 items-center overflow-hidden rounded-lg border border-border bg-surface/50">
               {isPinned && (
-                <span className="pop-in">
-                  <button
-                    type="button"
-                    className="inline-flex items-center justify-center size-8 rounded-lg border-2 border-transparent text-ink hover:border-ink hover:bg-mint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-slot="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void (async () => {
-                        try {
-                          for (const edid of pinnedEdidList) {
-                            await unpinMonitor(edid);
-                          }
-                          onPinChange();
-                        } catch { /* silent */ }
-                      })();
-                    }}
-                    title="Unpin from all monitors"
-                    aria-label={`Unpin preset ${preset.name} from all monitors`}
-                  >
-                    <PinOff className="size-4 stroke-2" />
-                  </button>
-                </span>
+                <button
+                  type="button"
+                  className={cn(iconStripButton, "pop-in")}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void (async () => {
+                      try {
+                        for (const edid of pinnedEdidList) {
+                          await unpinMonitor(edid);
+                        }
+                        onPinChange();
+                      } catch { /* silent */ }
+                    })();
+                  }}
+                  title="Unpin from all monitors"
+                  aria-label={`Unpin preset ${preset.name} from all monitors`}
+                >
+                  <PinOff className="size-[15px] stroke-[1.75]" />
+                </button>
               )}
 
               <button
                 type="button"
-                className="inline-flex items-center justify-center size-8 rounded-lg border-2 border-transparent text-ink hover:border-ink hover:bg-mint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-slot="button"
+                className={iconStripButton}
                 onClick={(e) => {
                   e.stopPropagation();
                   onEdit(preset);
@@ -304,12 +306,12 @@ export default function PresetCard({
                 title="Edit"
                 aria-label={`Edit preset ${preset.name}`}
               >
-                <Pencil className="size-4 stroke-2" />
+                <Pencil className="size-[15px] stroke-[1.75]" />
               </button>
 
               <button
                 type="button"
-                className="inline-flex items-center justify-center size-8 rounded-lg border-2 border-transparent text-ink hover:border-ink hover:bg-mint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-slot="button"
+                className={iconStripButton}
                 onClick={(e) => {
                   e.stopPropagation();
                   void handleDuplicate();
@@ -318,12 +320,12 @@ export default function PresetCard({
                 title="Duplicate preset"
                 aria-label={`Duplicate preset ${preset.name}`}
               >
-                <Copy className="size-4 stroke-2" />
+                <Copy className="size-[15px] stroke-[1.75]" />
               </button>
 
               <button
                 type="button"
-                className="inline-flex items-center justify-center size-8 rounded-lg border-2 border-transparent text-ink hover:border-ink hover:bg-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-slot="button"
+                className={cn(iconStripButton, "hover:text-destructive")}
                 onClick={(e) => {
                   e.stopPropagation();
                   setShowDeleteModal(true);
@@ -332,7 +334,7 @@ export default function PresetCard({
                 title="Delete preset"
                 aria-label={`Delete preset ${preset.name}`}
               >
-                <Trash2 className="size-4 stroke-2" />
+                <Trash2 className="size-[15px] stroke-[1.75]" />
               </button>
             </div>
           )}
@@ -342,7 +344,7 @@ export default function PresetCard({
         <button
           ref={titleBtnRef}
           type="button"
-          className="preset-title relative flex items-center text-left w-full bg-transparent border-0 cursor-pointer rounded transition-opacity hover:opacity-85 focus-visible:outline-2 focus-visible:outline-ink focus-visible:outline-offset-2"
+          className="preset-title relative flex items-center text-left w-full bg-transparent border-0 cursor-pointer rounded transition-opacity hover:opacity-85 focus-visible:outline-2 focus-visible:outline-foreground focus-visible:outline-offset-2"
           onClick={(e) => {
             // Pad already applies/toggles; don't fire twice.
             e.stopPropagation();
@@ -354,8 +356,7 @@ export default function PresetCard({
           }}
           aria-label={selectable
             ? `Select preset ${preset.name}`
-            : `Apply preset ${preset.name}`
-          }
+            : `Apply preset ${preset.name}`}
           aria-pressed={selectable ? (selected ? "true" : "false") : undefined}
         >
           {/* Invisible full-text measurer for overflow detection */}
@@ -389,7 +390,7 @@ export default function PresetCard({
           )}
         </button>
 
-        {/* ═══ Row 3: 2×2 Stat grid (identical in every mode) ═══ */}
+        {/* ═══ Row 3: Stat grid (identical in every mode) ═══ */}
         <div className="mt-auto grid grid-cols-2 gap-2">
             {STAT_KEYS.map((key) => {
               const value = statValue(key);
@@ -404,10 +405,17 @@ export default function PresetCard({
             })}
         </div>
 
-        {/* ── Pin target hint (below grid, every mode) ── */}
+        {/* ── Pin state (below grid, every mode) ── */}
         {isPinned && pinnedMonitorNames.length > 0 && (
-          <span className="text-xs text-muted-foreground leading-tight">
-            → {pinnedMonitorNames.join(", ")}
+          <span className="flex min-w-0 items-center gap-1.5 text-xs leading-tight text-muted-foreground">
+            <Badge
+              variant="pinned"
+              className="h-4 shrink-0 px-1.5 text-[9px] tracking-[0.1em]"
+              title={`Pinned to ${pinnedMonitorNames.join(", ")}`}
+            >
+              PINNED
+            </Badge>
+            <span className="truncate">→ {pinnedMonitorNames.join(", ")}</span>
           </span>
         )}
       </div>
@@ -427,24 +435,26 @@ export default function PresetCard({
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>
-              <button
+              <Button
                 type="button"
                 data-slot="button"
-                className="inline-flex items-center justify-center rounded-lg border-2 border-ink bg-white px-3 py-1.5 text-xs font-bold text-ink shadow-brutal-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                variant="outline"
+                size="sm"
                 onClick={() => setShowDeleteModal(false)}
                 disabled={deleting}
               >
                 <span className="btn-label">Cancel</span>
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
                 data-slot="button"
-                className="inline-flex items-center justify-center rounded-lg border-2 border-ink bg-danger px-3 py-1.5 text-xs font-bold text-ink shadow-brutal-sm hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                variant="destructive"
+                size="sm"
                 onClick={() => void handleDelete()}
                 disabled={deleting}
               >
                 <span className="btn-label">{deleting ? "Deleting…" : "Delete"}</span>
-              </button>
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

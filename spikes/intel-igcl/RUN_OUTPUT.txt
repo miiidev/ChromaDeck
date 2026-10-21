@@ -1,0 +1,152 @@
+   Compiling intel-igcl-spike v0.1.0 (D:\Syahmi\MyCode\ChromaDeck\spikes\intel-igcl)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.44s
+     Running `spikes\intel-igcl\target\debug\intel-igcl-spike.exe`
+=== intel-igcl-spike: IGCL display handle <-> Windows display correlation ===
+
+--- Windows EnumDisplayDevicesW (adapters) ---
+  [0] "\\.\DISPLAY1" str="Intel(R) UHD Graphics" id="PCI\VEN_8086&DEV_A7A8&SUBSYS_8DCD103C&REV_04" state=0x1
+  [1] "\\.\DISPLAY2" str="Intel(R) UHD Graphics" id="PCI\VEN_8086&DEV_A7A8&SUBSYS_8DCD103C&REV_04" state=0x0
+  [2] "\\.\DISPLAY3" str="Intel(R) UHD Graphics" id="PCI\VEN_8086&DEV_A7A8&SUBSYS_8DCD103C&REV_04" state=0x0
+  [3] "\\.\DISPLAY4" str="Intel(R) UHD Graphics" id="PCI\VEN_8086&DEV_A7A8&SUBSYS_8DCD103C&REV_04" state=0x0
+  [4] "\\.\DISPLAY5" str="NVIDIA GeForce RTX 3050 6GB Laptop GPU" id="PCI\VEN_10DE&DEV_25AC&SUBSYS_8DCD103C&REV_A1" state=0x5
+
+--- Windows QueryDisplayConfig (active paths) ---
+  target_id=0x00800050 srcId=0 srcLuid=00000000:0001331F srcGdi="\\.\DISPLAY1" tech=INTERNAL monitor="\\?\DISPLAY#AUOF7AD#4&24045b5b&0&UID8388688#{e6f07b5f-ee97-4a90-b076-33f57bf4eaa7}" friendly="" mfr=0xAF06 prod=0xF7AD
+  target_id=0x00001100 srcId=0 srcLuid=00000000:00013725 srcGdi="\\.\DISPLAY5" tech=HDMI monitor="\\?\DISPLAY#AOC2403#5&2fa98bf&0&UID4352#{e6f07b5f-ee97-4a90-b076-33f57bf4eaa7}" friendly="24B36XE" mfr=0xE305 prod=0x2403
+
+--- Intel IGCL ---
+[IGCL] loaded "C:\Windows\System32\DriverStore\FileRepository\iigd_dch.inf_amd64_d2c6999664e89333\ControlLib.dll" and resolved all symbols.
+[IGCL] API surface availability: pixtx_set_config=true display_feature_reset=false set_brightness=true panel_descriptor_access=true
+[sizes] ctl_init_args_t=36 ctl_device_adapter_properties_t=320 ctl_display_properties_t=200
+[sizes] ctl_adapter_display_encoder_properties_t=112 ctl_edid_management_args_t=40
+[sizes] ctl_pixtx_pipe_get_config_t=272 ctl_pixtx_block_config_t=144 ctl_pixtx_matrix_config_t=128 ctl_pixtx_1dlut_config_t=40
+
+[ctlInit] -> 0x00000000 (CTL_RESULT_SUCCESS)
+[ctlInit] SupportedVersion = 0x00010001
+[ctlEnumerateDevices count] -> 0x00000000 (CTL_RESULT_SUCCESS) (count=1)
+[ctlEnumerateDevices] -> 0x00000000 (CTL_RESULT_SUCCESS) (1 devices)
+
+[device 0] name="Intel(R) UHD Graphics" pci=8086:A7A8 rev=04 integrated=true device_id_size=0
+[device 0] adapter LUID(pDeviceID) = 00000000:00000000
+[device 0]   EnumDisplayDevices adapter "\\.\DISPLAY1" id="PCI\VEN_8086&DEV_A7A8&SUBSYS_8DCD103C&REV_04" (vendor match)
+[device 0]   EnumDisplayDevices adapter "\\.\DISPLAY2" id="PCI\VEN_8086&DEV_A7A8&SUBSYS_8DCD103C&REV_04" (vendor match)
+[device 0]   EnumDisplayDevices adapter "\\.\DISPLAY3" id="PCI\VEN_8086&DEV_A7A8&SUBSYS_8DCD103C&REV_04" (vendor match)
+[device 0]   EnumDisplayDevices adapter "\\.\DISPLAY4" id="PCI\VEN_8086&DEV_A7A8&SUBSYS_8DCD103C&REV_04" (vendor match)
+[device 0] ctlEnumerateDisplayOutputs count -> 0x00000000 (CTL_RESULT_SUCCESS) (count=10)
+
+[output 0:0] WindowsDisplayEncoderID = 0x00800050 (8388688)
+[output 0:0]   Type=1 MuxType=0 PConOut=1 ConfigFlags=0x3 (active=true attached=true)
+[output 0:0]   timing 1920x1080 @ 144.00Hz pixelclk=356130000Hz
+[output 0:0]   FeatureSupported=0xC AdvancedSupported=0x3
+[output 0:0]   EncoderConfigFlags=0x1 (internal=true virtual=false hidden=false)
+[output 0:0]   CORRELATE: QDC target id 0x00800050 -> srcGdi="\\.\DISPLAY1" source LUID 00000000:0001331F, tech=INTERNAL, monitor="\\?\DISPLAY#AUOF7AD#4&24045b5b&0&UID8388688#{e6f07b5f-ee97-4a90-b076-33f57bf4eaa7}" friendly=""
+[output 0:0]   ctlEdidManagement READ (pass1) -> 0x40000017 (CTL_RESULT_ERROR_KMD_CALL) (size=0)
+[output 0:0]   ctlPanelDescriptorAccess READ -> 128 bytes, edid_id="EDID:06AF-F7AD-00000000" model=""
+[output 0:0]   pixtx CAPABILITY query -> 0x00000000 (CTL_RESULT_SUCCESS) (NumBlocks=5)
+[output 0:0]   pixtx InputPixelFormat  ColorModel=0 ColorSpace=0 Encoding=0 BPC=0 IsFloat=false
+[output 0:0]   pixtx OutputPixelFormat ColorModel=1 ColorSpace=0 Encoding=0 BPC=8 IsFloat=false
+[output 0:0]   pixtx CAPABILITY details -> 0x00000000 (CTL_RESULT_SUCCESS) (NumBlocks=5)
+[output 0:0]     block[0] id=327425 3D_LUT NumSamplesPerChannel=17
+[output 0:0]     block[1] id=327426 1D_LUT NumSamplesPerChannel=2049 NumChannels=1 SamplingType=0
+[output 0:0]     block[2] id=327427 3X3_MATRIX_AND_OFFSETS matrix=[[[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]] pre=[0.0, 0.0, 0.0] post=[0.0, 0.0, 0.0]
+[output 0:0]     block[3] id=327428 1D_LUT NumSamplesPerChannel=2049 NumChannels=3 SamplingType=0
+[output 0:0]     block[4] id=327429 3X3_MATRIX matrix=[[[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]] pre=[0.0, 0.0, 0.0] post=[0.0, 0.0, 0.0]
+[output 0:0]     CURRENT 3D_LUT block[0] skipped (17^3 samples; count known from capability)
+[output 0:0]     CURRENT 1D_LUT block[1] -> 0x00000000 (CTL_RESULT_SUCCESS) samples/ch=2049 channels=1 R[0..] 0.00000 0.00004 0.00008...
+[output 0:0]     CURRENT matrix block[2] -> 0x4800000B (CTL_RESULT_ERROR_INVALID_PIXTX_BLOCK_TYPE) matrix=[[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]] pre=[0.0, 0.0, 0.0] post=[0.0, 0.0, 0.0]
+[output 0:0]     CURRENT 1D_LUT block[3] -> 0x00000000 (CTL_RESULT_SUCCESS) samples/ch=2049 channels=3 R[0..] 0.02500 0.02550 0.02600...
+[output 0:0]     CURRENT matrix block[4] -> 0x4800000B (CTL_RESULT_ERROR_INVALID_PIXTX_BLOCK_TYPE) matrix=[[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]] pre=[0.0, 0.0, 0.0] post=[0.0, 0.0, 0.0]
+
+[output 0:1] WindowsDisplayEncoderID = 0x00001045 (4165)
+[output 0:1]   Type=1 MuxType=0 PConOut=0 ConfigFlags=0x0 (active=false attached=false)
+[output 0:1]   timing 0x0 @ 0.00Hz pixelclk=0Hz
+[output 0:1]   FeatureSupported=0x0 AdvancedSupported=0x0
+[output 0:1]   EncoderConfigFlags=0x0 (internal=false virtual=false hidden=false)
+[output 0:1]   CORRELATE: no QDC active path with target id 0x00001045 (inactive/attached-only output)
+[output 0:1]   ctlEdidManagement READ (pass1) -> 0x40000017 (CTL_RESULT_ERROR_KMD_CALL) (size=0)
+[output 0:1]   ctlPanelDescriptorAccess READ (pass2) -> 0x40000017 (CTL_RESULT_ERROR_KMD_CALL)
+[output 0:1]   pixtx CAPABILITY query -> 0x00000000 (CTL_RESULT_SUCCESS) (NumBlocks=0)
+
+[output 0:2] WindowsDisplayEncoderID = 0x00002145 (8517)
+[output 0:2]   Type=1 MuxType=0 PConOut=0 ConfigFlags=0x0 (active=false attached=false)
+[output 0:2]   timing 0x0 @ 0.00Hz pixelclk=0Hz
+[output 0:2]   FeatureSupported=0x0 AdvancedSupported=0x0
+[output 0:2]   EncoderConfigFlags=0x0 (internal=false virtual=false hidden=false)
+[output 0:2]   CORRELATE: no QDC active path with target id 0x00002145 (inactive/attached-only output)
+[output 0:2]   ctlEdidManagement READ (pass1) -> 0x40000017 (CTL_RESULT_ERROR_KMD_CALL) (size=0)
+[output 0:2]   ctlPanelDescriptorAccess READ (pass2) -> 0x40000017 (CTL_RESULT_ERROR_KMD_CALL)
+[output 0:2]   pixtx CAPABILITY query -> 0x00000000 (CTL_RESULT_SUCCESS) (NumBlocks=0)
+
+[output 0:3] WindowsDisplayEncoderID = 0x00003245 (12869)
+[output 0:3]   Type=1 MuxType=0 PConOut=0 ConfigFlags=0x0 (active=false attached=false)
+[output 0:3]   timing 0x0 @ 0.00Hz pixelclk=0Hz
+[output 0:3]   FeatureSupported=0x0 AdvancedSupported=0x0
+[output 0:3]   EncoderConfigFlags=0x0 (internal=false virtual=false hidden=false)
+[output 0:3]   CORRELATE: no QDC active path with target id 0x00003245 (inactive/attached-only output)
+[output 0:3]   ctlEdidManagement READ (pass1) -> 0x40000017 (CTL_RESULT_ERROR_KMD_CALL) (size=0)
+[output 0:3]   ctlPanelDescriptorAccess READ (pass2) -> 0x40000017 (CTL_RESULT_ERROR_KMD_CALL)
+[output 0:3]   pixtx CAPABILITY query -> 0x00000000 (CTL_RESULT_SUCCESS) (NumBlocks=0)
+
+[output 0:4] WindowsDisplayEncoderID = 0x00004345 (17221)
+[output 0:4]   Type=1 MuxType=0 PConOut=0 ConfigFlags=0x0 (active=false attached=false)
+[output 0:4]   timing 0x0 @ 0.00Hz pixelclk=0Hz
+[output 0:4]   FeatureSupported=0x0 AdvancedSupported=0x0
+[output 0:4]   EncoderConfigFlags=0x0 (internal=false virtual=false hidden=false)
+[output 0:4]   CORRELATE: no QDC active path with target id 0x00004345 (inactive/attached-only output)
+[output 0:4]   ctlEdidManagement READ (pass1) -> 0x40000017 (CTL_RESULT_ERROR_KMD_CALL) (size=0)
+[output 0:4]   ctlPanelDescriptorAccess READ (pass2) -> 0x40000017 (CTL_RESULT_ERROR_KMD_CALL)
+[output 0:4]   pixtx CAPABILITY query -> 0x00000000 (CTL_RESULT_SUCCESS) (NumBlocks=0)
+
+[output 0:5] WindowsDisplayEncoderID = 0x0010804E (1081422)
+[output 0:5]   Type=1 MuxType=0 PConOut=0 ConfigFlags=0x0 (active=false attached=false)
+[output 0:5]   timing 0x0 @ 0.00Hz pixelclk=0Hz
+[output 0:5]   FeatureSupported=0x0 AdvancedSupported=0x0
+[output 0:5]   EncoderConfigFlags=0x0 (internal=false virtual=false hidden=false)
+[output 0:5]   CORRELATE: no QDC active path with target id 0x0010804E (inactive/attached-only output)
+[output 0:5]   ctlEdidManagement READ (pass1) -> 0x40000017 (CTL_RESULT_ERROR_KMD_CALL) (size=0)
+[output 0:5]   ctlPanelDescriptorAccess READ (pass2) -> 0x40000017 (CTL_RESULT_ERROR_KMD_CALL)
+[output 0:5]   pixtx CAPABILITY query -> 0x00000000 (CTL_RESULT_SUCCESS) (NumBlocks=0)
+
+[output 0:6] WindowsDisplayEncoderID = 0x0010904F (1085519)
+[output 0:6]   Type=1 MuxType=0 PConOut=0 ConfigFlags=0x0 (active=false attached=false)
+[output 0:6]   timing 0x0 @ 0.00Hz pixelclk=0Hz
+[output 0:6]   FeatureSupported=0x0 AdvancedSupported=0x0
+[output 0:6]   EncoderConfigFlags=0x0 (internal=false virtual=false hidden=false)
+[output 0:6]   CORRELATE: no QDC active path with target id 0x0010904F (inactive/attached-only output)
+[output 0:6]   ctlEdidManagement READ (pass1) -> 0x40000017 (CTL_RESULT_ERROR_KMD_CALL) (size=0)
+[output 0:6]   ctlPanelDescriptorAccess READ (pass2) -> 0x40000017 (CTL_RESULT_ERROR_KMD_CALL)
+[output 0:6]   pixtx CAPABILITY query -> 0x00000000 (CTL_RESULT_SUCCESS) (NumBlocks=0)
+
+[output 0:7] WindowsDisplayEncoderID = 0x0020507C (2117756)
+[output 0:7]   Type=0 MuxType=0 PConOut=0 ConfigFlags=0x0 (active=false attached=false)
+[output 0:7]   timing 0x0 @ 0.00Hz pixelclk=0Hz
+[output 0:7]   FeatureSupported=0x0 AdvancedSupported=0x0
+[output 0:7]   EncoderConfigFlags=0x20 (internal=false virtual=true hidden=false)
+[output 0:7]   CORRELATE: no QDC active path with target id 0x0020507C (inactive/attached-only output)
+[output 0:7]   ctlEdidManagement READ (pass1) -> 0x40000017 (CTL_RESULT_ERROR_KMD_CALL) (size=0)
+[output 0:7]   ctlPanelDescriptorAccess READ (pass2) -> 0x40000017 (CTL_RESULT_ERROR_KMD_CALL)
+[output 0:7]   pixtx CAPABILITY query -> 0x00000000 (CTL_RESULT_SUCCESS) (NumBlocks=0)
+
+[output 0:8] WindowsDisplayEncoderID = 0x00406145 (4219205)
+[output 0:8]   Type=1 MuxType=0 PConOut=0 ConfigFlags=0x0 (active=false attached=false)
+[output 0:8]   timing 0x0 @ 0.00Hz pixelclk=0Hz
+[output 0:8]   FeatureSupported=0x0 AdvancedSupported=0x0
+[output 0:8]   EncoderConfigFlags=0x0 (internal=false virtual=false hidden=false)
+[output 0:8]   CORRELATE: no QDC active path with target id 0x00406145 (inactive/attached-only output)
+[output 0:8]   ctlEdidManagement READ (pass1) -> 0x40000017 (CTL_RESULT_ERROR_KMD_CALL) (size=0)
+[output 0:8]   ctlPanelDescriptorAccess READ (pass2) -> 0x40000017 (CTL_RESULT_ERROR_KMD_CALL)
+[output 0:8]   pixtx CAPABILITY query -> 0x00000000 (CTL_RESULT_SUCCESS) (NumBlocks=0)
+
+[output 0:9] WindowsDisplayEncoderID = 0x00407145 (4223301)
+[output 0:9]   Type=1 MuxType=0 PConOut=0 ConfigFlags=0x0 (active=false attached=false)
+[output 0:9]   timing 0x0 @ 0.00Hz pixelclk=0Hz
+[output 0:9]   FeatureSupported=0x0 AdvancedSupported=0x0
+[output 0:9]   EncoderConfigFlags=0x0 (internal=false virtual=false hidden=false)
+[output 0:9]   CORRELATE: no QDC active path with target id 0x00407145 (inactive/attached-only output)
+[output 0:9]   ctlEdidManagement READ (pass1) -> 0x40000017 (CTL_RESULT_ERROR_KMD_CALL) (size=0)
+[output 0:9]   ctlPanelDescriptorAccess READ (pass2) -> 0x40000017 (CTL_RESULT_ERROR_KMD_CALL)
+[output 0:9]   pixtx CAPABILITY query -> 0x00000000 (CTL_RESULT_SUCCESS) (NumBlocks=0)
+
+[ctlClose] done
+
+=== done ===

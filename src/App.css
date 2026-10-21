@@ -1,63 +1,90 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   ChromaDeck — Light neobrutalist theme
-   All color tokens via Tailwind v4 @theme. Light-only: no dark variants
-   anywhere. Mint is a fill with black text — never mint text or thin
-   mint lines. Preview/swatch areas stay neutral.
-   ═══════════════════════════════════════════════════════════════════════════ */
+/* ════════════════════════════════════════════════════════════════════════════
+   ChromaDeck — Ethereal Glass UI (Figma: EHlovtcAS9y24GrizBL0WM)
+   Tokens: OLED black, glassmorphism, radial glows, mint-teal accent, Asymmetrical Bento.
+   ════════════════════════════════════════════════════════════════════════════ */
 
 @theme {
-  --color-paper: #fbf7f3;
-  --color-background: #fbf7f3;
-  --color-foreground: #000000;
-  --color-ink: #000000;
-  --color-card: #ffffff;
-  --color-card-foreground: #000000;
-  --color-popover: #ffffff;
-  --color-popover-foreground: #000000;
-  --color-primary: #3ddc97;
-  --color-primary-foreground: #000000;
-  --color-mint: #3ddc97;
-  --color-secondary: #ffffff;
-  --color-secondary-foreground: #000000;
-  --color-muted: #ece7dc;
-  --color-muted-foreground: #555555;
-  --color-accent: #3ddc97;
-  --color-accent-foreground: #000000;
-  --color-accent-soft: #e4faf0;
-  --color-tint: #e4faf0;
-  --color-destructive: #e5484d;
-  --color-destructive-foreground: #000000;
-  --color-danger: #e5484d;
-  --color-danger-ink: #b91c1c;
-  --color-border: #000000;
-  --color-input: #000000;
-  --color-ring: #000000;
-  --color-warning: #f5a623;
-  --color-success: #16a34a;
+  /* ─── Color Primitives ─── */
+  --color-background: #030305;
+  --color-paper: #030305;
+  --color-surface: #040407;
+  --color-surface-hover: #060609;
+  --color-glass-surface: rgba(13, 17, 23, 0.7);
+  --color-glass-border: rgba(255, 255, 255, 0.06);
+  --color-glass-highlight: rgba(255, 255, 255, 0.12);
+  --color-foreground: #f4f1ea;
+  --color-ink: #f4f1ea;
+  --color-foreground-muted: #a1a7af;
+  --color-foreground-subtle: #6b7280;
+  --color-primary: #5eead4;
+  --color-primary-hover: #2dd4bf;
+  --color-primary-foreground: #030305;
+  --color-primary-subtle: rgba(94, 234, 212, 0.15);
+  --color-primary-border: rgba(94, 234, 212, 0.3);
+  --color-secondary: #040407;
+  --color-secondary-foreground: #f4f1ea;
+  --color-muted: #2d343c;
+  --color-muted-foreground: #a1a7af;
+  --color-tint: #12181f;
+  --color-destructive: #ef4444;
+  --color-destructive-foreground: #ffffff;
+  --color-danger: #ef4444;
+  --color-danger-ink: #f87171;
+  --color-border: rgba(255, 255, 255, 0.06);
+  --color-border-hover: rgba(255, 255, 255, 0.12);
+  --color-border-focus: #5eead4;
+  --color-input: rgba(255, 255, 255, 0.06);
+  --color-ring: #5eead4;
+  --color-warning: #f59e0b;
+  --color-success: #22c55e;
+  --color-inset: #030305;
+  --color-overlay: rgba(3, 3, 5, 0.8);
+  --color-overlay-strong: rgba(3, 3, 5, 0.9);
+  --color-glow-purple: #8a6bff;
+  --color-glow-emerald: #4fc3ff;
+
+  /* ─── Border Radius ─── */
   --radius-xs: 4px;
   --radius-sm: 6px;
   --radius-md: 8px;
-  --radius-lg: 12px;
+  --radius-lg: 8px;
   --radius-xl: 12px;
-  --radius-2xl: 12px;
-  --radius-brutal: 12px;
-  --border-width-brutal: 2px;
-  --shadow-brutal-sm: 2px 2px 0 0 #000;
-  --shadow-brutal: 4px 4px 0 0 #000;
-  --font-display: "Montserrat", "Arial Narrow", sans-serif;
+  --radius-2xl: 16px;
+  --radius-3xl: 24px;
+  --radius-4xl: 32px;
+  --radius-brutal: 8px;
+  --radius-card: 12px;
+  --radius-full: 9999px;
+
+  /* ─── Border Width ─── */
+  --border-width-brutal: 1px;
+
+  /* ─── Shadows ─── */
+  --shadow-brutal-sm: 0 2px 4px -1px rgba(0, 0, 0, 0.25);
+  --shadow-brutal: 0 24px 48px -16px rgba(0, 0, 0, 0.7);
+  --shadow-glass-sm: inset 0 1px 1px 0 rgba(255, 255, 255, 0.12);
+  --shadow-glass-md: inset 0 1px 2px 0 rgba(255, 255, 255, 0.1), 0 8px 32px -8px rgba(0, 0, 0, 0.4);
+  --shadow-glass-lg: inset 0 1px 2px 0 rgba(255, 255, 255, 0.1), 0 24px 64px -16px rgba(0, 0, 0, 0.5);
+  --shadow-focus: 0 0 0 3px rgba(94, 234, 212, 0.4);
+
+  /* ─── Typography ─── */
+  --font-display: "Geist Display", "Montserrat", "Arial Narrow", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --font-body: system-ui, "Segoe UI", sans-serif;
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════════════════════
    Typography
-   ═══════════════════════════════════════════════════════════════════════════ */
+   ════════════════════════════════════════════════════════════════════════════ */
 
 body,
 html {
-  font-family: system-ui, "Segoe UI", sans-serif;
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
@@ -77,7 +104,7 @@ h6,
 
 /* Mono for IDs, status, meta, parameter values */
 .mono {
-  font-family: "JetBrains Mono", "Cascadia Code", ui-monospace, monospace;
+  font-family: var(--font-mono);
 }
 
 /* Product lockup */
@@ -88,9 +115,9 @@ h6,
   flex-shrink: 0;
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   Status indicators — kept for backwards compat
-   ═══════════════════════════════════════════════════════════════════════════ */
+/* ════════════════════════════════════════════════════════════════════════════
+   Status indicators
+   ════════════════════════════════════════════════════════════════════════════ */
 
 .status-dot {
   display: inline-block;
@@ -101,31 +128,29 @@ h6,
 }
 
 .status-dot-connected {
-  background-color: var(--color-success);
+  background-color: var(--color-primary);
 }
 
 .status-dot-pinned {
-  background-color: var(--color-accent);
+  background-color: var(--color-primary);
   border-radius: 0;
   width: 10px;
   height: 10px;
 }
 
 .status-dot-offline {
-  background-color: var(--color-destructive);
-  clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+  background-color: var(--color-muted-foreground);
   width: 10px;
   height: 10px;
-  border-radius: 0;
 }
 
 .status-dot-active {
   background-color: var(--color-success);
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════════════════════
    Carousel — hide scrollbar, keep scrollable
-   ═══════════════════════════════════════════════════════════════════════════ */
+   ════════════════════════════════════════════════════════════════════════════ */
 
 .carousel-scroll {
   scrollbar-width: none;
@@ -136,9 +161,9 @@ h6,
   display: none;
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════════════════════
    Scrollbar styling (WebKit)
-   ═══════════════════════════════════════════════════════════════════════════ */
+   ════════════════════════════════════════════════════════════════════════════ */
 
 ::-webkit-scrollbar {
   width: 8px;
@@ -150,7 +175,7 @@ h6,
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--color-card);
+  background: var(--color-surface);
   border-radius: var(--radius-sm);
 }
 
@@ -158,7 +183,7 @@ h6,
   background: var(--color-muted);
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════════════════════
    Placeholder styling
    ═══════════════════════════════════════════════════════════════════════════ */
 
@@ -176,25 +201,23 @@ h6,
   color: var(--color-foreground);
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════════════════════
    Motion system — tokens, keyframes, utility classes
    Transform + opacity only; no layout-property animation.
-
-   Smooth premium feel with a playful edge: full entrances glide on
-   --ease-out, while small interactive transitions (presses, pops,
-   lifts) use --ease-spring for a gentle overshoot. Overshoot is only
-   applied where travel is tiny (scale/2px lifts), never on full
-   entrances, so nothing wobbles across the screen.
-   ═══════════════════════════════════════════════════════════════════════════ */
+   ════════════════════════════════════════════════════════════════════════════ */
 
 :root {
-  --motion-micro: 150ms;
-  --motion-fast: 250ms;
-  --motion-std: 350ms;
-  --motion-slow: 600ms;
-  --motion-press: 90ms;
+  --motion-micro: 80ms;
+  --motion-fast: 150ms;
+  --motion-standard: 250ms;
+  --motion-slow: 400ms;
+  --motion-slower: 600ms;
+  --motion-shell: 350ms;
+  --ease-fluid: cubic-bezier(0.32, 0.72, 0, 1);
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
 }
 
 @keyframes motion-fade-in {
@@ -222,20 +245,14 @@ h6,
   to   { opacity: 1; transform: scale(1); }
 }
 
-/* ── Masked reveal: text/content slides up clipped by overflow:hidden ──
-   The outer container hides overflow; the inner element slides up and fades
-   in, creating a clipped reveal effect.  Replaces the old slide-up for
-   heading text to avoid reflow on first mount. */
+/* ── Masked reveal: text/content slides up clipped by overflow:hidden ── */
 
 @keyframes motion-mask-reveal {
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
-/* ── Value swap: brief crossfade for changing numbers/counts ──────────
-   A fast opacity dip-and-recover so the user sees the value change without
-   a hard blink.  Used for footer counts, StatTile values, and PresetCard
-   stat numbers.  Short enough (200ms) that it never feels sluggish. */
+/* ── Value swap: brief crossfade for changing numbers/counts ────────── */
 
 @keyframes motion-value-swap {
   0%   { opacity: 1; }
@@ -243,17 +260,45 @@ h6,
   100% { opacity: 1; }
 }
 
-/* (No bounce keyframes: pop-ins use the overshoot-free snap below so
-   utility feedback never wobbles.) */
+/* ── Select-mode tremble ──────────────────────────────────────── */
 
-/* (Select-mode tremble lives below, after the entrance utilities, so it
-   wins while present; when select mode exits the completed entrance
-   fill already matches the rest state, so nothing jumps.) */
+@keyframes motion-tremble-idle {
+  0%   { transform: translateX(0) rotate(0deg); }
+  20%  { transform: translateX(-2px) rotate(-0.8deg); }
+  40%  { transform: translateX(2px) rotate(0.6deg); }
+  60%  { transform: translateX(-1.5px) rotate(-0.4deg); }
+  80%  { transform: translateX(1.5px) rotate(0.5deg); }
+  100% { transform: translateX(0) rotate(0deg); }
+}
+
+/* ── Batch-delete explosion ─────────────────────────────────────── */
+
+@keyframes motion-explode {
+  0%   { opacity: 1; transform: scale(1) rotate(0deg); }
+  35%  { opacity: 1; transform: scale(1.12) rotate(1.5deg); }
+  100% { opacity: 0; transform: scale(0.6) rotate(-3deg); }
+}
+
+/* ── Marquee ───────────────────────────────────────────────────── */
+
+@keyframes marquee-x {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+
+/* ── Card edge vanish (scroll-driven) ───────────────────────────── */
+
+@keyframes card-edge-vanish {
+  0%   { opacity: 0; transform: translateY(8px) scale(0.97); }
+  35%  { opacity: 1; transform: none; }
+  65%  { opacity: 1; transform: none; }
+  100% { opacity: 0; transform: translateY(-8px) scale(0.97); }
+}
 
 /* ── Entrance utilities ────────────────────────────────────────── */
 
 .enter-fade {
-  animation: motion-fade-in var(--motion-std) var(--ease-out) both;
+  animation: motion-fade-in var(--motion-standard) var(--ease-out) both;
 }
 
 .enter-slide-up {
@@ -266,17 +311,13 @@ h6,
 
 .enter-stagger {
   animation-name: motion-slide-up;
-  animation-duration: var(--motion-std);
+  animation-duration: var(--motion-standard);
   animation-timing-function: var(--ease-out);
   animation-fill-mode: both;
   animation-delay: calc(var(--stagger-ms, 0ms));
 }
 
-/* ── Masked reveal: clips overflow so content appears to slide out of
-   a hidden container.  The element itself must be overflow:hidden; the
-   inner content gets the motion-mask-reveal keyframes.  Delay via
-   --reveal-delay.  The `enter-reveal-child` class is what actually
-   animates; the parent clips it. */
+/* ── Masked reveal ── */
 
 .enter-reveal {
   overflow: hidden;
@@ -284,18 +325,17 @@ h6,
 
 .enter-reveal > .enter-reveal-child {
   display: block;
-  animation: motion-mask-reveal var(--motion-std) var(--ease-out) both;
+  animation: motion-mask-reveal var(--motion-standard) var(--ease-out) both;
   animation-delay: var(--reveal-delay, 0ms);
 }
 
-/* ── Value swap: keyed on content change, runs once per swap.  Used
-   inline on the element whose numeric/text value changes. */
+/* ── Value swap ── */
 
 .value-swap {
   animation: motion-value-swap 200ms var(--ease-out);
 }
 
-/* ── Exit utilities (exits ~30% faster than entrances) ──────────── */
+/* ── Exit utilities ──────────────────────────────────────────── */
 
 .exit-fade {
   animation: motion-fade-in reverse var(--motion-micro) var(--ease-out) forwards;
@@ -306,13 +346,10 @@ h6,
 }
 
 /* ── App-shell staged entrance (mount + every window re-show) ──
-   Hierarchy: header → sidebar → library → footer, staged by delay.
-   Kept short for a tray utility: 350ms glide, never a slow cascade.
-   Re-renders don't replay: CSS animations run once per mount; re-shows
-   replay via replayEntrance() (see src/lib/motion.ts). */
+     Hierarchy: header → sidebar → library → footer, staged by delay. */
 
 .shell-enter {
-  animation: motion-shell-up var(--motion-std) var(--ease-out) both;
+  animation: motion-shell-up var(--motion-shell) var(--ease-out) both;
   animation-delay: var(--shell-delay, 0ms);
 }
 
@@ -326,31 +363,30 @@ h6,
   animation: motion-fade-in reverse var(--motion-micro) var(--ease-out) forwards;
 }
 
-/* ── Pulse (unused — no breathing indicators) ───────────────────── */
-
-/* ── Signature press: translate into the shadow, ~90ms ────────────
-   `translate` (not `transform`) so it composes with the scroll-driven
-   edge-fade keyframes, which own `transform`. Duration lives on :active:
-   press-down is snappy, release settles on the base duration. */
+/* ── Signature press: translate into the shadow, ~80ms ────────────
+     `translate` (not `transform`) so it composes with the scroll-driven
+     edge-fade keyframes, which own `transform`. */
 
 [data-slot="button"]:not(:disabled):active {
-  translate: 2px 2px;
-  box-shadow: none;
-  transition-duration: var(--motion-press);
+  translate: 1px 1px;
+  transition-duration: var(--motion-micro);
 }
 
-/* Hover lift for buttons with shadow (exclude ghost/link via .shadow-brutal-sm class match
-   — all non-ghost variants include shadow-brutal-sm in their cva classes). */
-[data-slot="button"].shadow-brutal-sm:not(:disabled):not(:active):hover,
-[data-slot="button"].shadow-brutal:not(:disabled):not(:active):hover {
+[data-slot="button"]:not(:disabled):not(:active):hover {
   translate: -1px -1px;
-  box-shadow: 3px 3px 0 0 #000;
 }
 
 [data-slot="card"]:active {
-  translate: 4px 4px;
-  box-shadow: none;
-  transition-duration: var(--motion-press);
+  translate: 1px 1px;
+  transition-duration: var(--motion-micro);
+}
+
+/* ── Button-in-Button: trailing icon circle physics ────────────── */
+
+[data-slot="button"]:not(:disabled):not(:active):hover [data-trailing-icon] {
+  translate: 2px -1px;
+  transform: scale(1.05);
+  transition: translate var(--motion-fast) var(--ease-fluid), transform var(--motion-fast) var(--ease-fluid);
 }
 
 /* ── Dialog timing override (bump from base-ui 100ms default) ──── */
@@ -373,105 +409,9 @@ h6,
   animation: motion-fade-in 200ms var(--ease-out) both;
 }
 
-/* ── Sidebar content entrance ──────────────────────────────────── */
+/* ── Monitor dashboard card entrance ──────────────────────────── */
 
-.sidebar-content-enter {
-  animation: motion-slide-up var(--motion-fast) var(--ease-out) both;
-}
-
-/* ── Skeleton pulse tuning ─────────────────────────────────────── */
-
-[data-slot="skeleton"] {
-  animation-duration: var(--motion-std);
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   Surface-specific transitions — full coverage, smooth with spring accents
-   ═══════════════════════════════════════════════════════════════════════════ */
-
-/* ── PresetCard hover: shadow play, not lift ─────────────────────
-   Pads are click targets (tap to apply), so hover must answer. The
-   brutalist idiom is a paper-raise: up-left 2px with a bigger shadow.
-   Uses the `translate` property so it composes with the scroll-driven
-   edge-fade keyframes, which own `transform`. Press (below) inverts it:
-   hover raises, press slams — one coherent physical model. */
-
-[data-slot="card"]:hover {
-  translate: -2px -2px;
-  box-shadow: 6px 6px 0 0 #000;
-}
-
-/* ── PresetCard ring crossfade ────────────────────────────────────
-   NOTE: .card-ring sits on the same element as [data-slot="card"], and
-   both selectors share specificity — this rule comes later, so its
-   transition list MUST include translate or the press snaps.
-   filter is included so the tag-color drop-shadow glow crossfades. */
-
-.card-ring {
-  transition: translate var(--motion-micro) var(--ease-out),
-              box-shadow var(--motion-micro) var(--ease-out),
-              border-color var(--motion-micro) var(--ease-out),
-              filter var(--motion-micro) var(--ease-out);
-}
-
-/* ── Badge / hint snap-in (overshoot-free) ─────────────────────── */
-
-.pop-in {
-  animation: motion-scale-in 180ms var(--ease-out) both;
-}
-
-/* ── Select-mode tremble ────────────────────────────────────────
-   Scared jitter: fast side-to-side shake with a slight rotational
-   stutter, played on loop while the library is in multi-select delete
-   mode — the cards shake like they're afraid of being deleted. Uneven
-   keyframes on linear timing keep it jerky, not smooth. Applied to the
-   stagger WRAPPER (not the pad itself) so it never fights the
-   scroll-driven edge fade, which owns `transform` on the pad.
-   nth-child negative delays desync the loop per card; delays live in
-   CSS (not inline styles) so entrance replays can't wipe them.
-   Defined AFTER .enter-stagger (same specificity) so it wins while a
-   card is selectable; the global reduced-motion rule freezes it. */
-
-@keyframes motion-tremble-idle {
-  0%   { transform: translateX(0) rotate(0deg); }
-  20%  { transform: translateX(-2px) rotate(-0.8deg); }
-  40%  { transform: translateX(2px) rotate(0.6deg); }
-  60%  { transform: translateX(-1.5px) rotate(-0.4deg); }
-  80%  { transform: translateX(1.5px) rotate(0.5deg); }
-  100% { transform: translateX(0) rotate(0deg); }
-}
-
-.card-tremble {
-  animation: motion-tremble-idle 0.28s linear infinite;
-}
-
-.preset-deck > .card-tremble:nth-child(3n+2) {
-  animation-delay: -0.09s;
-}
-
-.preset-deck > .card-tremble:nth-child(3n) {
-  animation-delay: -0.19s;
-}
-
-/* ── Batch-delete explosion ───────────────────────────────────────
-   Detonation pop: quick scale burst with a slight tilt, then collapse
-   and fade. Transform + opacity only. Defined AFTER .pop-in (same
-   specificity) so it wins while a card detonates; the reduced-motion
-   rule collapses it to an instant vanish. */
-
-@keyframes motion-explode {
-  0%   { opacity: 1; transform: scale(1) rotate(0deg); }
-  35%  { opacity: 1; transform: scale(1.12) rotate(1.5deg); }
-  100% { opacity: 0; transform: scale(0.6) rotate(-3deg); }
-}
-
-.card-explode {
-  animation: motion-explode 300ms cubic-bezier(0.5, 0, 0.75, 0) both;
-}
-
-/* ── Monitor row stagger entrance ──────────────────────────────── */
-
-.monitor-row-enter {
+.monitor-card-enter {
   animation-name: motion-slide-up;
   animation-duration: var(--motion-fast);
   animation-timing-function: var(--ease-out);
@@ -479,10 +419,10 @@ h6,
   animation-delay: calc(var(--stagger-ms, 0ms));
 }
 
-/* ── Error banner slide-down ────────────────────────────────────── */
+/* ── Error banner slide-down ──────────────────────────────────── */
 
 .error-banner-enter {
-  animation: motion-slide-down var(--motion-std) var(--ease-out) both;
+  animation: motion-slide-down var(--motion-standard) var(--ease-out) both;
 }
 
 /* ── Transient messages fade-slide in/out ──────────────────────── */
@@ -491,7 +431,7 @@ h6,
   animation: motion-slide-up var(--motion-fast) var(--ease-out) both;
 }
 
-/* ── Footer status crossfade on change ──────────────────────────── */
+/* ── Footer status crossfade on change ────────────────────────── */
 
 .footer-crossfade {
   transition: opacity var(--motion-micro) var(--ease-out);
@@ -503,10 +443,7 @@ h6,
   animation: motion-fade-in var(--motion-fast) var(--ease-out) both;
 }
 
-/* ── Skeleton-to-content fade ────────────────────────────────────
-   (Removed: content swaps instantly; shimmer covers the wait.) */
-
-/* ── PresetEditor validation slide-in ───────────────────────────── */
+/* ── PresetEditor validation slide-in ─────────────────────────── */
 
 .validation-slide {
   animation: motion-slide-down var(--motion-micro) var(--ease-out) both;
@@ -534,8 +471,6 @@ h6,
   animation: motion-scale-in 180ms var(--ease-out) both;
 }
 
-/* ── Checkbox / radio indicators appear instantly (utility state) ── */
-
 /* ── Input focus-ring transition ──────────────────────────────── */
 
 [data-slot="input"] {
@@ -544,20 +479,10 @@ h6,
 }
 
 /* ── Library scroll edge vanish ───────────────────────────────────
-   Scroll-linked per-card dissolve: each preset pad fades, settles, and
-   shrinks slightly as it travels out of the scrollport in either
-   direction, fully driven by its position (animation-timeline: view).
-   Scrubbable, GPU-composited, zero JavaScript. Excludes pads running a
-   one-shot animation (pop-in snap, detonation) so effects never fight.
-   viewTransitionName on the pad is unrelated (delete gap-fill)
-   and composes fine. */
-
-@keyframes card-edge-vanish {
-  0%   { opacity: 0; transform: translateY(8px) scale(0.97); }
-  35%  { opacity: 1; transform: none; }
-  65%  { opacity: 1; transform: none; }
-  100% { opacity: 0; transform: translateY(-8px) scale(0.97); }
-}
+     Scroll-linked per-card dissolve: each preset pad fades, settles, and
+     shrinks slightly as it travels out of the scrollport in either
+     direction, fully driven by its position (animation-timeline: view).
+     Scrubbable, GPU-composited, zero JavaScript. */
 
 .preset-deck [data-slot="card"]:not(.pop-in):not(.card-explode) {
   animation: card-edge-vanish linear both;
@@ -566,41 +491,18 @@ h6,
 
 @media (prefers-reduced-motion: reduce) {
   .preset-deck [data-slot="card"] {
-    /* !important: the base rule above carries :not() specificity that a
-       plain override cannot beat, and the global duration-zeroing does
-       not stop timeline-driven animations. */
     animation: none !important;
   }
 }
 
-/* ── Library scroll edge vanish — IO fallback ──────────────────
-   Activated by MonitorList.tsx when CSS.supports('animation-timeline',
-   'view()') returns false (e.g. older WebView2 without CSS scroll-driven
-   animations). The .no-view-timeline class is added to the scroll
-   container, and an IntersectionObserver writes --edge-o to each card
-   wrapper so CSS can gate opacity on it. Cards without pop-in/explode
-   get their base animation killed here: on an unsupported runtime
-   the card-edge-vanish keyframes would play on the auto timeline (animating
-   cards to opacity 0 and staying there), so we must kill them to prevent
-   that. Other animations (pop-in snap, detonation) compose
-   naturally — they override the plain opacity property while they run, and
-   the fallback CSS applies only when they are absent. */
+/* ── Library scroll edge vanish — IO fallback ────────────────── */
 
 .no-view-timeline .preset-deck [data-slot="card"]:not(.pop-in):not(.card-explode) {
   animation: none !important;
   opacity: var(--edge-o, 1);
 }
 
-/* ── Preset title marquee ─────────────────────────────────────────
-   Long card titles scroll on button hover/focus only (never ambient),
-   and only when actually overflowing (the component measures and
-   renders .marquee-track solely in that case). Duplicate content makes
-   the -50% loop seamless. The reduced-motion kill-switch freezes it. */
-
-@keyframes marquee-x {
-  from { transform: translateX(0); }
-  to   { transform: translateX(-50%); }
-}
+/* ── Preset title marquee ───────────────────────────────────────── */
 
 .preset-title .marquee-track {
   display: inline-flex;
@@ -624,7 +526,7 @@ h6,
 
 /* ── Radio-group indicator: instant (utility state) ─────────────── */
 
-/* ── ApplyDialog radio-row selection transition + hover ─────── */
+/* ── ApplyDialog radio-row selection transition + hover ─────────── */
 
 [data-slot="dialog-content"] label:has([data-slot="radio-group-item"]) {
   transition: background-color var(--motion-micro) var(--ease-out),
@@ -635,7 +537,7 @@ h6,
   background-color: var(--color-muted);
 }
 
-/* ── Monitor sidebar row hover ───────────────────────────────── */
+/* ── Monitor sidebar row hover ────────────────────────────────── */
 
 .monitor-row-enter {
   transition: background-color var(--motion-micro) var(--ease-out);
@@ -645,7 +547,7 @@ h6,
   background-color: color-mix(in srgb, var(--color-muted) 100%, var(--color-foreground) 8%);
 }
 
-/* ── Select trigger hover border ─────────────────────────────── */
+/* ── Select trigger hover border ──────────────────────────────── */
 
 [data-slot="select-trigger"] {
   transition: border-color var(--motion-micro) var(--ease-out);
@@ -661,4 +563,71 @@ h6,
   transition: background-color var(--motion-micro) var(--ease-out);
 }
 
-/* (No sidebar-collapse rule: no collapse UI exists.) */
+/* ── Double-Bezel card hover: border brightens ─────────────────── */
+
+[data-slot="card"]:hover {
+  border-color: color-mix(in srgb, var(--color-border) 45%, var(--color-ink) 55%);
+}
+
+/* ── PresetCard ring crossfade ──────────────────────────────────── */
+
+.card-ring {
+  transition: translate var(--motion-micro) var(--ease-out),
+              box-shadow var(--motion-micro) var(--ease-out),
+              border-color var(--motion-micro) var(--ease-out),
+              filter var(--motion-micro) var(--ease-out);
+}
+
+/* ── Badge / hint snap-in (overshoot-free) ─────────────────────── */
+
+.pop-in {
+  animation: motion-scale-in 180ms var(--ease-out) both;
+}
+
+/* ── Select-mode tremble ──────────────────────────────────────── */
+
+.card-tremble {
+  animation: motion-tremble-idle 0.28s linear infinite;
+}
+
+.preset-deck > .card-tremble:nth-child(3n+2) {
+  animation-delay: -0.09s;
+}
+
+.preset-deck > .card-tremble:nth-child(3n) {
+  animation-delay: -0.19s;
+}
+
+/* ── Batch-delete explosion ─────────────────────────────────────── */
+
+.card-explode {
+  animation: motion-explode 300ms cubic-bezier(0.5, 0, 0.75, 0) both;
+}
+
+/* ── Monitor row stagger entrance ──────────────────────────────── */
+
+.monitor-row-enter {
+  animation-name: motion-slide-up;
+  animation-duration: var(--motion-fast);
+  animation-timing-function: var(--ease-out);
+  animation-fill-mode: both;
+  animation-delay: calc(var(--stagger-ms, 0ms));
+}
+
+/* ── Dialog regions staggered reveal ────────────────────────────── */
+
+[data-slot="dialog-content"] > * {
+  animation: motion-slide-up var(--motion-fast) var(--ease-out) both;
+}
+
+[data-slot="dialog-content"] [data-slot="dialog-title"] {
+  animation-delay: 0ms;
+}
+
+[data-slot="dialog-content"] > div:not([data-slot="dialog-title"]) {
+  animation-delay: 80ms;
+}
+
+[data-slot="dialog-footer"] {
+  animation-delay: 160ms;
+}

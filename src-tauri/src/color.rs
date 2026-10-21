@@ -2,7 +2,7 @@
 // Windows-only.  Applies ICC profile first, then gamma/RGB overlay on top.
 // All hardware calls abstracted behind the `ColorApi` trait for testability.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::ffi::OsString;
 use std::os::windows::ffi::OsStrExt;
 use std::path::PathBuf;
@@ -11,18 +11,70 @@ use windows::core::PCWSTR;
 use windows::Win32::Graphics::Gdi::{CreateDCW, DeleteDC, HDC};
 use windows::Win32::UI::ColorSystem::GetDeviceGammaRamp;
 
-use crate::nvapi::{fns, display_id_for_device, resolve_device_name, NvColorApi};
-use crate::nvgamma::{display_luid, nvcp_ramp, persist_nvcp, set_target_gamma, ui_to_internal};
+use crate::backend::BackendRegistry;
+use crate::nvapi::{display_id_for_device, fns, resolve_device_name, NvColorApi};
 
 // ── ApplyResult ─────────────────────────────────────────────────────────────
 
 /// Result of applying a preset to a monitor.
-#[derive(Debug, Clone, Serialize)]
+///
+/// The four fields below are the original wire contract and stay unchanged.
+/// Per-adjustment detail lives in [`ApplyOutcome`], which serializes these
+/// fields flat (`#[serde(flatten)]`) plus an additive `adjustments` array.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ApplyResult {
     pub icc_applied: bool,
     pub gamma_applied: bool,
     pub vibrance_applied: bool,
     pub error: Option<String>,
+}
+
+/// Status of one adjustment in an apply attempt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AdjustmentStatus {
+    /// The backend accepted the write.
+    Applied,
+    /// Deliberately not attempted (unsupported by the backend, or neutral so
+    /// there is nothing to change).
+    Skipped,
+    /// Attempted and reported a failure.
+    Failed,
+}
+
+/// Per-adjustment outcome, serialized inside [`ApplyOutcome::adjustments`].
+///
+/// `verified` is honest about read-back: apply paths report accepted writes,
+/// not panel read-back (Reset is the path that verifies by read-back). A
+/// backend that gains read-back verification can set it true per adjustment.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AdjustmentOutcome {
+    pub adjustment: String,
+    pub status: AdjustmentStatus,
+    #[serde(default)]
+    pub verified: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// Apply response: the legacy [`ApplyResult`] shape plus additive
+/// per-adjustment detail. When `adjustments` is empty it is omitted, so the
+/// serialized shape is byte-for-byte the legacy contract.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApplyOutcome {
+    #[serde(flatten)]
+    pub result: ApplyResult,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub adjustments: Vec<AdjustmentOutcome>,
+}
+
+impl ApplyOutcome {
+    fn legacy(result: ApplyResult) -> Self {
+        ApplyOutcome {
+            result,
+            adjustments: Vec::new(),
+        }
+    }
 }
 
 #[allow(dead_code)]
@@ -365,14 +417,14 @@ pub(crate) fn read_gamma_ramp(device_name: &str) -> Result<[u16; 256 * 3], Strin
 /// Expected identity ramp: exactly what `set_gamma_ramp` builds for
 /// neutral parameters. Read-backs are compared against this byte-exact
 /// (the OS LUT stores what was written; any deviation is real signal).
-fn identity_ramp() -> [u16; 256 * 3] {
+pub(crate) fn identity_ramp() -> [u16; 256 * 3] {
     build_gamma_ramp(1.0, 1.0, [1.0, 1.0, 1.0], 1.0)
 }
 
 /// Best-effort GDI identity purge, shared by apply (before NVAPI writes)
 /// and reset (NVAPI branch). Returns the error text on failure; callers
 /// append it without failing (the driver write is authoritative).
-fn gdi_identity_purge(api: &dyn ColorApi, edid_id: &str) -> Option<String> {
+pub(crate) fn gdi_identity_purge(api: &dyn ColorApi, edid_id: &str) -> Option<String> {
     api.set_gamma_ramp(edid_id, 1.0, 1.0, [1.0, 1.0, 1.0], 1.0)
         .err()
         .map(|e| format!("gdi-purge: {e}"))
@@ -386,136 +438,206 @@ pub fn apply_color(
     preset: &crate::store::Preset,
     target_edid: &str,
 ) -> ApplyResult {
+    apply_color_with_backend(api, nv, preset, target_edid).0
+}
+
+/// Shared apply core that also names the backend that handled the display,
+/// so per-adjustment reporting can use the same capability table the UI shows.
+fn apply_color_with_backend(
+    api: &dyn ColorApi,
+    nv: &dyn crate::nvapi::NvColorApi,
+    preset: &crate::store::Preset,
+    target_edid: &str,
+) -> (ApplyResult, &'static str) {
     if !api.is_connected(target_edid) {
-        return ApplyResult::offline();
+        return (ApplyResult::offline(), "offline");
     }
 
-    let mut gamma_applied = false;
-    let mut vibrance_applied = false;
-    let mut error: Option<String> = None;
+    // Backend selection is delegated to the registry: the selected backend
+    // (NVAPI, Intel, or GDI) owns the full driver-level pipeline for the display.
+    let registry = BackendRegistry::new();
+    let backend = registry.select(target_edid);
+    (
+        backend.apply(api, nv, preset, target_edid),
+        backend.id(),
+    )
+}
 
-    // Step 1 — Gamma / RGB overlay (engine-branched)
-    let engine = gamma_engine(target_edid);
-    match engine {
-        GammaEngine::Nvapi => {
-            // Stage-purity: reset GDI LUT to identity before the NVAPI
-            // set.  Exclusive-fullscreen games may have clobbered only the
-            // GDI LUT (the canonical evaporation case); this guarantees
-            // the NVAPI path owns the full pipeline on every apply.
-            // Best-effort — failure appends error but does NOT block NVAPI.
-            let gdi_purge_err = gdi_identity_purge(api, target_edid);
+// ── Per-adjustment reporting ────────────────────────────────────────────────
 
-            // NVAPI path: NVCP transfer math + set_target_gamma + persist
-            let nvapi_result = (|| -> Result<(), String> {
-                let fns = fns().ok_or_else(|| "NVAPI unavailable".to_string())?;
-                let device_name = resolve_device_name(target_edid)
-                    .ok_or_else(|| format!("no display device found for EDID {target_edid}"))?;
-                let display_id = display_id_for_device(fns, &device_name)?;
+fn applied(adjustment: &str) -> AdjustmentOutcome {
+    AdjustmentOutcome {
+        adjustment: adjustment.to_string(),
+        status: AdjustmentStatus::Applied,
+        verified: false,
+        reason: None,
+    }
+}
 
-                let b_int = ui_to_internal(preset.brightness);
-                let c_int = ui_to_internal(preset.contrast);
-                let mut ramp = nvcp_ramp(b_int, c_int, preset.gamma);
+fn skipped(adjustment: &str, reason: impl Into<String>) -> AdjustmentOutcome {
+    AdjustmentOutcome {
+        adjustment: adjustment.to_string(),
+        status: AdjustmentStatus::Skipped,
+        verified: false,
+        reason: Some(reason.into()),
+    }
+}
 
-                // Apply RGB gains as post-multiplier (preserves existing behavior)
-                for i in 0..1024 {
-                    ramp[i * 3] = (ramp[i * 3] as f64 * preset.rgb_gains[0]).clamp(0.0, 1.0) as f32;
-                    ramp[i * 3 + 1] =
-                        (ramp[i * 3 + 1] as f64 * preset.rgb_gains[1]).clamp(0.0, 1.0) as f32;
-                    ramp[i * 3 + 2] =
-                        (ramp[i * 3 + 2] as f64 * preset.rgb_gains[2]).clamp(0.0, 1.0) as f32;
-                }
+fn failed(adjustment: &str, reason: impl Into<String>) -> AdjustmentOutcome {
+    AdjustmentOutcome {
+        adjustment: adjustment.to_string(),
+        status: AdjustmentStatus::Failed,
+        verified: false,
+        reason: Some(reason.into()),
+    }
+}
 
-                set_target_gamma(fns, display_id, &ramp)?;
+/// Outcome for a requested vibrance-family adjustment whose write flag is
+/// false: prefer a real vibrance write error, then a static unsupported reason,
+/// then a generic honest failure.
+fn optional_write_outcome(
+    backend_id: &str,
+    adjustment: &str,
+    vibrance_error: &Option<String>,
+    result: &ApplyResult,
+) -> AdjustmentOutcome {
+    if let Some(reason) = vibrance_error {
+        return failed(adjustment, reason.clone());
+    }
+    if let Some(reason) = capability_reason(backend_id, adjustment) {
+        return skipped(adjustment, reason);
+    }
+    failed(
+        adjustment,
+        result
+            .error
+            .clone()
+            .unwrap_or_else(|| "backend did not confirm this adjustment".to_string()),
+    )
+}
 
-                // Best-effort persist: failure does NOT fail the apply
-                if let Ok(luid) = display_luid(fns, display_id) {
-                    let b_arr = [b_int; 3];
-                    let c_arr = [c_int; 3];
-                    let g_arr = [preset.gamma * 100.0; 3];
-                    if let Err(e) = persist_nvcp(luid, b_arr, c_arr, g_arr) {
-                        return Err(format!("persist: {e}"));
-                    }
-                }
+/// Look up the static capability reason for an adjustment on a backend.
+/// Uses the same tables `get_display_capabilities` serves the editor.
+fn capability_reason(backend_id: &str, adjustment: &str) -> Option<&'static str> {
+    crate::capabilities::capabilities_for_backend(backend_id, true)
+        .adjustments
+        .into_iter()
+        .find(|c| c.adjustment == adjustment)
+        .and_then(|c| c.reason)
+}
 
-                Ok(())
-            })();
+/// Derive the per-adjustment report for one backend apply.
+///
+/// Honest rules:
+/// - the gamma family (gamma, brightness, contrast, rgb_gains) is one pipeline
+///   write on every backend: applied together or failed together;
+/// - vibrance/hue are only reported when the preset asks for a non-neutral
+///   value (neutral skips are not failures) — a failure reported by the
+///   vibrance write is a `Failed`, an unsupported backend is a `Skipped`;
+/// - saturation is `Applied` only on Intel (the one backend with a desktop
+///   saturation transform), otherwise reported `Skipped` with the reason;
+/// - applied writes are `verified: false`: the apply path does not read the
+///   panel back (Reset and Probe are the verified paths).
+pub fn adjustment_outcomes(
+    backend_id: &str,
+    preset: &crate::store::Preset,
+    result: &ApplyResult,
+) -> Vec<AdjustmentOutcome> {
+    use crate::backend::{
+        ADJUSTMENT_BRIGHTNESS, ADJUSTMENT_CONTRAST, ADJUSTMENT_GAMMA, ADJUSTMENT_HUE,
+        ADJUSTMENT_RGB_GAINS, ADJUSTMENT_SATURATION, ADJUSTMENT_VIBRANCE,
+    };
+    use crate::nvapi::{HUE_NEUTRAL, VIBRANCE_NEUTRAL};
 
-            match nvapi_result {
-                Ok(()) => gamma_applied = true,
-                Err(e) => {
-                    if e.starts_with("persist: ") {
-                        // Gamma succeeded but persist failed — gamma still counts as applied
-                        gamma_applied = true;
-                        error = Some(match error {
-                            Some(ref prev) => format!("{prev}; {e}"),
-                            None => e,
-                        });
-                    } else {
-                        let gamma_err = format!("gamma: {e}");
-                        error = Some(match error {
-                            Some(ref prev) => format!("{prev}; {gamma_err}"),
-                            None => gamma_err,
-                        });
-                    }
-                }
-            }
+    let mut out = Vec::new();
 
-            // Append GDI-purge error (best-effort, gamma already tracked).
-            if let Some(e) = gdi_purge_err {
-                error = Some(match error {
-                    Some(ref prev) => format!("{prev}; {e}"),
-                    None => e,
-                });
-            }
+    // Gamma family — delivered as one ramp/pipeline write.
+    let gamma_failure = if result.gamma_applied {
+        None
+    } else {
+        Some(
+            result
+                .error
+                .clone()
+                .unwrap_or_else(|| "backend did not confirm this adjustment".to_string()),
+        )
+    };
+    for adjustment in [
+        ADJUSTMENT_GAMMA,
+        ADJUSTMENT_BRIGHTNESS,
+        ADJUSTMENT_CONTRAST,
+        ADJUSTMENT_RGB_GAINS,
+    ] {
+        out.push(match &gamma_failure {
+            None => applied(adjustment),
+            Some(reason) => failed(adjustment, reason.clone()),
+        });
+    }
+
+    // Saturation — no backend except Intel applies the desktop saturation
+    // transform. Neutral saturation requests nothing, so stay silent.
+    const SATURATION_NEUTRAL: f64 = 50.0;
+    if preset.saturation != SATURATION_NEUTRAL {
+        if backend_id == "intel" {
+            out.push(match &gamma_failure {
+                None => applied(ADJUSTMENT_SATURATION),
+                Some(reason) => failed(ADJUSTMENT_SATURATION, reason.clone()),
+            });
+        } else {
+            out.push(skipped(
+                ADJUSTMENT_SATURATION,
+                capability_reason(backend_id, ADJUSTMENT_SATURATION)
+                    .unwrap_or("no desktop saturation control"),
+            ));
         }
-        GammaEngine::Gdi => {
-            // GDI fallback with mapped gains: gain = 0.8 + 0.004 × ui_val
-            // (neutral 50 → gain 1.0, matching the old gain-model neutral)
-            let b_gain = 0.8 + 0.004 * preset.brightness;
-            let c_gain = 0.8 + 0.004 * preset.contrast;
-            match api.set_gamma_ramp(
-                target_edid,
-                b_gain,
-                c_gain,
-                preset.rgb_gains,
-                preset.gamma,
-            ) {
-                Ok(()) => gamma_applied = true,
-                Err(e) => {
-                    let gamma_err = format!("gamma: {e}");
-                    error = Some(match error {
-                        Some(ref prev) => format!("{prev}; {gamma_err}"),
-                        None => gamma_err,
-                    });
-                }
-            }
+    }
+
+    // Vibrance / hue — only when requested (non-neutral).
+    let vibrance_requested = preset.vibrance != VIBRANCE_NEUTRAL;
+    let hue_requested = preset.hue_deg != HUE_NEUTRAL;
+
+    // GDI reaches vibrance through the NVAPI overlay: a failure there is a
+    // real attempted failure, not an unsupported skip, so prefer the write
+    // error when it names vibrance.
+    let vibrance_error = result
+        .error
+        .clone()
+        .filter(|e| e.to_lowercase().contains("vibrance"));
+
+    if vibrance_requested {
+        out.push(if result.vibrance_applied {
+            applied(ADJUSTMENT_VIBRANCE)
+        } else {
+            optional_write_outcome(
+                backend_id,
+                ADJUSTMENT_VIBRANCE,
+                &vibrance_error,
+                result,
+            )
+        });
+    }
+
+    if hue_requested {
+        // Intel delivers hue inside the pixtx colour matrix, written as part
+        // of the same pipeline SET as the gamma family (tracked by
+        // `gamma_applied`) — `vibrance_applied` is always false on Intel and
+        // must not be used to judge hue. NVIDIA/GDI deliver hue through the
+        // DVC vibrance write.
+        if backend_id == "intel" {
+            out.push(match &gamma_failure {
+                None => applied(ADJUSTMENT_HUE),
+                Some(reason) => failed(ADJUSTMENT_HUE, reason.clone()),
+            });
+        } else {
+            out.push(if result.vibrance_applied {
+                applied(ADJUSTMENT_HUE)
+            } else {
+                optional_write_outcome(backend_id, ADJUSTMENT_HUE, &vibrance_error, result)
+            });
         }
     }
 
-    // Step 2 — NVAPI vibrance/hue overlay (last; always written when
-    // supported so neutral presets fully restore prior state; skipped
-    // silently only where NVAPI reports unsupported).
-    let neutral = preset.vibrance == crate::nvapi::VIBRANCE_NEUTRAL
-        && preset.hue_deg == crate::nvapi::HUE_NEUTRAL;
-    if !neutral || nv.supported(target_edid) {
-        match nv.set(target_edid, preset.vibrance, preset.hue_deg) {
-            Ok(()) => vibrance_applied = true,
-            Err(e) => {
-                let nv_err = format!("vibrance: {e}");
-                error = Some(match error {
-                    Some(ref prev) => format!("{prev}; {nv_err}"),
-                    None => nv_err,
-                });
-            }
-        }
-    }
-
-    ApplyResult {
-        icc_applied: false,
-        gamma_applied,
-        vibrance_applied,
-        error,
-    }
+    out
 }
 
 // ── apply_preset (ICC + shared apply_color) ─────────────────────────────────
@@ -524,6 +646,10 @@ pub fn apply_color(
 ///
 /// Precedence: ICC first, then gamma/RGB overlay on top.
 /// Returns an `ApplyResult` summarising what succeeded / failed.
+// The command layer uses `apply_preset_detailed` (legacy fields + additive
+// per-adjustment detail); this legacy projection stays for tests and internal
+// callers that only need the original four fields.
+#[allow(dead_code)]
 pub fn apply_preset(
     api: &dyn ColorApi,
     nv: &dyn crate::nvapi::NvColorApi,
@@ -531,9 +657,22 @@ pub fn apply_preset(
     target_edid: &str,
     store_profiles_dir: &str,
 ) -> ApplyResult {
+    apply_preset_detailed(api, nv, preset, target_edid, store_profiles_dir).result
+}
+
+/// Same apply flow as [`apply_preset`], plus the additive per-adjustment
+/// report. The legacy fields on `ApplyOutcome::result` behave exactly as
+/// before; the command layer returns this shape to the UI.
+pub fn apply_preset_detailed(
+    api: &dyn ColorApi,
+    nv: &dyn crate::nvapi::NvColorApi,
+    preset: &crate::store::Preset,
+    target_edid: &str,
+    store_profiles_dir: &str,
+) -> ApplyOutcome {
     // Step 1 — monitor connectivity check
     if !api.is_connected(target_edid) {
-        return ApplyResult::offline();
+        return ApplyOutcome::legacy(ApplyResult::offline());
     }
 
     let mut icc_applied = false;
@@ -552,14 +691,52 @@ pub fn apply_preset(
     }
 
     // Step 3 — gamma + vibrance via shared core
-    let mut result = apply_color(api, nv, preset, target_edid);
+    let (mut result, backend_id) = apply_color_with_backend(api, nv, preset, target_edid);
     result.icc_applied = icc_applied;
-    result.error = match (icc_error, result.error) {
+    let merged_error = match (icc_error.clone(), result.error.clone()) {
         (Some(a), Some(b)) => Some(format!("{a}; {b}")),
         (Some(a), None) => Some(a),
         (None, b) => b,
     };
-    result
+    result.error = merged_error;
+
+    // Step 4 — additive per-adjustment report. ICC comes first (it is the
+    // first step); the rest follow the capability-table order.
+    let mut adjustments = Vec::new();
+    if !preset.icc_hash.is_empty() {
+        adjustments.push(if icc_applied {
+            applied("icc")
+        } else {
+            failed(
+                "icc",
+                icc_error
+                    .clone()
+                    .or_else(|| result.error.clone())
+                    .unwrap_or_else(|| "ICC association failed".to_string()),
+            )
+        });
+    }
+    adjustments.extend(adjustment_outcomes(backend_id, preset, &result));
+
+    ApplyOutcome {
+        result,
+        adjustments,
+    }
+}
+
+/// Restore a set of displays to system defaults through the backend
+/// abstraction. Used when an applied/pinned preset is removed: every display
+/// that referenced it gets the same reset semantics as `reset_monitor`.
+/// Returns `(edid_id, result)` pairs in input order.
+pub fn restore_monitors(
+    api: &dyn ColorApi,
+    nv: &dyn crate::nvapi::NvColorApi,
+    edid_ids: &[String],
+) -> Vec<(String, ApplyResult)> {
+    edid_ids
+        .iter()
+        .map(|edid| (edid.clone(), reset_monitor(api, nv, edid)))
+        .collect()
 }
 
 /// Reset a monitor to system defaults: identity gamma ramp
@@ -579,144 +756,11 @@ pub fn reset_monitor(
         return ApplyResult::offline();
     }
 
-    let mut gamma_applied = false;
-    let mut vibrance_applied = false;
-    let mut error: Option<String> = None;
-
-    let engine = gamma_engine(edid_id);
-    match engine {
-        GammaEngine::Nvapi => {
-            // GDI purge first (mirrors apply): clear any stale OS LUT so
-            // only the driver ramp governs the panel.
-            if let Some(e) = gdi_identity_purge(api, edid_id) {
-                error = Some(match error {
-                    Some(ref prev) => format!("{prev}; {e}"),
-                    None => e,
-                });
-            }
-            // NVAPI reset: identity ramp + neutral 100s persist
-            let nvapi_result = (|| -> Result<(), String> {
-                let fns = fns().ok_or_else(|| "NVAPI unavailable".to_string())?;
-                let device_name = resolve_device_name(edid_id)
-                    .ok_or_else(|| format!("no display device found for EDID {edid_id}"))?;
-                let display_id = display_id_for_device(fns, &device_name)?;
-
-                // Identity ramp at neutral (100, 100, 1.0)
-                let ramp = nvcp_ramp(100.0, 100.0, 1.0);
-                set_target_gamma(fns, display_id, &ramp)?;
-
-                // Persist neutral 100s
-                if let Ok(luid) = display_luid(fns, display_id) {
-                    let neutral = [100.0; 3];
-                    if let Err(e) = persist_nvcp(luid, neutral, neutral, neutral) {
-                        return Err(format!("persist: {e}"));
-                    }
-                }
-
-                Ok(())
-            })();
-
-            match nvapi_result {
-                Ok(()) => gamma_applied = true,
-                Err(e) => {
-                    if e.starts_with("persist: ") {
-                        // Gamma reset succeeded but persist failed
-                        gamma_applied = true;
-                        error = Some(match error {
-                            Some(ref prev) => format!("{prev}; {e}"),
-                            None => e,
-                        });
-                    } else {
-                        error = Some(match error {
-                            Some(ref prev) => format!("{prev}; reset: {e}"),
-                            None => format!("reset: {e}"),
-                        });
-                    }
-                }
-            }
-        }
-        GammaEngine::Gdi => {
-            // GDI reset: unchanged identity gain values (1.0 = neutral)
-            match api.set_gamma_ramp(edid_id, 1.0, 1.0, [1.0, 1.0, 1.0], 1.0) {
-                Ok(()) => gamma_applied = true,
-                Err(e) => {
-                    error = Some(match error {
-                        Some(ref prev) => format!("{prev}; reset: {e}"),
-                        None => format!("reset: {e}"),
-                    });
-                }
-            }
-        }
-    }
-
-    // Neutral vibrance/hue. Attempted whenever supported (failures
-    // reported), plus best-effort when unsupported (failures swallowed)
-    // so a write-works-but-probe-fails display can't get stuck silently.
-    if nv.supported(edid_id) {
-        match nv.set(
-            edid_id,
-            crate::nvapi::VIBRANCE_NEUTRAL,
-            crate::nvapi::HUE_NEUTRAL,
-        ) {
-            Ok(()) => vibrance_applied = true,
-            Err(e) => {
-                let nv_err = format!("vibrance: {e}");
-                error = Some(match error {
-                    Some(ref prev) => format!("{prev}; {nv_err}"),
-                    None => nv_err,
-                });
-            }
-        }
-        // Verify the panel reflects neutral (catches accepted-but-ineffective writes).
-        match nv.levels(edid_id) {
-            Ok((v, h))
-                if v == crate::nvapi::VIBRANCE_NEUTRAL
-                    && h == crate::nvapi::HUE_NEUTRAL => {}
-            Ok((v, h)) => {
-                let msg = format!(
-                    "reset: panel still reports vibrance {v} hue {h} (expected neutral 50/0)"
-                );
-                error = Some(match error {
-                    Some(ref prev) => format!("{prev}; {msg}"),
-                    None => msg,
-                });
-            }
-            // Unreadable ≠ evidence of stuckness; the write-Ok stands.
-            Err(_) => {}
-        }
-    } else {
-        let _ = nv.set(
-            edid_id,
-            crate::nvapi::VIBRANCE_NEUTRAL,
-            crate::nvapi::HUE_NEUTRAL,
-        );
-    }
-
-    // Final GDI-LUT check (both engines must leave it identity: the GDI
-    // branch wrote it, the NVAPI branch purged it). A mismatch means the
-    // panel doesn't reflect the reset — report, don't claim success.
-    // An unreadable LUT is not evidence either way; stay silent.
-    match api.read_gamma_ramp(edid_id) {
-        Ok(ramp) if ramp == identity_ramp() => {}
-        Ok(ramp) => {
-            let peak = ramp.iter().max().copied().unwrap_or(0) as f64 / 65535.0;
-            let msg = format!(
-                "reset: gamma ramp read-back differs from identity (peak {peak:.2})"
-            );
-            error = Some(match error {
-                Some(ref prev) => format!("{prev}; {msg}"),
-                None => msg,
-            });
-        }
-        Err(_) => {}
-    }
-
-    ApplyResult {
-        icc_applied: false,
-        gamma_applied,
-        vibrance_applied,
-        error,
-    }
+    // Backend selection is delegated to the registry: the selected backend
+    // (NVAPI or GDI) owns the full reset path (gamma + vibrance + read-back).
+    BackendRegistry::new()
+        .select(edid_id)
+        .restore(api, nv, edid_id)
 }
 
 // ── Recorder / mock for testing ─────────────────────────────────────────────
@@ -797,29 +841,29 @@ pub fn apply_preset_cmd(
     state: tauri::State<'_, crate::store::AppStore>,
     id: String,
     target_edid: String,
-) -> ApplyResult {
+) -> ApplyOutcome {
     // Read the preset from the store
     let store = match state.0.lock() {
         Ok(s) => s,
         Err(e) => {
-            return ApplyResult {
+            return ApplyOutcome::legacy(ApplyResult {
                 icc_applied: false,
                 gamma_applied: false,
                 vibrance_applied: false,
                 error: Some(format!("store lock: {e}")),
-            }
+            })
         }
     };
 
     let preset = match store.list_presets().into_iter().find(|p| p.id == id) {
         Some(p) => p,
         None => {
-            return ApplyResult {
+            return ApplyOutcome::legacy(ApplyResult {
                 icc_applied: false,
                 gamma_applied: false,
                 vibrance_applied: false,
                 error: Some(format!("preset not found: {id}")),
-            }
+            })
         }
     };
 
@@ -832,27 +876,35 @@ pub fn apply_preset_cmd(
 
     let api = RealColorApi;
     let nv = crate::nvapi::RealNvapi;
-    let result = apply_preset(&api, &nv, &preset, &target_edid, &profiles_dir_str);
+    let outcome = apply_preset_detailed(&api, &nv, &preset, &target_edid, &profiles_dir_str);
 
     // Record applied state on success (reacquire store lock)
-    if result.error.is_none() {
+    if outcome.result.error.is_none() {
         if let Ok(mut store) = state.0.lock() {
             let _ = store.record_applied(&target_edid, &id);
         }
     }
 
-    result
+    outcome
 }
 
 /// Live hardware readout for one monitor — answers "did the last write
 /// actually land?" without changing anything.
 #[derive(Debug, Clone, Serialize)]
 pub struct MonitorProbe {
+    /// Legacy coarse engine classification ("nvapi" | "gdi").
     pub engine: String,
+    /// Real backend that owns this display ("nvapi" | "intel" | "gdi"),
+    /// additive so older consumers can keep reading `engine`.
+    pub backend_id: String,
     pub vibrance_supported: bool,
     pub vibrance: Option<f64>,
     pub hue: Option<f64>,
+    /// Peak of the live colour ramp/LUT (0..1). For Intel this is the pixtx
+    /// 1D LUT, not the unrelated OS GDI ramp.
     pub ramp_peak: Option<f64>,
+    /// Whether that ramp/LUT is the linear identity. For Intel this is the
+    /// pixtx 1D LUT.
     pub ramp_identity: Option<bool>,
 }
 
@@ -860,11 +912,16 @@ pub struct MonitorProbe {
 pub fn probe_monitor_cmd(edid_id: String) -> Result<MonitorProbe, String> {
     let api = RealColorApi;
     let nv = crate::nvapi::RealNvapi;
+    let registry = BackendRegistry::new();
+    let backend = registry.select(&edid_id);
+    let backend_id = backend.id();
     let engine = match gamma_engine(&edid_id) {
         GammaEngine::Nvapi => "nvapi",
         GammaEngine::Gdi => "gdi",
     };
-    let supported = nv.supported(&edid_id);
+    // Vibrance/hue are NVAPI controls; Intel reports unsupported (false) and
+    // GDI probes NVAPI best-effort exactly as before.
+    let supported = backend_id != "intel" && nv.supported(&edid_id);
     let (vibrance, hue) = if supported {
         match nv.levels(&edid_id) {
             Ok((v, h)) => (Some(v), Some(h)),
@@ -873,15 +930,26 @@ pub fn probe_monitor_cmd(edid_id: String) -> Result<MonitorProbe, String> {
     } else {
         (None, None)
     };
-    let (ramp_peak, ramp_identity) = match api.read_gamma_ramp(&edid_id) {
-        Ok(ramp) => {
-            let peak = ramp.iter().max().copied().unwrap_or(0) as f64 / 65535.0;
-            (Some(peak), Some(ramp == identity_ramp()))
+    // Intel colour is driven by the pixtx 1D LUT, so reading the OS GDI ramp
+    // would report "identity" while the panel is tinted. Probe the live pixtx
+    // LUT instead.
+    let (ramp_peak, ramp_identity) = if backend_id == "intel" {
+        match crate::backend::intel::current_1dlut_summary(&edid_id) {
+            Ok((peak, identity)) => (Some(peak), Some(identity)),
+            Err(_) => (None, None),
         }
-        Err(_) => (None, None),
+    } else {
+        match api.read_gamma_ramp(&edid_id) {
+            Ok(ramp) => {
+                let peak = ramp.iter().max().copied().unwrap_or(0) as f64 / 65535.0;
+                (Some(peak), Some(ramp == identity_ramp()))
+            }
+            Err(_) => (None, None),
+        }
     };
     Ok(MonitorProbe {
         engine: engine.into(),
+        backend_id: backend_id.into(),
         vibrance_supported: supported,
         vibrance,
         hue,
@@ -935,6 +1003,7 @@ mod tests {
             rgb_gains: [1.0, 1.0, 1.0],
             gamma: 2.2,
             vibrance: 50.0,
+            saturation: 50.0,
             hue_deg: 0.0,
             color_model: "nvcp-v1".into(),
             color_tag: None,
@@ -1363,6 +1432,243 @@ mod tests {
         assert!(result.gamma_applied);
         assert!(!result.vibrance_applied);
         assert!(result.error.as_ref().unwrap().contains("vibrance"));
+    }
+
+    // ── Additive ApplyOutcome wire contract (Phase F) ───────────────────
+
+    fn legacy_result() -> ApplyResult {
+        ApplyResult {
+            icc_applied: false,
+            gamma_applied: true,
+            vibrance_applied: false,
+            error: None,
+        }
+    }
+
+    #[test]
+    fn legacy_apply_outcome_serializes_without_adjustments_key() {
+        let outcome = ApplyOutcome::legacy(legacy_result());
+        let json = serde_json::to_value(&outcome).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "icc_applied": false,
+                "gamma_applied": true,
+                "vibrance_applied": false,
+                "error": null
+            }),
+            "empty per-adjustment detail must not change the legacy wire shape"
+        );
+    }
+
+    #[test]
+    fn legacy_apply_result_still_serializes_and_deserializes_unchanged() {
+        let result = legacy_result();
+        let json = serde_json::to_value(&result).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "icc_applied": false,
+                "gamma_applied": true,
+                "vibrance_applied": false,
+                "error": null
+            })
+        );
+        let back: ApplyResult = serde_json::from_value(json).unwrap();
+        assert_eq!(back, result);
+    }
+
+    #[test]
+    fn legacy_apply_json_deserializes_with_empty_adjustments() {
+        let legacy = r#"{"icc_applied":true,"gamma_applied":false,"vibrance_applied":false,"error":"gamma: nope"}"#;
+        let outcome: ApplyOutcome = serde_json::from_str(legacy).unwrap();
+        assert!(outcome.adjustments.is_empty());
+        assert_eq!(outcome.result.icc_applied, true);
+        assert_eq!(outcome.result.gamma_applied, false);
+        assert_eq!(outcome.result.error.as_deref(), Some("gamma: nope"));
+    }
+
+    #[test]
+    fn adjustment_details_serialize_additively() {
+        let outcome = ApplyOutcome {
+            result: legacy_result(),
+            adjustments: vec![
+                applied("gamma"),
+                skipped("saturation", "no desktop saturation control"),
+            ],
+        };
+        let json = serde_json::to_value(&outcome).unwrap();
+        // Legacy fields remain at the top level.
+        assert_eq!(json["gamma_applied"], true);
+        assert_eq!(json["error"], serde_json::Value::Null);
+        // Additive detail is a self-describing array with lowercase status.
+        assert_eq!(json["adjustments"][0]["adjustment"], "gamma");
+        assert_eq!(json["adjustments"][0]["status"], "applied");
+        assert_eq!(json["adjustments"][0]["verified"], false);
+        assert_eq!(json["adjustments"][1]["status"], "skipped");
+        assert_eq!(
+            json["adjustments"][1]["reason"],
+            "no desktop saturation control"
+        );
+
+        // And it round-trips.
+        let back: ApplyOutcome = serde_json::from_value(json).unwrap();
+        assert_eq!(back, outcome);
+    }
+
+    // ── Per-adjustment derivation ───────────────────────────────────────
+
+    fn nvcp_preset() -> Preset {
+        Preset {
+            id: "p1".into(),
+            name: "NVCP".into(),
+            icc_hash: String::new(),
+            icc_filename: String::new(),
+            brightness: 55.0,
+            contrast: 60.0,
+            rgb_gains: [1.0, 1.0, 1.0],
+            gamma: 1.0,
+            vibrance: 50.0,
+            saturation: 50.0,
+            hue_deg: 0.0,
+            color_model: "nvcp-v1".into(),
+            color_tag: None,
+        }
+    }
+
+    #[test]
+    fn adjustment_outcomes_omit_neutral_optional_adjustments() {
+        let outs = adjustment_outcomes("gdi", &nvcp_preset(), &legacy_result());
+        let names: Vec<&str> = outs.iter().map(|o| o.adjustment.as_str()).collect();
+        assert_eq!(names, vec!["gamma", "brightness", "contrast", "rgb_gains"]);
+        assert!(outs.iter().all(|o| o.status == AdjustmentStatus::Applied));
+        assert!(outs.iter().all(|o| !o.verified), "apply is not read-back verified");
+    }
+
+    #[test]
+    fn adjustment_outcomes_report_unsupported_saturation_as_skipped() {
+        let mut preset = nvcp_preset();
+        preset.saturation = 70.0;
+        let outs = adjustment_outcomes("nvapi", &preset, &legacy_result());
+        let sat = outs.iter().find(|o| o.adjustment == "saturation").unwrap();
+        assert_eq!(sat.status, AdjustmentStatus::Skipped);
+        assert!(
+            sat.reason.as_deref().unwrap_or("").contains("saturation"),
+            "reason must name the missing control: {:?}",
+            sat.reason
+        );
+    }
+
+    #[test]
+    fn adjustment_outcomes_report_gamma_failure_for_the_whole_family() {
+        let result = ApplyResult {
+            icc_applied: false,
+            gamma_applied: false,
+            vibrance_applied: false,
+            error: Some("gamma: driver rejected".into()),
+        };
+        let outs = adjustment_outcomes("nvapi", &nvcp_preset(), &result);
+        for name in ["gamma", "brightness", "contrast", "rgb_gains"] {
+            let out = outs.iter().find(|o| o.adjustment == name).unwrap();
+            assert_eq!(out.status, AdjustmentStatus::Failed, "{name}");
+            assert_eq!(out.reason.as_deref(), Some("gamma: driver rejected"));
+        }
+    }
+
+    #[test]
+    fn adjustment_outcomes_report_vibrance_failure_honestly() {
+        let mut preset = nvcp_preset();
+        preset.vibrance = 75.0;
+        let result = ApplyResult {
+            icc_applied: false,
+            gamma_applied: true,
+            vibrance_applied: false,
+            error: Some("vibrance: DVC write failed".into()),
+        };
+        let outs = adjustment_outcomes("nvapi", &preset, &result);
+        let vib = outs.iter().find(|o| o.adjustment == "vibrance").unwrap();
+        assert_eq!(vib.status, AdjustmentStatus::Failed);
+        assert_eq!(vib.reason.as_deref(), Some("vibrance: DVC write failed"));
+    }
+
+    #[test]
+    fn adjustment_outcomes_intel_reports_saturation_applied_and_vibrance_skipped() {
+        let mut preset = nvcp_preset();
+        preset.saturation = 70.0;
+        preset.vibrance = 75.0;
+        let outs = adjustment_outcomes("intel", &preset, &legacy_result());
+        let sat = outs.iter().find(|o| o.adjustment == "saturation").unwrap();
+        assert_eq!(sat.status, AdjustmentStatus::Applied);
+        let vib = outs.iter().find(|o| o.adjustment == "vibrance").unwrap();
+        assert_eq!(vib.status, AdjustmentStatus::Skipped);
+        assert!(vib.reason.as_deref().unwrap_or("").to_lowercase().contains("vibrance"));
+    }
+
+    #[test]
+    fn adjustment_outcomes_intel_reports_hue_applied_without_vibrance_flag() {
+        // Intel delivers hue in the pixtx matrix, not through the NVAPI DVC
+        // write. Its apply always returns vibrance_applied=false, so hue must
+        // be judged by the pipeline write (gamma_applied), not that flag.
+        let mut preset = nvcp_preset();
+        preset.hue_deg = 30.0;
+        let outs = adjustment_outcomes("intel", &preset, &legacy_result());
+        let hue = outs.iter().find(|o| o.adjustment == "hue").unwrap();
+        assert_eq!(hue.status, AdjustmentStatus::Applied);
+        assert!(hue.reason.is_none());
+    }
+
+    #[test]
+    fn adjustment_outcomes_intel_reports_hue_failed_with_pipeline_failure() {
+        let mut preset = nvcp_preset();
+        preset.hue_deg = 30.0;
+        let result = ApplyResult {
+            icc_applied: false,
+            gamma_applied: false,
+            vibrance_applied: false,
+            error: Some("intel: pixtx SET failed".into()),
+        };
+        let outs = adjustment_outcomes("intel", &preset, &result);
+        let hue = outs.iter().find(|o| o.adjustment == "hue").unwrap();
+        assert_eq!(hue.status, AdjustmentStatus::Failed);
+        assert_eq!(hue.reason.as_deref(), Some("intel: pixtx SET failed"));
+    }
+
+    #[test]
+    fn apply_preset_detailed_reports_icc_first_and_keeps_legacy_fields() {
+        let color = TestRecorder::new(true);
+        let nv = MockNvapi::new(true);
+        let preset = fake_preset(); // has ICC
+        let outcome =
+            apply_preset_detailed(&color, &nv, &preset, "EDID-001", "profiles");
+
+        assert!(outcome.result.icc_applied);
+        assert!(outcome.result.gamma_applied);
+        assert!(outcome.result.error.is_none());
+        assert_eq!(outcome.adjustments[0].adjustment, "icc");
+        assert_eq!(outcome.adjustments[0].status, AdjustmentStatus::Applied);
+        assert!(outcome
+            .adjustments
+            .iter()
+            .any(|o| o.adjustment == "gamma" && o.status == AdjustmentStatus::Applied));
+    }
+
+    #[test]
+    fn removal_restore_uses_the_backend_reset_path() {
+        let color = TestRecorder::new(true);
+        let nv = MockNvapi::new(true);
+        let results = restore_monitors(
+            &color,
+            &nv,
+            &["EDID-001".to_string(), "EDID-002".to_string()],
+        );
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|(_, r)| r.gamma_applied));
+        // GDI reset path writes the identity ramp for each display.
+        assert_eq!(
+            *color.last_gamma_params.lock().unwrap(),
+            Some((1.0, 1.0, [1.0, 1.0, 1.0], 1.0))
+        );
+        assert_eq!(color.calls.lock().unwrap().iter().filter(|c| *c == "gamma").count(), 2);
     }
 }
 

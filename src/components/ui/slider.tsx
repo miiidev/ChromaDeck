@@ -37,18 +37,18 @@ function Slider({
     >
       <SliderPrimitive.Track
         data-slot="slider-track"
-        className="relative grow overflow-hidden rounded-full border-2 border-ink bg-white data-[orientation=horizontal]:h-3 data-[orientation=horizontal]:w-full data-[orientation=vertical]:h-full data-[orientation=vertical]:w-3"
+        className="relative grow overflow-hidden rounded-full bg-white/10 data-[orientation=horizontal]:h-2 data-[orientation=horizontal]:w-full data-[orientation=vertical]:h-full data-[orientation=vertical]:w-2"
       >
         <SliderPrimitive.Range
           data-slot="slider-range"
-          className="absolute bg-mint data-[orientation=horizontal]:h-full data-[orientation=vertical]:w-full"
+          className="absolute bg-primary data-[orientation=horizontal]:h-full data-[orientation=vertical]:w-full rounded-full"
         />
       </SliderPrimitive.Track>
       {Array.from({ length: _values.length }, (_, index) => (
         <SliderPrimitive.Thumb
           data-slot="slider-thumb"
           key={index}
-          className="block size-5 shrink-0 rounded-full border-2 border-ink bg-white shadow-brutal-sm transition-transform focus-visible:ring-4 focus-visible:ring-ring focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
+          className="block size-5 shrink-0 rounded-full bg-primary border-2 border-white transition-transform focus-visible:ring-4 focus-visible:ring-ring focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 active:scale-115"
         />
       ))}
     </SliderPrimitive.Root>

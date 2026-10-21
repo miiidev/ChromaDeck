@@ -1,3 +1,5 @@
+mod backend;
+mod capabilities;
 mod color;
 mod enforce;
 mod identify;
@@ -6,6 +8,7 @@ mod nvapi;
 mod nvgamma;
 mod store;
 
+use capabilities::get_display_capabilities;
 use color::{apply_preset_cmd, probe_monitor_cmd, reset_monitor_cmd};
 use enforce::reapply_now_cmd;
 use identify::{identify_info_cmd, identify_monitors_cmd};
@@ -38,7 +41,14 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
         .tooltip("ChromaDeck")
         .icon(app.default_window_icon().cloned().unwrap())
         .on_menu_event(|app, event| match event.id.as_ref() {
-            "tray-quit" => app.exit(0),
+            "tray-quit" => {
+                // Defined exit semantics (see enforce.rs): applied colour is
+                // intentionally kept — quitting never wipes displays. The sweep
+                // only classifies/logs per-backend outcomes and is safe when a
+                // display disconnected during shutdown.
+                crate::enforce::shutdown_sweep(app);
+                app.exit(0);
+            }
             "tray-show" => {
                 show_main_window(app);
             }
@@ -134,11 +144,16 @@ pub fn run() {
             reapply_now_cmd,
             capture_nvcp_cmd,
             set_monitor_name_cmd,
+            get_display_capabilities,
         ])
         .setup(|app| {
             build_tray(app.handle())?;
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
+                // Reassert pinned/applied presets once through the backend
+                // registry before the drift loop takes over. Runs off the main
+                // thread; disconnected displays are skipped.
+                crate::enforce::startup_reapply(&handle);
                 crate::enforce::enforce_loop(handle).await;
             });
             Ok(())

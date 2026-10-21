@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { splitCategory, formatGamma, formatInt, formatStat, isNeutral } from "./presetCard";
+import { splitCategory, formatGamma, formatInt, formatStat, isNeutral, STAT_KEYS } from "./presetCard";
 
 describe("splitCategory", () => {
   it("splits on first \" - \" separator", () => {
@@ -92,6 +92,10 @@ describe("formatStat", () => {
   it("formats vibrance as integer", () => {
     expect(formatStat("vibrance", 100)).toBe("100");
   });
+
+  it("formats saturation as integer", () => {
+    expect(formatStat("saturation", 70)).toBe("70");
+  });
 });
 
 describe("isNeutral", () => {
@@ -137,5 +141,19 @@ describe("isNeutral", () => {
 
   it("vibrance 100 is not neutral", () => {
     expect(isNeutral("vibrance", 100)).toBe(false);
+  });
+
+  it("saturation 50 is neutral", () => {
+    expect(isNeutral("saturation", 50)).toBe(true);
+  });
+
+  it("saturation 70 is not neutral", () => {
+    expect(isNeutral("saturation", 70)).toBe(false);
+  });
+});
+
+describe("STAT_KEYS", () => {
+  it("includes saturation so a saturation-only preset is visible", () => {
+    expect(STAT_KEYS).toContain("saturation");
   });
 });

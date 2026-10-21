@@ -17,10 +17,17 @@ export const NEUTRAL: Record<string, number> = {
   brightness: 50,
   contrast: 50,
   vibrance: 50,
+  saturation: 50,
 } as const;
 
-/** Stat keys in display order (2×2 grid order). */
-export const STAT_KEYS = ["gamma", "brightness", "contrast", "vibrance"] as const;
+/** Stat keys in display order. */
+export const STAT_KEYS = [
+  "gamma",
+  "brightness",
+  "contrast",
+  "vibrance",
+  "saturation",
+] as const;
 
 /** Human-readable labels for stat tiles. */
 export const STAT_LABELS: Record<string, string> = {
@@ -28,6 +35,7 @@ export const STAT_LABELS: Record<string, string> = {
   brightness: "Brightness",
   contrast: "Contrast",
   vibrance: "Vibrance",
+  saturation: "Saturation",
 };
 
 /**

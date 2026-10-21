@@ -6,7 +6,8 @@
 /// cascade that approximates the perceptual effect of each control.
 ///
 /// Neutral parameter values (brightness=50, contrast=50, gamma=1.0,
-/// rgb_gains=[1,1,1], vibrance=50, hue_deg=0) MUST be exact no‑ops.
+/// rgb_gains=[1,1,1], vibrance=50, saturation=50, hue_deg=0) MUST be exact
+/// no‑ops.
 
 export interface RgbColor {
   r: number; // 0..1
@@ -20,6 +21,7 @@ export interface PreviewParams {
   gamma: number;        // 0.3–2.8, 1.0 neutral
   rgb_gains: [number, number, number]; // per‑channel multiplier, 1.0 neutral
   vibrance: number;     // 0–100, 50 neutral
+  saturation: number;   // 0–100, 50 neutral
   hue_deg: number;      // 0–359, 0 neutral
 }
 
@@ -66,7 +68,8 @@ function hsvToRgb(h: number, s: number, v: number): [number, number, number] {
  *   3. Gamma                – pow(c, gamma) per channel
  *   4. RGB gains            – per‑channel multiplier
  *   5. Vibrance             – saturate/desaturate around luma
- *   6. Hue rotation         – HSV round‑trip rotation
+ *   6. Saturation           – luma-lerp (Rec.709), 50 = no-op
+ *   7. Hue rotation         – HSV round‑trip rotation
  *
  * @returns Clamped 0..1 colour.
  */
@@ -104,7 +107,17 @@ export function applyPreviewPixel(c: RgbColor, p: PreviewParams): RgbColor {
     b = luma + (b - luma) * factor;
   }
 
-  // 6. Hue rotation via HSV round‑trip
+  // 6. Saturation — luma-lerp (Rec.709). 50 → factor 1.0 (exact no-op);
+  //    0 → grayscale; 100 → 2× chroma. Mirrors the Intel matrix control.
+  if (p.saturation !== 50) {
+    const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    const factor = p.saturation / 50;
+    r = luma + (r - luma) * factor;
+    g = luma + (g - luma) * factor;
+    b = luma + (b - luma) * factor;
+  }
+
+  // 7. Hue rotation via HSV round‑trip
   if (p.hue_deg !== 0) {
     const [h, s, v] = rgbToHsv(r, g, b);
     const newHue = (h + p.hue_deg / 360) % 1.0;

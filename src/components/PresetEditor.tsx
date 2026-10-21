@@ -1,10 +1,9 @@
 import { useState, useEffect, type FormEvent } from "react";
 
 import type { Monitor, Preset, PresetInput } from "../lib/types";
-import { createPreset, updatePreset, importIcc } from "../lib/tauri";
-import { vibranceSupported, captureNvcp } from "../lib/tauri";
+import { createPreset, updatePreset, importIcc, captureNvcp } from "../lib/tauri";
 import { validatePresetForm, type ValidationErrors } from "../lib/validation";
-import { NEUTRAL } from "../lib/presetCard";
+import { DEFAULT_PRESET_INPUT, presetToFormValues, resetSliderValues } from "../lib/presetForm";
 import { open } from "@tauri-apps/plugin-dialog";
 import PreviewStrip from "@/components/PreviewStrip";
 import { Button } from "@/components/ui/button";
@@ -21,20 +20,9 @@ interface Props {
   onSaved: () => void;
 }
 
-const DEFAULT_INPUT: PresetInput = {
-  name: "",
-  brightness: 50,
-  contrast: 50,
-  rgb_gains: [1.0, 1.0, 1.0],
-  gamma: 1.0,
-  vibrance: 50,
-  hue_deg: 0,
-  color_tag: "",
-};
-
 export default function PresetEditor({ monitors, editPreset, onClose, onSaved }: Props) {
   const isEditing = editPreset !== null;
-  const [form, setForm] = useState<PresetInput>(DEFAULT_INPUT);
+  const [form, setForm] = useState<PresetInput>(DEFAULT_PRESET_INPUT);
   const [errors, setErrors] = useState<ValidationErrors>({});
   const [saving, setSaving] = useState(false);
   const [iccStatus, setIccStatus] = useState<{ hash: string; filename: string } | null>(null);
@@ -43,7 +31,10 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
     return monitors.find((m) => m.connected)?.edid_id ?? "";
   });
   const [nvcpImporting, setNvcpImporting] = useState(false);
-  const [nvSupported, setNvSupported] = useState<boolean | null>(null);
+  // Presets are global. The editor deliberately shows no per-display
+  // capability gating: binding it to the import-only capture dropdown misled
+  // users into thinking that control chose the apply target. Capability is
+  // reported at apply time (ApplyDialog), where the actual target is known.
   const [tagFocused, setTagFocused] = useState(false);
   const [tagDraft, setTagDraft] = useState("");
 
@@ -55,39 +46,17 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
   // Populate form when editing
   useEffect(() => {
     if (editPreset) {
-      setForm({
-        name: editPreset.name,
-        brightness: editPreset.brightness,
-        contrast: editPreset.contrast,
-        rgb_gains: editPreset.rgb_gains,
-        gamma: editPreset.gamma,
-        vibrance: editPreset.vibrance,
-        hue_deg: editPreset.hue_deg,
-        color_tag: editPreset.color_tag ?? "",
-      });
+      setForm(presetToFormValues(editPreset));
       if (editPreset.icc_hash) {
         setIccStatus({ hash: editPreset.icc_hash, filename: editPreset.icc_filename });
       }
     } else {
-      setForm(DEFAULT_INPUT);
+      setForm(DEFAULT_PRESET_INPUT);
       setIccStatus(null);
     }
     setErrors({});
     setIccImporting(false);
   }, [editPreset]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Probe NVAPI vibrance/hue support when capture monitor selection changes
-  useEffect(() => {
-    let cancelled = false;
-    setNvSupported(null);
-    if (!captureMonitorId) {
-      return;
-    }
-    vibranceSupported(captureMonitorId)
-      .then((ok) => { if (!cancelled) setNvSupported(ok); })
-      .catch(() => { if (!cancelled) setNvSupported(false); });
-    return () => { cancelled = true; };
-  }, [captureMonitorId]);
 
   const handleBrowseIcc = async () => {
     setIccImporting(true);
@@ -175,17 +144,9 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
   // Restore every color setting to its neutral default. Name, ICC
   // selection, tag color, and capture source are left untouched.
   const handleResetSliders = () => {
-    setForm((prev) => ({
-      ...prev,
-      brightness: NEUTRAL.brightness,
-      contrast: NEUTRAL.contrast,
-      rgb_gains: [1.0, 1.0, 1.0],
-      gamma: NEUTRAL.gamma,
-      vibrance: NEUTRAL.vibrance,
-      hue_deg: 0,
-    }));
+    setForm(resetSliderValues);
     setErrors((prev) => {
-      const { brightness: _, contrast: __, rgb_gains: ___, gamma: ____, vibrance: _____, hue_deg: ______, ...rest } = prev;
+      const { brightness: _, contrast: __, rgb_gains: ___, gamma: ____, vibrance: _____, saturation: ______, hue_deg: _______, ...rest } = prev;
       return rest;
     });
   };
@@ -210,6 +171,7 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
               gamma: form.gamma,
               rgb_gains: form.rgb_gains,
               vibrance: form.vibrance,
+              saturation: form.saturation,
               hue_deg: form.hue_deg,
             }}
             height={96}
@@ -223,7 +185,7 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
 
           {/* Name */}
           <div>
-            <Label htmlFor="preset-name" className="text-xs uppercase tracking-widest mb-1.5 mono">
+            <Label htmlFor="preset-name" className="text-[10px] uppercase tracking-[0.12em] mb-1.5 mono">
               Name
             </Label>
             <Input
@@ -239,9 +201,14 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
 
           {/* NVCP capture source */}
           <div>
-            <Label className="text-xs uppercase tracking-widest mb-1.5 mono">
-              NVCP Capture Source <span className="text-muted-foreground font-normal normal-case">(optional, import only)</span>
-            </Label>
+            <div className="mb-1.5 flex items-baseline gap-2">
+              <Label className="shrink-0 text-[10px] uppercase tracking-[0.12em] mono">
+                NVCP Capture Source
+              </Label>
+              <span className="truncate text-[9px] normal-case text-muted-foreground">
+                (optional, import only)
+              </span>
+            </div>
             <div className="flex items-center gap-2">
               <Select value={captureMonitorId} onValueChange={(v: string | null) => setCaptureMonitorId(v ?? "")}>
                 <SelectTrigger className="min-w-0 flex-1">
@@ -251,14 +218,14 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
                       display name from the FULL monitor list here. */}
                   <SelectValue>
                     {(v: string | null) => {
-                      if (!v) return "— SELECT SOURCE —";
+                      if (!v) return "SELECT SOURCE";
                       const m = monitors.find((mon) => mon.edid_id === v);
                       return m ? (m.alias || m.model || m.device_name) : v;
                     }}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">— SELECT SOURCE —</SelectItem>
+                  <SelectItem value="">SELECT SOURCE</SelectItem>
                   {connectedMonitors.map((m) => (
                     <SelectItem key={m.edid_id} value={m.edid_id}>
                       {m.alias || m.model || m.device_name} {m.serial ? `(${m.serial})` : ""}
@@ -284,17 +251,22 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
 
           {/* ICC file picker */}
           <div>
-            <Label className="text-xs uppercase tracking-widest mb-1.5 mono">
-              ICC Profile <span className="text-muted-foreground font-normal normal-case">(optional)</span>
-            </Label>
+            <div className="mb-1.5 flex items-baseline gap-2">
+              <Label className="shrink-0 text-[10px] uppercase tracking-[0.12em] mono">
+                ICC Profile
+              </Label>
+              <span className="truncate text-[9px] normal-case text-muted-foreground">
+                (optional)
+              </span>
+            </div>
             <div className="flex items-center gap-2">
               <Button variant="outline" size="sm" className="shrink-0" onClick={handleBrowseIcc} disabled={iccImporting}>
                 {iccImporting ? "Importing…" : "Browse…"}
               </Button>
               {iccStatus ? (
-                <span className="min-w-0 flex-1 text-xs text-ink font-bold truncate mono icc-pop" title={iccStatus.filename}>{iccStatus.filename}</span>
+                <span className="min-w-0 flex-1 text-[11px] text-ink font-bold truncate mono icc-pop" title={iccStatus.filename}>{iccStatus.filename}</span>
               ) : (
-                <span className="min-w-0 flex-1 text-xs text-muted-foreground mono truncate">No ICC profile selected</span>
+                <span className="min-w-0 flex-1 text-[11px] text-muted-foreground mono truncate">No ICC profile selected</span>
               )}
             </div>
             {errors.icc_path && <p className="mt-1 text-xs text-danger-ink validation-slide">{errors.icc_path}</p>}
@@ -302,9 +274,14 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
 
           {/* Tag color — fully custom: native picker + hex field */}
           <div>
-            <Label className="text-xs uppercase tracking-widest mb-1.5 mono">
-              Tag Color <span className="text-muted-foreground font-normal normal-case">(optional, tints the whole card)</span>
-            </Label>
+            <div className="mb-1.5 flex items-baseline gap-2">
+              <Label className="shrink-0 text-[10px] uppercase tracking-[0.12em] mono">
+                Tag Color
+              </Label>
+              <span className="truncate text-[9px] normal-case text-muted-foreground">
+                (optional, tints card)
+              </span>
+            </div>
             <div className="flex items-center gap-2">
               <input
                 type="color"
@@ -337,7 +314,7 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
                     (e.target as HTMLInputElement).blur();
                   }
                 }}
-                className="min-w-0 flex-1 bg-transparent p-0 text-xs mono outline-none border-b border-transparent text-muted-foreground hover:text-foreground focus:text-foreground focus:border-ink"
+                className="min-w-0 flex-1 bg-transparent p-0 text-xs mono tabular-nums outline-none border-b border-transparent text-muted-foreground hover:text-foreground focus:text-foreground focus:border-ink"
               />
               <Button
                 variant="ghost"
@@ -367,8 +344,11 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
           </div>
           </div>
 
-          {/* Right column — sliders — 2-col mini-grid at sm+ */}
-          <div className="flex flex-col gap-4 min-w-0 sm:grid sm:grid-cols-2 sm:gap-3">
+          {/* Right column — sliders — full-width stack (Figma: one field per
+              row, value in the label row, markers under the track). A 2-col
+              mini-grid squeezed the tracks to ~180px, so the mid marker
+              collided with the thumb. */}
+          <div className="flex flex-col gap-4 min-w-0">
           {/* Gamma | Brightness — side by side */}
           <SliderField
             label="Gamma"
@@ -409,14 +389,18 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
             onChange={(v) => updateField("vibrance", v)}
             markers={[{ value: 0, label: "0" }, { value: 50, label: "50" }, { value: 100, label: "100" }]}
             error={errors.vibrance}
-            disabled={nvSupported === false}
           />
 
           {/* RGB Gains — full width */}
           <div className="sm:col-span-2">
-            <Label className="text-xs uppercase tracking-widest mb-2 mono">
-              RGB Gains <span className="text-muted-foreground font-normal normal-case">(1.0 = neutral)</span>
-            </Label>
+            <div className="mb-2 flex items-baseline gap-2">
+              <Label className="shrink-0 text-[10px] uppercase tracking-[0.12em] mono">
+                RGB Gains
+              </Label>
+              <span className="truncate text-[9px] normal-case text-muted-foreground">
+                (1.0 = neutral)
+              </span>
+            </div>
             <div className="grid grid-cols-3 gap-3">
               {(["R", "G", "B"] as const).map((channel, idx) => {
                 return (
@@ -424,17 +408,19 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
                     <div className="mb-1">
                       <span className="text-xs mono text-foreground">{channel}</span>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Slider
-                        min={0} max={2} step={0.05}
-                        value={[form.rgb_gains[idx]]}
-                        onValueChange={([v]) => {
-                          const newGains = [...form.rgb_gains] as [number, number, number];
-                          newGains[idx] = v;
-                          updateField("rgb_gains", newGains);
-                        }}
-                        className="flex-1"
-                      />
+                    <Slider
+                      min={0} max={2} step={0.05}
+                      value={[form.rgb_gains[idx]]}
+                      onValueChange={([v]) => {
+                        const newGains = [...form.rgb_gains] as [number, number, number];
+                        newGains[idx] = v;
+                        updateField("rgb_gains", newGains);
+                      }}
+                      className="w-full"
+                    />
+                    {/* Value on its own row, right-aligned: the channel
+                        column is too narrow for a side-by-side readout. */}
+                    <div className="mt-1 flex justify-end">
                       <EditableNumber
                         label={`${channel} gain`}
                         min={0} max={2} step={0.05}
@@ -444,7 +430,7 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
                           newGains[idx] = v;
                           updateField("rgb_gains", newGains);
                         }}
-                        className="w-10 shrink-0"
+                        className="w-14 shrink-0"
                       />
                     </div>
                   </div>
@@ -454,8 +440,17 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
             {errors.rgb_gains && <p className="mt-1 text-xs text-danger-ink">{errors.rgb_gains}</p>}
           </div>
 
-          {/* Hue — full width */}
-          <div className="sm:col-span-2">
+          {/* Saturation | Hue — side by side */}
+          <SliderField
+            label="Saturation"
+            min={0} max={100} step={1}
+            value={form.saturation}
+            display={form.saturation.toFixed(0)}
+            onChange={(v) => updateField("saturation", v)}
+            markers={[{ value: 0, label: "0" }, { value: 50, label: "50" }, { value: 100, label: "100" }]}
+            error={errors.saturation}
+          />
+
           <SliderField
             label="Hue"
             min={0} max={359} step={1}
@@ -464,16 +459,11 @@ export default function PresetEditor({ monitors, editPreset, onClose, onSaved }:
             onChange={(v) => updateField("hue_deg", v)}
             markers={[{ value: 0, label: "0" }, { value: 359, label: "359" }]}
             error={errors.hue_deg}
-            disabled={nvSupported === false}
           />
-          {nvSupported === false && (
-            <p className="text-xs text-danger-ink">Digital vibrance/hue need an NVIDIA-driven display.</p>
-          )}
-          </div>
 
           {/* Precedence footnote */}
-          <p className="sm:col-span-2 text-xs text-muted-foreground leading-relaxed mono">
-            <span className="font-medium uppercase tracking-widest text-muted-foreground">Precedence:</span>
+          <p className="sm:col-span-2 text-[10px] leading-relaxed text-muted-foreground mono">
+            <span className="font-medium uppercase tracking-[0.12em] text-muted-foreground">Precedence:</span>
             ICC profile first, then gamma + RGB gains overlaid.
           </p>
           </div>
@@ -535,7 +525,7 @@ function EditableNumber({
       value={draft}
       disabled={disabled}
       aria-label={`${label} value, type a number to edit`}
-      title={`${label}: ${display} (click to edit, range ${min}–${max})`}
+      title={`${label}: ${display} (click to edit, range ${min} to ${max})`}
       onChange={(e) => setDraft((e.target as HTMLInputElement).value)}
       onFocus={() => setFocused(true)}
       onBlur={() => {
@@ -549,7 +539,7 @@ function EditableNumber({
           (e.target as HTMLInputElement).blur();
         }
       }}
-      className={`bg-transparent p-0 text-right text-xs mono outline-none border-b border-transparent text-muted-foreground hover:text-foreground focus:text-foreground focus:border-ink disabled:pointer-events-none disabled:opacity-50 ${className ?? ""}`}
+      className={`bg-transparent p-0 text-right text-xs mono tabular-nums outline-none border-b border-transparent text-muted-foreground hover:text-foreground focus:text-foreground focus:border-ink disabled:pointer-events-none disabled:opacity-50 ${className ?? ""}`}
     />
   );
 }
@@ -562,7 +552,7 @@ export interface SliderMarker {
 
 /** Reusable slider + label + value + markers */
 function SliderField({
-  label, min, max, step, value, display, onChange, markers, error, disabled,
+  label, min, max, step, value, display, onChange, markers, error,
 }: {
   label: string;
   min: number; max: number; step: number;
@@ -571,42 +561,38 @@ function SliderField({
   onChange: (v: number) => void;
   markers: SliderMarker[];
   error?: string;
-  disabled?: boolean;
 }) {
   return (
     <div>
-      <div className="mb-1.5">
-        <Label className="text-xs uppercase tracking-widest mono">
+      {/* Label row carries the value on the right, per the Figma editor:
+          the label, the current value, then a full-width track below. */}
+      <div className="mb-1.5 flex items-end justify-between gap-3">
+        <Label className="text-[10px] uppercase tracking-[0.12em] mono">
           {label}
         </Label>
-      </div>
-      <div className="flex items-center gap-3">
-        <Slider
-          min={min}
-          max={max}
-          step={step}
-          value={[value]}
-          disabled={disabled}
-          onValueChange={([v]) => onChange(v)}
-          className="flex-1"
-        />
         <EditableNumber
           label={label}
           min={min} max={max} step={step}
           display={display}
           onCommit={onChange}
-          disabled={disabled}
-          className="w-12 shrink-0"
+          className="w-14 shrink-0"
         />
       </div>
-      {/* Markers sit exactly under their track positions: the row is
-          inset by the readout column (w-12 + gap-3 = 60px) so its center
-          matches the track center, and each label is centered on the
-          thumb-center position for its value (10px half-thumb insets for
-          the size-5 thumb). End markers are edge-pinned (first left-aligned,
-          last right-aligned) so short labels like "0.3" never hang past the
-          row edge and get clipped by the dialog's overflow-x-clip. */}
-      <div className="relative mt-0.5 h-4 mono text-xs text-muted-foreground" style={{ marginRight: "60px" }}>
+      <Slider
+        min={min}
+        max={max}
+        step={step}
+        value={[value]}
+        onValueChange={([v]) => onChange(v)}
+        className="w-full"
+      />
+      {/* Markers sit exactly under their track positions: each label is
+          centered on the thumb-center position for its value (10px
+          half-thumb insets for the size-4 thumb). End markers are
+          edge-pinned (first left-aligned, last right-aligned) so short
+          labels like "0.3" never hang past the row edge and get clipped by
+          the dialog's overflow-x-clip. */}
+      <div className="relative mt-2.5 h-4 mono text-[11px] tabular-nums text-muted-foreground">
         {markers.map((m, i) => {
           const frac = Math.min(1, Math.max(0, (m.value - min) / (max - min)));
           const align = i === 0 ? "translateX(0)" : i === markers.length - 1 ? "translateX(-100%)" : "translateX(-50%)";
@@ -614,7 +600,7 @@ function SliderField({
             <span
               key={m.label}
               className="absolute whitespace-nowrap"
-              style={{ left: `calc(10px + ${frac} * (100% - 20px))`, transform: align }}
+              style={{ left: `calc(8px + ${frac} * (100% - 16px))`, transform: align }}
             >
               {m.label}
             </span>

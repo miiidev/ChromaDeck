@@ -22,6 +22,9 @@ New-Item -ItemType Directory -Force -Path $stage | Out-Null
 try {
   Copy-Item -LiteralPath $exe -Destination (Join-Path $stage "chromadeck.exe")
   Copy-Item -LiteralPath (Join-Path $root "LICENSE") -Destination $stage
+  # Intel IGCL header transcription requires its notice to accompany
+  # distribution (see NOTICE).
+  Copy-Item -LiteralPath (Join-Path $root "NOTICE") -Destination $stage
   # Portable marker: presence of this empty file beside the exe tells the
   # app to keep all data in a `data` folder next to it instead of
   # %LOCALAPPDATA%\ChromaDeck (see default_store_path in store.rs).

@@ -7,8 +7,8 @@
  * until a value moves).
  *
  * Neutrals: gamma 1.0, brightness/contrast 50, rgb_gains [1,1,1],
- * vibrance 50, hue_deg 0. Float comparisons use a small epsilon; integer
- * fields compare exactly.
+ * vibrance/saturation 50, hue_deg 0. Float comparisons use a small epsilon;
+ * integer fields compare exactly.
  */
 
 export interface ParamChip {
@@ -23,6 +23,7 @@ export interface ChipParams {
   contrast: number;
   rgb_gains: [number, number, number];
   vibrance: number;
+  saturation: number;
   hue_deg: number;
 }
 
@@ -67,6 +68,13 @@ export function deviatingChips(p: ChipParams): ParamChip[] {
       key: "vibrance",
       label: `V${p.vibrance.toFixed(0)}`,
       title: `Vibrance ${p.vibrance.toFixed(0)}`,
+    });
+  }
+  if (p.saturation !== 50) {
+    chips.push({
+      key: "saturation",
+      label: `S${p.saturation.toFixed(0)}`,
+      title: `Saturation ${p.saturation.toFixed(0)}`,
     });
   }
   if (p.hue_deg !== 0) {

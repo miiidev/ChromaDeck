@@ -1,0 +1,14 @@
+[package]
+name = "intel-igcl-spike"
+version = "0.1.0"
+edition = "2021"
+description = "Throwaway research spike: correlate Intel IGCL display handles to Windows displays/EDID. NOT part of the ChromaDeck build."
+publish = false
+
+[dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Devices_Display",
+    "Win32_System_LibraryLoader",
+] }

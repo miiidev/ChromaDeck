@@ -26,6 +26,7 @@ export interface Preset {
   rgb_gains: [number, number, number]; // per-channel multiplier
   gamma: number;        // 0.3 – 2.8 (NVCP range, 1.0 neutral)
   vibrance: number;     // 0 – 100, 50 neutral
+  saturation: number;   // 0 – 100, 50 neutral
   hue_deg: number;      // 0 – 359 degrees
   color_tag?: string;   // #rrggbb hex or empty/undefined for untagged
 }
@@ -38,8 +39,20 @@ export interface PresetInput {
   rgb_gains: [number, number, number];
   gamma: number;
   vibrance: number;
+  saturation: number;   // 0 – 100, 50 neutral
   hue_deg: number;
   color_tag?: string;   // #rrggbb hex or empty for untagged
+}
+
+export type AdjustmentStatus = "applied" | "skipped" | "failed";
+
+/** One adjustment's outcome from an apply attempt. */
+export interface AdjustmentOutcome {
+  adjustment: string;
+  status: AdjustmentStatus;
+  /** False when the backend accepted a write but did not read the panel back. */
+  verified: boolean;
+  reason?: string;
 }
 
 export interface ApplyResult {
@@ -47,6 +60,11 @@ export interface ApplyResult {
   gamma_applied: boolean;
   vibrance_applied: boolean;
   error?: string;
+  /**
+   * Per-adjustment detail (additive; absent on legacy responses).
+   * Order follows apply order: ICC, gamma family, saturation, vibrance, hue.
+   */
+  adjustments?: AdjustmentOutcome[];
 }
 
 export interface EnforceEvent {
@@ -64,11 +82,30 @@ export interface CapturedState {
   hue_deg: number;
 }
 
+export type CapabilityStatus = "supported" | "approximate" | "unsupported";
+
+/** One adjustment's support verdict for a display. */
+export interface DisplayCapability {
+  adjustment: string;
+  status: CapabilityStatus;
+  reason?: string; // present for unsupported/approximate
+}
+
+/** Per-display capability report returned by `get_display_capabilities`. */
+export interface DisplayCapabilities {
+  backend_id: string;    // "nvapi" | "intel" | "gdi"
+  backend_label: string; // human-readable backend name
+  adjustments: DisplayCapability[];
+}
+
 export interface MonitorProbe {
-  engine: string; // "nvapi" | "gdi"
+  engine: string;     // legacy coarse class: "nvapi" | "gdi"
+  backend_id: string; // real backend: "nvapi" | "intel" | "gdi"
   vibrance_supported: boolean;
   vibrance: number | null;
   hue: number | null;
-  ramp_peak: number | null; // 0..1 fraction of full scale
+  // Peak of the live colour ramp/LUT (0..1). Intel reports its pixtx 1D LUT.
+  ramp_peak: number | null;
+  // Whether that ramp/LUT is linear identity. Intel reports its pixtx 1D LUT.
   ramp_identity: boolean | null;
 }
