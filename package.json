@@ -1,7 +1,7 @@
 {
   "name": "chromadeck",
   "private": true,
-  "version": "0.8.1",
+  "version": "0.8.2",
   "author": "miiidev",
   "type": "module",
   "scripts": {
