@@ -26,3 +26,8 @@ dist-ssr
 # Rust / Tauri build artifacts
 src-tauri/target/
 spikes/**/target/
+
+# Local agent tooling config (not part of the app)
+opencode.json
+opencode.json.bak
+opencode.json.bak2

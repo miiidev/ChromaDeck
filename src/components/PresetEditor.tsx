@@ -146,7 +146,10 @@ export default function PresetEditor({ presets, editPreset, onClose, onClosed, o
   const [iccStatus, setIccStatus] = useState<{ hash: string; filename: string } | null>(null);
   const [iccImporting, setIccImporting] = useState(false);
 
-  const requestClose = () => {
+  // Escape and backdrop dismissal must respect the same in-flight guard as the
+  // disabled Save button; the save-success path passes `force` to close itself.
+  const requestClose = (force = false) => {
+    if (saving && !force) return;
     setDialogOpen(false);
     onClose();
   };
@@ -217,7 +220,7 @@ export default function PresetEditor({ presets, editPreset, onClose, onClosed, o
         await createPreset(payload);
       }
       onSaved();
-      requestClose();
+      requestClose(true);
     } catch (err) {
       setErrors({ name: `Save failed: ${err}` });
     } finally {
@@ -517,7 +520,7 @@ export default function PresetEditor({ presets, editPreset, onClose, onClosed, o
 
           {/* ── Actions ──────────────────────────────────────────── */}
           <DialogFooter>
-            <Button variant="ghost" type="button" onClick={requestClose}>
+            <Button variant="ghost" type="button" onClick={() => requestClose()}>
               Cancel
             </Button>
             <Button variant="default" type="submit" disabled={saving} trailingIcon={<Check className="size-4 text-primary-foreground" />}>

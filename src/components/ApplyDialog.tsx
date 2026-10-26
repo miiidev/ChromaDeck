@@ -39,7 +39,10 @@ export default function ApplyDialog({ preset, monitors, pins, initialEdid, onClo
   const [lastResult, setLastResult] = useState<ApplyResult | null>(null);
   const [backends, setBackends] = useState<Record<string, BackendState>>({});
 
-  const requestClose = () => {
+  // Escape and backdrop dismissal must respect the same in-flight guard as the
+  // disabled Cancel button; the success path passes `force` to close itself.
+  const requestClose = (force = false) => {
+    if (applying && !force) return;
     setOpen(false);
     onClose();
   };
@@ -145,7 +148,7 @@ export default function ApplyDialog({ preset, monitors, pins, initialEdid, onClo
       // Success: remember the target, report, and close.
       lastTargetByPreset.set(preset.id, targets[0].edid_id);
       onApplied({ presetId: preset.id, edid: targets[0].edid_id });
-      requestClose();
+      requestClose(true);
       return;
     }
 
@@ -315,7 +318,7 @@ export default function ApplyDialog({ preset, monitors, pins, initialEdid, onClo
 
         {/* ── Actions ───────────────────────────────────────────── */}
         <DialogFooter>
-          <Button variant="ghost" onClick={requestClose} disabled={applying}>
+          <Button variant="ghost" onClick={() => requestClose()} disabled={applying}>
             Cancel
           </Button>
           <Button onClick={handleApply} disabled={!canApply || applying} trailingIcon={<ArrowRightGlyph />}>

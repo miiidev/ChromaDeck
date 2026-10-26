@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Monitor, Preset } from "../lib/types";
 import { identifyMonitors, resetMonitor, setMonitorName, unpinMonitor, probeMonitor } from "../lib/tauri";
 import { splitCategory } from "../lib/presetCard";
@@ -7,7 +7,7 @@ import { PresetTag } from "@/components/ui/preset-tag";
 import { Input } from "@/components/ui/input";
 import { IdentifyGlyph, MonitorGlyph, ProbeGlyph, ResetGlyph } from "@/components/ui/icons";
 import { Check, ChevronDown, Pencil, PinOff } from "lucide-react";
-import { useDragAndDrop } from "./DragAndDropContext";
+import { useDragAndDrop, useDragSource } from "./DragAndDropContext";
 import { cn } from "cn";
 
 /** One utility action in a monitor card (Figma: icon 13 + mono 10 label). */
@@ -255,6 +255,18 @@ function MonitorCard({ monitor, pinnedPreset, appliedMap, setAppliedMap, pins, p
   index: number;
 }) {
   const { target, isDragging, draggingPreset, applyStatus } = useDragAndDrop();
+  // Applied presets leave the library, so the monitor slot doubles as a drag
+  // source: drag a preset from one display to another to copy it.
+  const { beginDrag, draggingPresetId } = useDragSource();
+  const [dragOrigin, setDragOrigin] = useState(false);
+  const pendingDrag = useRef<{ pointerId: number; x: number; y: number; rect: DOMRect } | null>(null);
+  const detachPending = useRef<(() => void) | null>(null);
+
+  useEffect(() => () => detachPending.current?.(), []);
+  // Clear the dimmed source state once the drag lifecycle finishes.
+  useEffect(() => {
+    if (draggingPresetId === null) setDragOrigin(false);
+  }, [draggingPresetId]);
   // Bumped on every transition into "applied" so the sweep span remounts and
   // replays its one-shot animation (the status object carries no timestamp).
   const [sweepKey, setSweepKey] = useState(0);
@@ -296,6 +308,49 @@ function MonitorCard({ monitor, pinnedPreset, appliedMap, setAppliedMap, pins, p
     appliedMap[monitor.edid_id] === draggingPreset.id;
   const showValidDrop =
     isDropHover && connected && !samePresetApplied;
+
+  /** Press-and-drag from the filled slot copies this display's preset to
+   *  another monitor. Applied presets no longer exist in the library, so this
+   *  is how they get reused without duplicating them first. */
+  const handleSlotPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!slotPreset || !connected || isDragging) return;
+    if (status?.phase === "applying") return;
+    if (e.button !== 0 || e.pointerType === "touch") return;
+    const origin = e.target as HTMLElement;
+    if (origin.closest("button, a, input, [data-no-drag]")) return;
+
+    detachPending.current?.();
+    const start = {
+      pointerId: e.pointerId,
+      x: e.clientX,
+      y: e.clientY,
+      rect: e.currentTarget.getBoundingClientRect(),
+    };
+
+    const cleanup = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      pendingDrag.current = null;
+      detachPending.current = null;
+    };
+
+    const onMove = (ev: PointerEvent) => {
+      if (ev.pointerId !== start.pointerId || !pendingDrag.current) return;
+      if (Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < 6) return;
+      cleanup();
+      setDragOrigin(true);
+      beginDrag(slotPreset, start.rect, { x: ev.clientX, y: ev.clientY });
+    };
+
+    const onUp = () => cleanup();
+
+    pendingDrag.current = start;
+    detachPending.current = cleanup;
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+  };
 
   // While a drag hovers this monitor the drop feedback adopts the dragged
   // preset's tag colour; otherwise the slot's own preset tag applies.
@@ -350,19 +405,28 @@ function MonitorCard({ monitor, pinnedPreset, appliedMap, setAppliedMap, pins, p
           </Badge>
         </div>
 
-        {/* Slot: apply-in-progress / applied summary / drop prompt */}
+        {/* Slot: apply-in-progress / applied summary / drop prompt.
+            When filled it is also a drag source for copying to another display. */}
         <div
           className={cn(
             "mt-3 flex min-h-0 flex-1 flex-col justify-center rounded-[8px] p-2 transition-colors relative overflow-hidden",
             slotPreset
               ? "border border-border bg-surface"
               : "border border-dashed border-border bg-transparent",
+            slotPreset && connected && "cursor-grab active:cursor-grabbing",
+            dragOrigin && "opacity-40",
             showValidDrop && "monitor-drop-target",
             isOfflineHover && "border-destructive",
           )}
           style={
             slotPreset && tag
               ? { backgroundColor: `color-mix(in srgb, ${tag} 8%, var(--color-surface))` }
+              : undefined
+          }
+          onPointerDown={slotPreset && connected ? handleSlotPointerDown : undefined}
+          title={
+            slotPreset && connected
+              ? `Drag ${slotPreset.name} onto another monitor to copy it`
               : undefined
           }
         >

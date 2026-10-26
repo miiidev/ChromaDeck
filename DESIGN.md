@@ -69,7 +69,7 @@ Badges are mono 9px, `px-2 py-[3px]`, rounded-[8px] (`border-hover` hairline + m
 StatTile is a bare label/value stack — no well, no border.
 Dialogs use `rounded-[8px]`, border `border-border`, bg `surface-raised`; controls use `rounded-[8px]`; every border is a 1px hairline (`border`). No shadows, no blur.
 
-Drag-and-drop (pointer-based, portal ghost): preset cards are draggable; monitor cards are drop targets. Drag ghost renders a miniature preset card (`scale(0.98)`, `rotate(-0.5deg)`, `opacity 0.9`, raised surface) in a portal on `document.body`. Source card dims to 40% opacity / scale 0.97 while dragging. "All monitors" drop target appears as a mint pill at the top of the monitors panel only during a drag; drop on library background cancels. Apply-in-progress shows a spinner in the slot; applied state shows the badge plus a one-shot tag-coloured sweep; error shows destructive text.
+Drag-and-drop (pointer-based, portal ghost): preset cards are draggable; monitor cards are drop targets, and a **filled monitor slot is also a drag source** so an applied preset can be copied to another display without duplicating it (the library no longer holds applied presets). The source slot dims to 40% and switches to a grabbing cursor while dragging, with a `title` explaining the copy. Drag ghost renders a miniature preset card (`scale(0.98)`, `rotate(-0.5deg)`, `opacity 0.9`, raised surface) in a portal on `document.body`. Source card dims to 40% opacity / scale 0.97 while dragging. "All monitors" drop target appears as a mint pill at the top of the monitors panel only during a drag; drop on library background cancels. Apply-in-progress shows a spinner in the slot; applied state shows the badge plus a one-shot tag-coloured sweep; error shows destructive text.
 
 ## Color Roles
 
@@ -229,6 +229,7 @@ The library is a single-row, snap-scrolling carousel of preset cards (`min-w-[28
 - The carousel has 48px inline padding. A horizontal mask fades the first and last 48px so cards dissolve into the panel instead of clipping at the viewport edge.
 - Arrows sit vertically centred on the visible panel, outside the mask; they step exactly one card and disable at each end.
 - Loading state mirrors the carousel with a row of card skeletons.
+- Applied presets leave the library. A preset applied to a **connected** monitor is removed from the carousel and lives only on that monitor's card until the monitor is reset or the apply is undone. Presets applied to a disconnected monitor stay in the library so they can't be stranded. Duplicate a preset to reuse it on another display.
 
 The section heading is `PRESETS (n)` (mono 10px, uppercase, 0.14em tracking).
 

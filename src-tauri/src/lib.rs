@@ -36,10 +36,19 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
         app,
         &[&show, &reapply, &PredefinedMenuItem::separator(app)?, &quit],
     )?;
+    // Tray surfaces are 16–32px, so use the simplified four-tile mark rather
+    // than the full seven-tile app icon (which turns to mush at that size).
+    let Some(tray_icon) = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png"))
+        .ok()
+        .or_else(|| app.default_window_icon().cloned())
+    else {
+        eprintln!("tray: no icon available, skipping tray");
+        return Ok(());
+    };
     TrayIconBuilder::new()
         .menu(&menu)
         .tooltip("ChromaDeck")
-        .icon(app.default_window_icon().cloned().unwrap())
+        .icon(tray_icon)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "tray-quit" => {
                 // Defined exit semantics (see enforce.rs): applied colour is

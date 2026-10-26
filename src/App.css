@@ -21,7 +21,7 @@
   --color-muted-foreground: #a1a7af;
   --color-subtle-fg: #858b94; /* ≥4.9:1 on every surface (was 3.5–4.3) */
   --color-primary: #5eead4;
-  --color-primary-foreground: #030305;
+  --color-primary-foreground: #060608;
   --color-primary-subtle: rgba(94, 234, 212, 0.12);
   --color-primary-border: rgba(94, 234, 212, 0.3);
   --color-destructive: #ef4444;

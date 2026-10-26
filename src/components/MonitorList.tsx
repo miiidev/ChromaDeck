@@ -107,9 +107,21 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
     }
   }, []);
 
-  const categories = presetCategories(presets);
-  const showUncategorised = hasUncategorisedPresets(presets);
-  const filteredPresets = filterPresets(presets, query, categoryFilter);
+  // Presets already applied to a CONNECTED monitor leave the library: they now
+  // live on that monitor's card until the monitor is reset or the apply is
+  // undone. Scoping to connected displays means a preset applied to a monitor
+  // that later disconnects returns here instead of being stranded.
+  const connectedEdids = new Set(monitors.filter((m) => m.connected).map((m) => m.edid_id));
+  const appliedPresetIds = new Set(
+    Object.entries(appliedMap)
+      .filter(([edid]) => connectedEdids.has(edid))
+      .map(([, presetId]) => presetId),
+  );
+  const libraryPresets = presets.filter((preset) => !appliedPresetIds.has(preset.id));
+
+  const categories = presetCategories(libraryPresets);
+  const showUncategorised = hasUncategorisedPresets(libraryPresets);
+  const filteredPresets = filterPresets(libraryPresets, query, categoryFilter);
   const isSearching = query.trim().length > 0 || categoryFilter !== ALL_CATEGORIES;
 
   // Drop a filter whose category no longer exists (e.g. its presets were deleted).
@@ -219,9 +231,17 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
   });
 
   // Pre-computed carousel content (avoids nested JSX expressions inside the ternary)
+  const allPresetsApplied = presets.length > 0 && libraryPresets.length === 0;
   const emptyPresetsContent = (
     <div className="flex min-h-64 flex-1 flex-col items-center justify-center gap-3 rounded-[8px] border border-dashed border-border bg-transparent py-12 text-center">
-      <p className="font-mono text-[10px] text-muted-foreground">No presets yet</p>
+      <p className="font-mono text-[10px] text-muted-foreground">
+        {allPresetsApplied ? "Every preset is applied to a monitor" : "No presets yet"}
+      </p>
+      {allPresetsApplied && (
+        <p className="max-w-xs font-mono text-[9px] leading-relaxed text-muted-foreground/80">
+          Duplicate a preset from a monitor to reuse it on another display.
+        </p>
+      )}
       <Button variant="secondary" size="sm" onClick={() => onCreateNew()}>
         <Plus className="size-3.5" />
         Create preset
@@ -297,7 +317,7 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
   }
 
   // Full empty state
-  if (monitors.length === 0 && presets.length === 0) {
+  if (monitors.length === 0 && libraryPresets.length === 0) {
     return (
       <section className="shell-enter flex min-h-0 min-w-0 flex-1 flex-col" style={{ ["--shell-delay" as string]: "120ms" }}>
         <div className="flex h-10 shrink-0 items-center justify-between border-b border-border pb-2">
@@ -350,8 +370,8 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
           <div className="flex h-10 shrink-0 items-center justify-between gap-4 border-b border-border pb-2">
             <span className="mono min-w-0 truncate text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
               {isSearching
-                ? `Presets (${filteredPresets.length} of ${presets.length})`
-                : `Presets (${presets.length})`}
+                ? `Presets (${filteredPresets.length} of ${libraryPresets.length})`
+                : `Presets (${libraryPresets.length})`}
             </span>
             <div className="flex shrink-0 items-center gap-2">
               <Select
@@ -427,7 +447,7 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
           </div>
         }
       >
-        {presets.length === 0
+        {libraryPresets.length === 0
           ? emptyPresetsContent
           : filteredPresets.length === 0
             ? noResultsContent
