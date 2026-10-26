@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import type { Monitor, Preset } from "../lib/types";
 import { identifyMonitors, resetMonitor, setMonitorName, unpinMonitor, probeMonitor } from "../lib/tauri";
 import { splitCategory } from "../lib/presetCard";
-import { Badge } from "@/components/ui/badge";
 import { PresetTag } from "@/components/ui/preset-tag";
 import { Input } from "@/components/ui/input";
 import { IdentifyGlyph, MonitorGlyph, ProbeGlyph, ResetGlyph } from "@/components/ui/icons";
@@ -243,7 +242,7 @@ function MonitorProbeButton({ edidId }: { edidId: string }) {
 }
 
 /** Monitor card — flat dark surface, 1px outer/inner hairlines. */
-function MonitorCard({ monitor, pinnedPreset, appliedMap, setAppliedMap, pins, presets, onRefresh, onPinChange, index }: {
+function MonitorCard({ monitor, pinnedPreset, appliedMap, setAppliedMap, pins, presets, onRefresh, onPinChange, index, compact }: {
   monitor: Monitor;
   pinnedPreset: Preset | null;
   appliedMap: Record<string, string>;
@@ -253,6 +252,8 @@ function MonitorCard({ monitor, pinnedPreset, appliedMap, setAppliedMap, pins, p
   onRefresh: () => void;
   onPinChange: () => void;
   index: number;
+  /** Denser treatment used when the sidebar holds many monitors. */
+  compact?: boolean;
 }) {
   const { target, isDragging, draggingPreset, applyStatus } = useDragAndDrop();
   // Applied presets leave the library, so the monitor slot doubles as a drag
@@ -362,12 +363,22 @@ function MonitorCard({ monitor, pinnedPreset, appliedMap, setAppliedMap, pins, p
   const showAppliedBadge =
     isPinned || (connected && appliedPreset !== null);
 
+  // Single status chip replaces the old dot + APPLIED/DEFAULT/OFFLINE badge:
+  // assigned monitors show the preset's category on a tag-tinted pill, so the
+  // colour carries preset identity while the text keeps it colour-blind safe.
+  const chipLabel = showAppliedBadge
+    ? slotTitle?.category || slotTitle?.title || "ASSIGNED"
+    : connected
+      ? "DEFAULT"
+      : "OFFLINE";
+
   return (
     <div
       data-drop-monitor={monitor.edid_id}
       data-drop-enabled={connected ? "true" : "false"}
       className={cn(
-        "group/pad monitor-card-enter relative h-[160px] shrink-0 rounded-[8px] border bg-surface p-2 transition-[scale,border-color] duration-[var(--motion-fast)]",
+        "group/pad monitor-card-enter relative shrink-0 rounded-[8px] border bg-surface p-2 transition-[scale,border-color] duration-[var(--motion-fast)]",
+        compact ? "h-[146px]" : "h-[160px]",
         isPinned && !tag ? "border-primary" : "border-border",
         // Standalone `scale` (not transform) so the entrance animation keeps
         // ownership of `transform`.
@@ -385,7 +396,12 @@ function MonitorCard({ monitor, pinnedPreset, appliedMap, setAppliedMap, pins, p
         } as Record<string, string>
       }
     >
-      <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[8px] border border-border-hover bg-surface p-4">
+      <div
+        className={cn(
+          "flex h-full min-h-0 flex-col overflow-hidden rounded-[8px] border border-border-hover bg-surface",
+          compact ? "p-3" : "p-4",
+        )}
+      >
         {/* Identity */}
         <div className="flex min-w-0 items-center gap-2">
           <MonitorGlyph
@@ -400,16 +416,43 @@ function MonitorCard({ monitor, pinnedPreset, appliedMap, setAppliedMap, pins, p
               {monitor.serial || monitor.edid_id}
             </span>
           </div>
-          <Badge variant={showAppliedBadge ? "pinned" : "outline"}>
-            {showAppliedBadge ? "APPLIED" : connected ? "DEFAULT" : "OFFLINE"}
-          </Badge>
+          <span
+            className={cn(
+              "inline-flex w-fit max-w-[104px] shrink-0 items-center justify-center overflow-hidden rounded-full border px-2 py-[3px] font-mono text-[9px] leading-[1.4] uppercase tracking-normal whitespace-nowrap transition-colors",
+              showAppliedBadge
+                ? tag
+                  ? ""
+                  : "border-primary bg-primary-subtle text-primary"
+                : "border-border bg-transparent text-muted-foreground",
+              showAppliedBadge && !connected && "opacity-60",
+            )}
+            style={
+              showAppliedBadge && tag
+                ? {
+                    backgroundColor: `color-mix(in srgb, ${tag} 18%, transparent)`,
+                    borderColor: tag,
+                    color: tag,
+                  }
+                : undefined
+            }
+            title={
+              showAppliedBadge && slotPreset
+                ? `${slotPreset.name}${connected ? "" : " · monitor offline"}`
+                : connected
+                  ? "No preset applied — display defaults in use"
+                  : "Monitor not connected"
+            }
+          >
+            <span className="truncate">{chipLabel}</span>
+          </span>
         </div>
 
         {/* Slot: apply-in-progress / applied summary / drop prompt.
             When filled it is also a drag source for copying to another display. */}
         <div
           className={cn(
-            "mt-3 flex min-h-0 flex-1 flex-col justify-center rounded-[8px] p-2 transition-colors relative overflow-hidden",
+            "flex min-h-0 flex-1 flex-col justify-center rounded-[8px] p-2 transition-colors relative overflow-hidden",
+            compact ? "mt-2" : "mt-3",
             slotPreset
               ? "border border-border bg-surface"
               : "border border-dashed border-border bg-transparent",
@@ -485,7 +528,7 @@ function MonitorCard({ monitor, pinnedPreset, appliedMap, setAppliedMap, pins, p
         </div>
 
         {/* Actions */}
-        <div className={cn("mt-3 flex h-[22px] min-w-0 shrink-0 items-center gap-4", !connected && "opacity-40 transition-opacity hover:opacity-100")}>
+          <div className={cn("flex h-[22px] min-w-0 shrink-0 items-center gap-4", compact ? "mt-2" : "mt-3", !connected && "opacity-40 transition-opacity hover:opacity-100")}>
           <MonitorResetButton edidId={monitor.edid_id} onPinChange={onPinChange} setAppliedMap={setAppliedMap} />
           <MonitorProbeButton edidId={monitor.edid_id} />
           {pins[monitor.edid_id] && (
@@ -523,6 +566,8 @@ export default function MonitorSidebar({ monitors, presets, pins, appliedMap, se
   const { isDragging, target } = useDragAndDrop();
 
   const connectedCount = monitors.filter((m) => m.connected).length;
+  // Many monitors: tighten card density instead of switching to a carousel.
+  const compact = monitors.length > 4;
   const isAllHover = target?.kind === "all";
   const isPanelHover = target?.kind === "panel";
 
@@ -607,7 +652,12 @@ export default function MonitorSidebar({ monitors, presets, pins, appliedMap, se
               <span className="font-mono text-[10px] text-muted-foreground">No monitors detected</span>
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-4 min-[760px]:grid-cols-2 min-[1000px]:grid-cols-3">
+            <div
+              className={cn(
+                "grid grid-cols-1 min-[760px]:grid-cols-2 min-[1000px]:grid-cols-3",
+                compact ? "gap-3" : "gap-4",
+              )}
+            >
               {monitors.map((m, index) => {
                 const pinnedId = pins[m.edid_id];
                 const pinnedPreset = pinnedId ? presets.find((p) => p.id === pinnedId) ?? null : null;
@@ -623,6 +673,7 @@ export default function MonitorSidebar({ monitors, presets, pins, appliedMap, se
                     onRefresh={onRefresh}
                     onPinChange={onPinChange}
                     index={index}
+                    compact={compact}
                   />
                 );
               })}

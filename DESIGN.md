@@ -86,7 +86,7 @@ Drag-and-drop (pointer-based, portal ghost): preset cards are draggable; monitor
 | ICC chip | outline, muted mono text |
 | Stat | label mono 9px muted, value mono 17px (mint when non-neutral, bone when neutral) |
 | UNPIN | icon-only ghost |
-| Monitor identity | 24px monitor glyph (mint connected / subtle offline) + APPLIED/DEFAULT/OFFLINE badge — no separate status dot |
+| Monitor identity | 24px monitor glyph (mint connected / subtle offline) + a single status chip: assigned monitors show the preset **category** on a pill tinted with the preset's tag colour (18% fill, tag border and text; mint fallback when untagged, 60% opacity while offline); otherwise a muted `DEFAULT` / `OFFLINE` pill. Text always carries the state, so colour is supplementary. No separate status dot. |
 | Offline row | dashed `border` on paper, muted name, actions at 40% opacity |
 | Warning | `--color-warning` (`#fbbf24`), graphics only |
 | Focus | 3px `ring` (mint) |
@@ -106,12 +106,12 @@ Flat strip (`h-12`, `border-b border-border`, `bg-background`, `px-6`): left clu
 
 ## Monitor dashboard
 
-`MONITORS (n)` section heading (28px): WindowDots (26 × 6) + mono 11px label on the left, an `Identify` glyph + mono 10px muted action on the right. Below, a grid (`gap-4`) of 160px-tall monitor cards (breakpoints: <760px 1 col, ≥760px 2 cols, ≥1000px 3 cols):
+`MONITORS (n)` section heading (28px): WindowDots (26 × 6) + mono 11px label on the left, an `Identify` glyph + mono 10px muted action on the right. Below, a grid of monitor cards (breakpoints: <760px 1 col, ≥760px 2 cols, ≥1000px 3 cols). Density adapts: 160px-tall cards with a `gap-4` up to four monitors, then 146px-tall cards with a `gap-3` (inner padding `p-3`, slot/action gap `mt-2`) from five monitors on. The sidebar always stacks vertically and scrolls; it never becomes a horizontal carousel.
 
 ```
 Outer: h-[160px] rounded-[8px] p-2 border border-border bg-surface
   Inner: rounded-[8px] p-4 border border-border-hover bg-surface
-    Identity: 24px monitor glyph (mint connected / subtle offline) + 17px name + 9px mono serial + APPLIED/DEFAULT/OFFLINE badge
+    Identity: 24px monitor glyph (mint connected / subtle offline) + 17px name + 9px mono serial + status chip (preset category tinted with its tag colour, or muted DEFAULT/OFFLINE)
     Slot: drop target for preset drag-and-drop. Empty: dashed border border-border + "Drop preset here" label. Filled: PresetTag marker + preset name (mono 10px) + category (mono 9px); background tinted 8% of the tag colour.
     Actions: Apply-to-target appears only on hover (rounded-[8px] border button). Reset / Probe utility actions (13px glyph + mono 10px label).
 ```
