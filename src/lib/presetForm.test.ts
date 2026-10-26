@@ -15,6 +15,7 @@ const PRESET: Preset = {
   saturation: 73,
   hue_deg: 12,
   color_tag: "#ff5533",
+  tag_shape: "square",
 };
 
 describe("preset editor saturation round-trip", () => {
@@ -38,7 +39,14 @@ describe("preset editor saturation round-trip", () => {
       saturation: PRESET.saturation,
       hue_deg: PRESET.hue_deg,
       color_tag: PRESET.color_tag,
+      tag_shape: PRESET.tag_shape,
     });
+  });
+
+  it("carries the tag shape into the form and defaults to pill", () => {
+    expect(presetToFormValues(PRESET).tag_shape).toBe("square");
+    expect(DEFAULT_PRESET_INPUT.tag_shape).toBe("pill");
+    expect(presetToFormValues({ ...PRESET, tag_shape: undefined }).tag_shape).toBe("pill");
   });
 
   it("restores saturation to neutral on reset without touching name or tag", () => {

@@ -1,6 +1,10 @@
 import { type ReactNode } from "react";
 
-/** Elevated stat tile: label + mono value, dimmed when neutral. Double-Bezel inner. */
+/**
+ * Figma StatTile: a bare label/value stack (no well, no border).
+ * Label — mono 9px muted; value — mono 17px, mint when non-neutral.
+ * Double-Bezel wells were removed in the premium redesign.
+ */
 interface StatTileProps {
   label: string;
   value: string;
@@ -9,21 +13,21 @@ interface StatTileProps {
 }
 
 const valueSizes = {
-  "16": "text-[18px]",
-  "20": "text-[22px]",
-  "24": "text-[26px]",
-  "32": "text-[30px]",
+  "16": "text-[15px]",
+  "20": "text-[17px]",
+  "24": "text-[17px]",
+  "32": "text-[22px]",
 } as const;
 
 export default function StatTile({ label, value, neutral, size = "24" }: StatTileProps): ReactNode {
-  const valueSize = valueSizes[size] ?? "text-[24px]";
+  const valueSize = valueSizes[size] ?? "text-[17px]";
   return (
-    <div className="flex flex-col items-stretch gap-1 min-w-0 overflow-hidden rounded-brutal border border-border bg-inset px-3 py-2.5">
-      <span className="text-[10px] font-mono font-bold tracking-[0.12em] uppercase text-muted-foreground truncate">
+    <div className="flex min-w-0 flex-col items-start gap-[2px] overflow-hidden">
+      <span className="w-full truncate font-mono text-[9px] leading-[1.4] text-muted-foreground">
         {label}
       </span>
       <span
-        className={`font-mono font-bold ${valueSize}/[1] tabular-nums whitespace-nowrap ${neutral ? "text-muted-foreground" : "text-foreground"} value-swap`}
+        className={`font-mono ${valueSize} leading-[1.1] tabular-nums whitespace-nowrap ${neutral ? "text-foreground" : "text-primary"} value-swap`}
       >
         {value}
       </span>

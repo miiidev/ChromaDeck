@@ -1007,6 +1007,7 @@ mod tests {
             hue_deg: 0.0,
             color_model: "nvcp-v1".into(),
             color_tag: None,
+            tag_shape: None,
         }
     }
 
@@ -1533,6 +1534,7 @@ mod tests {
             hue_deg: 0.0,
             color_model: "nvcp-v1".into(),
             color_tag: None,
+            tag_shape: None,
         }
     }
 

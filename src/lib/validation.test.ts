@@ -146,6 +146,25 @@ describe("color_tag validation", () => {
     expect(errors.color_tag).toBeDefined();
   });
 
+  it("accepts every tag shape", () => {
+    for (const shape of [
+      "pill",
+      "round",
+      "square",
+      "bar",
+      "diamond",
+      "hexagon",
+      "triangle",
+      "ring",
+    ] as const) {
+      expect(validatePreset({ tag_shape: shape }).tag_shape).toBeUndefined();
+    }
+  });
+
+  it("rejects an unknown tag shape", () => {
+    expect(validatePreset({ tag_shape: "blob" as never }).tag_shape).toBeDefined();
+  });
+
   it("undefined color_tag passes validation (untagged)", () => {
     const errors = validatePreset({});
     expect(errors.color_tag).toBeUndefined();

@@ -2083,6 +2083,7 @@ mod backend_tests {
             hue_deg: 0.0,
             color_model: "nvcp-v1".into(),
             color_tag: None,
+            tag_shape: None,
         }
     }
 
@@ -2983,6 +2984,7 @@ mod hw_verify {
             hue_deg: 0.0,
             color_model: "nvcp-v1".into(),
             color_tag: None,
+            tag_shape: None,
         }
     }
 

@@ -1,6 +1,18 @@
 /// Pure validation logic — testable without Tauri runtime.
 import type { PresetInput } from "./types";
 
+/** Shapes the tag marker can take. */
+export const TAG_SHAPES = [
+  "pill",
+  "round",
+  "square",
+  "bar",
+  "diamond",
+  "hexagon",
+  "triangle",
+  "ring",
+] as const;
+
 export interface ValidationErrors {
   name?: string;
   gamma?: string;
@@ -13,6 +25,7 @@ export interface ValidationErrors {
   hue_deg?: string;
   nvcp?: string;
   color_tag?: string;
+  tag_shape?: string;
 }
 
 /** Validate a partial PresetInput and return per-field error strings. */
@@ -77,6 +90,12 @@ export function validatePreset(input: Partial<PresetInput>): ValidationErrors {
     }
   }
 
+  if (input.tag_shape !== undefined) {
+    if (!(TAG_SHAPES as readonly string[]).includes(input.tag_shape)) {
+      errors.tag_shape = "Tag shape must be pill, round, square, bar, diamond, hexagon, triangle, ring or empty";
+    }
+  }
+
   return errors;
 }
 
@@ -96,6 +115,7 @@ export function validatePresetForm(
     saturation: input.saturation,
     hue_deg: input.hue_deg,
     color_tag: input.color_tag,
+    tag_shape: input.tag_shape,
   });
 
   Object.assign(errors, all);

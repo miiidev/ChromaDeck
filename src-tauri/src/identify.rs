@@ -19,19 +19,19 @@ pub fn identify_window_label(n: u32) -> String {
     format!("identify-{n}")
 }
 
-/// Compute centered overlay position within monitor rect, returning
-/// (x, y) in physical pixels clamped to the monitor origin.
+/// Physical-pixel bounds for a full-monitor overlay window.
 ///
-/// `(mon_x, mon_y, mon_w, mon_h)` is the monitor's rect in physical pixels.
-/// `(w, h)` is the overlay window size in logical pixels (same as physical
-/// for a 1× scale overlay).  Returns the top‑left corner of the overlay.
-pub fn overlay_rect(
-    mon_x: i32, mon_y: i32, mon_w: u32, mon_h: u32,
-    w: u32, h: u32,
-) -> (i32, i32) {
-    let cx = mon_x + (mon_w as i32 - w as i32).max(0) / 2;
-    let cy = mon_y + (mon_h as i32 - h as i32).max(0) / 2;
-    (cx, cy)
+/// The overlay covers its entire monitor, so it is positioned and sized in
+/// physical pixels — never logical ones — which keeps it correct under any
+/// DPI scale (100/125/150/200%) and for monitors with a negative origin
+/// (ones placed left of / above the primary display).
+///
+/// Returns `(x, y, w, h)` with width and height clamped to at least 1 so a
+/// degenerate or inverted `RECT` can never produce a zero-sized window.
+pub fn overlay_bounds(r: &RECT) -> (i32, i32, u32, u32) {
+    let w = (r.right - r.left).max(1) as u32;
+    let h = (r.bottom - r.top).max(1) as u32;
+    (r.left, r.top, w, h)
 }
 
 /// Query the current display settings for an exact Win32 device name
@@ -156,29 +156,58 @@ pub async fn identify_monitors_cmd(
             continue;
         }
         let r = rect.unwrap();
-        let mon_w = (r.right - r.left) as u32;
-        let mon_h = (r.bottom - r.top) as u32;
-        let (ox, oy) = overlay_rect(r.left, r.top, mon_w, mon_h, 440, 300);
+        let (ox, oy, ow, oh) = overlay_bounds(&r);
 
         let label = identify_window_label(n);
         // SAFETY: WebviewWindowBuilder is called from an async command,
         // which avoids the Windows deadlock documented in Tauri.
-        let _ = tauri::WebviewWindowBuilder::new(
+        //
+        // The window is built hidden, then positioned and sized in PHYSICAL
+        // pixels. Position is applied before size: moving the window onto a
+        // monitor with a different DPI triggers WM_DPICHANGED, and we want
+        // that resize to happen before the final full-monitor size is set.
+        let built = tauri::WebviewWindowBuilder::new(
             &app,
             &label,
             tauri::WebviewUrl::App("index.html".into()),
         )
-            .decorations(false)
-            .transparent(true)
-            .always_on_top(true)
-            .skip_taskbar(true)
-            .focused(false)
-            .position(ox as f64, oy as f64)
-            .inner_size(440.0, 300.0)
-            .build();
+        .visible(false)
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .focused(false)
+        .resizable(false)
+        .shadow(false)
+        .build();
 
-        shown.push(n);
-        created.push(label);
+        match built {
+            Ok(win) => {
+                if let Err(e) = win.set_position(tauri::PhysicalPosition::new(ox, oy)) {
+                    eprintln!("identify: set_position failed for {label}: {e}");
+                }
+                if let Err(e) = win.set_size(tauri::PhysicalSize::new(ow, oh)) {
+                    eprintln!("identify: set_size failed for {label}: {e}");
+                }
+                // Full-monitor overlay must not swallow the user's clicks
+                // while it is up for ~4 s.
+                if let Err(e) = win.set_ignore_cursor_events(true) {
+                    eprintln!("identify: set_ignore_cursor_events failed for {label}: {e}");
+                }
+                if let Err(e) = win.show() {
+                    eprintln!("identify: show failed for {label}: {e}");
+                }
+                shown.push(n);
+                created.push(label);
+            }
+            Err(e) => {
+                eprintln!(
+                    "identify: failed to create overlay {label} for device {} ({}): {e}",
+                    m.device_name,
+                    m.edid_id,
+                );
+            }
+        }
     }
 
     // Spawn a background task to destroy the overlay windows after ~4 s.
@@ -212,29 +241,31 @@ mod tests {
         assert!(identify_window_label(2).starts_with("identify-"));
     }
 
-    // ── overlay_rect ─────────────────────────────────────────────────
+    // ── overlay_bounds ───────────────────────────────────────────────
 
     #[test]
-    fn centers_in_monitor() {
-        let (x, y) = overlay_rect(0, 0, 1920, 1080, 380, 240);
-        assert_eq!(x, (1920 - 380) / 2);
-        assert_eq!(y, (1080 - 240) / 2);
+    fn bounds_cover_normal_monitor_at_origin() {
+        let r = RECT { left: 0, top: 0, right: 1920, bottom: 1080 };
+        assert_eq!(overlay_bounds(&r), (0, 0, 1920, 1080));
     }
 
     #[test]
-    fn centers_with_negative_origin() {
-        // Secondary monitor to the left of primary (e.g. -1920, 0)
-        let (x, y) = overlay_rect(-1920, 0, 1920, 1080, 380, 240);
-        assert_eq!(x, -1920 + (1920 - 380) / 2);
-        assert_eq!(y, (1080 - 240) / 2);
+    fn bounds_cover_monitor_with_negative_origin() {
+        // Secondary monitor to the left of the primary (e.g. -1920, 0).
+        let r = RECT { left: -1920, top: 0, right: 0, bottom: 1080 };
+        assert_eq!(overlay_bounds(&r), (-1920, 0, 1920, 1080));
+        // ...and one above it.
+        let r = RECT { left: 0, top: -2560, right: 1440, bottom: 0 };
+        assert_eq!(overlay_bounds(&r), (0, -2560, 1440, 2560));
     }
 
     #[test]
-    fn clamps_overlay_larger_than_monitor() {
-        // overlay cannot be larger than monitor; clamp to origin
-        let (x, y) = overlay_rect(100, 200, 100, 100, 380, 240);
-        assert_eq!(x, 100);
-        assert_eq!(y, 200);
+    fn bounds_clamp_degenerate_rect_to_one_pixel() {
+        let r = RECT { left: 100, top: 200, right: 100, bottom: 200 };
+        assert_eq!(overlay_bounds(&r), (100, 200, 1, 1));
+        // Inverted rect (right < left) must not underflow into a huge u32.
+        let r = RECT { left: 100, top: 200, right: 50, bottom: 150 };
+        assert_eq!(overlay_bounds(&r), (100, 200, 1, 1));
     }
 
     // ── find_monitor_rect: exact-device query ──────────────────────

@@ -43,17 +43,18 @@ export default function IdentifyOverlay({ number, total: totalProp, monitorName:
 
   return (
     <div
-      className="fixed inset-0 flex items-center justify-center bg-ink/60"
+      className="pointer-events-none fixed inset-0 flex select-none items-center justify-center"
       style={
         prefersReducedMotion
           ? { transition: "none" }
           : { transition: "opacity var(--motion-std) var(--ease-out)" }
       }
     >
-      <div className="flex flex-col items-center gap-3 px-6">
+      {/* Card is sized in vmin so it reads the same on 1080p → 4K/ultrawide. */}
+      <div className="flex flex-col items-center gap-[2vmin] rounded-[8px] bg-background/70 px-[6vmin] py-[4vmin] backdrop-blur-sm">
         {/* Giant monitor number */}
         <span
-          className="font-display text-[128px] font-extrabold leading-none text-mint select-none"
+          className="font-display text-[clamp(96px,22vmin,360px)] font-extrabold leading-none text-primary select-none"
           aria-label={`Monitor ${number}`}
         >
           {number}
@@ -61,16 +62,16 @@ export default function IdentifyOverlay({ number, total: totalProp, monitorName:
 
         {/* Monitor display name — the point of the overlay */}
         {name && (
-          <p className="max-w-[380px] break-words text-center text-xl font-semibold text-white">
+          <p className="max-w-[min(80vw,60ch)] break-words text-center text-[clamp(20px,3.2vmin,48px)] font-semibold text-foreground">
             {name}
           </p>
         )}
 
         {/* Caption */}
-        <p className="text-base font-mono text-white/80 tracking-widest uppercase">
+        <p className="text-[clamp(12px,1.6vmin,22px)] font-mono text-foreground/80 tracking-widest uppercase">
           CHROMADECK · Monitor {number}
           {total !== null && total !== undefined && total > 1 && (
-            <span className="text-white/60">
+            <span className="text-foreground/60">
               {" "}of {total}
             </span>
           )}

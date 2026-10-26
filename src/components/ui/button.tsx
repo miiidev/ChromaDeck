@@ -3,32 +3,31 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "cn"
 
 const buttonVariants = cva(
-  "group/button inline-flex shrink-0 items-center justify-center rounded-full border bg-clip-padding text-sm font-bold whitespace-nowrap transition-[translate,box-shadow,background-color,border-color] outline-none select-none focus-visible:ring-[3px] focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "group/button inline-flex shrink-0 items-center justify-center rounded-[8px] border bg-clip-padding font-display text-[13px] font-semibold leading-none whitespace-nowrap transition-[translate,background-color,border-color] outline-none select-none focus-visible:ring-[3px] focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 [&_svg]:pointer-events-none [&_svg]:shrink-0",
   {
     variants: {
       variant: {
         default:
-          "border-transparent bg-primary text-primary-foreground hover:brightness-105 focus-visible:border-primary-border",
+          "border-transparent bg-primary text-primary-foreground hover:brightness-105 focus-visible:border-primary",
         outline:
-          "border-border bg-surface text-foreground hover:bg-surface-hover aria-expanded:bg-surface-hover",
+          "border-border bg-transparent text-foreground hover:border-border-hover hover:bg-surface-hover aria-expanded:bg-surface-hover",
         secondary:
-          "border-border bg-surface text-foreground hover:bg-surface-hover aria-expanded:bg-surface-hover",
+          "border-border bg-surface-hover text-foreground hover:bg-border-hover aria-expanded:bg-border-hover",
         ghost:
           "border-transparent bg-transparent text-foreground hover:bg-surface-hover aria-expanded:bg-surface-hover",
         destructive:
           "border-transparent bg-destructive text-destructive-foreground hover:brightness-105 focus-visible:border-destructive",
-        link: "text-foreground underline underline-offset-4 hover:underline",
+        link: "border-transparent text-foreground underline underline-offset-4 hover:underline",
       },
       size: {
-        default:
-          "h-11 gap-1.5 px-6 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
-        xs: "h-6 gap-1 rounded-full px-3 text-xs in-data-[slot=button-group]:rounded-full has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
-        sm: "h-8 gap-1 rounded-full px-4 text-xs in-data-[slot=button-group]:rounded-full has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
-        lg: "h-12 gap-2 px-8 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
-        icon: "size-11 rounded-full",
-        "icon-xs": "size-6 rounded-full in-data-[slot=button-group]:rounded-full [&_svg:not([class*='size-'])]:size-3",
-        "icon-sm": "size-7 rounded-full in-data-[slot=button-group]:rounded-full",
-        "icon-lg": "size-11 rounded-full",
+        default: "h-11 gap-3 px-6",
+        xs: "h-6 gap-1 px-3 text-xs",
+        sm: "h-8 gap-1.5 px-4 text-xs",
+        lg: "h-12 gap-3 px-8 text-sm",
+        icon: "size-11",
+        "icon-xs": "size-6",
+        "icon-sm": "size-7",
+        "icon-lg": "size-11",
       },
     },
     defaultVariants: {
@@ -38,6 +37,10 @@ const buttonVariants = cva(
   }
 )
 
+/**
+ * Button-in-Button: a button with a trailing action gets its icon inside a
+ * dedicated 32px circle, flush with the button's right inner padding.
+ */
 function Button({
   className,
   variant = "default",
@@ -46,10 +49,14 @@ function Button({
   trailingIcon,
   ...props
 }: ButtonPrimitive.Props & VariantProps<typeof buttonVariants> & { trailingIcon?: React.ReactNode }) {
+  const filled = variant === "default" || variant === "destructive"
   return (
     <ButtonPrimitive
       data-slot="button"
-      className={cn(buttonVariants({ variant, size, className }))}
+      className={cn(
+        buttonVariants({ variant, size, className }),
+        trailingIcon && "pl-6 pr-1.5",
+      )}
       {...props}
     >
       <span className="btn-label inline-flex items-center gap-[inherit] relative z-10">
@@ -58,7 +65,10 @@ function Button({
       {trailingIcon && (
         <span
           data-trailing-icon
-          className="absolute right-2 z-10 inline-flex size-8 items-center justify-center rounded-full bg-black/5 dark:bg-white/10 transition-[translate,transform] group-hover/button:translate-x-1 group-hover/button:scale-105 group-active/button:translate-x-0 group-active/button:scale-100"
+          className={cn(
+            "inline-flex size-8 shrink-0 items-center justify-center rounded-full transition-[translate]",
+            filled ? "bg-primary-foreground/10" : "bg-surface-hover",
+          )}
         >
           {trailingIcon}
         </span>

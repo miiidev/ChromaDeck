@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { flushSync } from "react-dom";
 import "./App.css";
-import "@fontsource/montserrat/700.css";
-import "@fontsource/montserrat/800.css";
+import "@fontsource/geist/400.css";
+import "@fontsource/geist/600.css";
+import "@fontsource/geist/700.css";
 import "@fontsource/jetbrains-mono/500.css";
 import "@fontsource/jetbrains-mono/700.css";
 import { listMonitors, listPresets, listPins, listApplied, reapplyNow } from "./lib/tauri";
@@ -10,6 +11,7 @@ import { version as appVersion } from "../package.json";
 import type { Monitor, Preset, EnforceEvent } from "./lib/types";
 import { mergeMonitors } from "./lib/monitorMerge";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
+import { isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { replayEntrance } from "./lib/motion";
 import logoMark from "./assets/chromadeck-icon.svg";
@@ -17,6 +19,9 @@ import MonitorList from "./components/MonitorList";
 import MonitorSidebar from "./components/MonitorSidebar";
 import ApplyDialog from "./components/ApplyDialog";
 import PresetEditor from "./components/PresetEditor";
+import { DragAndDropProvider } from "./components/DragAndDropContext";
+import DragGhost from "./components/DragGhost";
+import UndoToast from "./components/UndoToast";
 
 function AutostartToggle() {
   const [on, setOn] = useState<boolean | null>(null);
@@ -33,10 +38,15 @@ function AutostartToggle() {
     }
   };
   return (
-    <label className="inline-flex items-center gap-1.5 text-xs cursor-pointer">
-      <input type="checkbox" checked={on ?? false} onChange={toggle} className="accent-primary" />
-      <span className="uppercase tracking-[0.12em] text-[10px] text-muted-foreground">
-        Start with Windows
+    <label className="inline-flex cursor-pointer items-center gap-2">
+      <input
+        type="checkbox"
+        checked={on ?? false}
+        onChange={toggle}
+        className="size-[14px] rounded-[4px] accent-[var(--color-primary)]"
+      />
+      <span className="mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+        Autostart
       </span>
     </label>
   );
@@ -51,10 +61,36 @@ function App() {
   const [showEditor, setShowEditor] = useState(false);
   const [pins, setPins] = useState<Record<string, string>>({});
   const [reapplyMsg, setReapplyMsg] = useState<string | null>(null);
+  const [lastReapply, setLastReapply] = useState<{ errors: number; total: number } | null>(null);
+  // Bumped on every Reapply so the footer health light remounts and replays
+  // its one-shot ring even when the derived health state is unchanged.
+  const [healthTick, setHealthTick] = useState(0);
   const [applyingPreset, setApplyingPreset] = useState<Preset | null>(null);
   const [applyTargetEdid, setApplyTargetEdid] = useState<string | null>(null);
   const [appliedMap, setAppliedMap] = useState<Record<string, string>>({});
   const [lastAddedId, setLastAddedId] = useState<string | null>(null);
+  const reapplyTimerRef = useRef<number | null>(null);
+
+  // Reapply status is transient: replace any pending clear, and clean up on unmount.
+  const showReapplyMsg = (message: string) => {
+    if (reapplyTimerRef.current !== null) {
+      window.clearTimeout(reapplyTimerRef.current);
+    }
+    setReapplyMsg(message);
+    reapplyTimerRef.current = window.setTimeout(() => {
+      reapplyTimerRef.current = null;
+      setReapplyMsg(null);
+    }, 5000);
+  };
+
+  useEffect(
+    () => () => {
+      if (reapplyTimerRef.current !== null) {
+        window.clearTimeout(reapplyTimerRef.current);
+      }
+    },
+    [],
+  );
 
   // Optimistic batch-delete removal: drop the deleted cards locally so no
   // reload flash interrupts the explosion, then sync quietly in the
@@ -155,6 +191,8 @@ function App() {
   // backend pings `window-shown` on every re-show (tray Show / tray click /
   // second launch). Replay the staged load animation in place.
   useEffect(() => {
+    // `listen` needs Tauri IPC — skip it in the browser preview.
+    if (!isTauri()) return;
     const unlistenPromise = listen("window-shown", replayEntrance);
     return () => {
       unlistenPromise.then((unlisten) => unlisten()).catch(() => {});
@@ -171,15 +209,19 @@ function App() {
     setShowEditor(true);
   };
 
-  const handleEditorClose = () => {
-    setShowEditor(false);
-    setEditingPreset(null);
+  const handleEditorSaved = () => {
+    // The editor closes itself and reports back through onClosed; only the
+    // data needs refreshing here.
+    fetchData();
   };
 
-  const handleEditorSaved = () => {
+  /** Dialog close requests are recorded inside the dialog. The parent keeps
+   *  the dialog mounted until `onClosed` reports the exit animation ended. */
+  const handleDialogCloseRequest = () => {};
+
+  const handleEditorClosed = () => {
     setShowEditor(false);
     setEditingPreset(null);
-    fetchData();
   };
 
   function LogoMark() {
@@ -193,101 +235,174 @@ function App() {
   }
 
   return (
-    <main className="h-screen overflow-hidden bg-background text-foreground flex flex-col">
-      {/* ── Header: Floating Glass Pill ───────────────────────────────────────────── */}
-      <header className="flex justify-center px-6 pt-6 shell-enter" style={{ ["--shell-delay" as string]: "0ms" }}>
-        <div className="bg-surface/50 backdrop-blur-xl border border-border rounded-full p-3 px-6 w-max">
-          <div className="flex items-center justify-between gap-x-4">
-            <div className="flex min-w-0 items-center gap-x-4">
-              <LogoMark />
-              <h1 className="truncate font-display text-lg font-extrabold uppercase tracking-wide text-foreground enter-reveal" style={{ "--reveal-delay": "40ms" } as Record<string, string>}>
-                <span className="enter-reveal-child tracking-[0.14em]">ChromaDeck</span>
-              </h1>
-              <span className="rounded-full border border-border bg-transparent px-2 py-0.5 text-[11px] font-bold text-muted-foreground mono">
-                v{appVersion}
-              </span>
-            </div>
-            <div className="flex items-center gap-3" />
-          </div>
+    <DragAndDropProvider
+      monitors={monitors}
+      appliedMap={appliedMap}
+      onApplied={(presetId, edids) => {
+        // Optimistic: reflect the drop immediately, then re-sync quietly.
+        setAppliedMap((prev) => {
+          const next = { ...prev };
+          for (const edid of edids) next[edid] = presetId;
+          return next;
+        });
+        void fetchData(true);
+      }}
+      onRefresh={() => void fetchData(true)}
+    >
+    <main className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
+      {/* ── Header: flat strip ─────────────────────────────────────────── */}
+      <header
+        className="shell-enter flex h-12 shrink-0 items-center justify-between border-b border-border bg-background px-6"
+        style={{ ["--shell-delay" as string]: "0ms" }}
+      >
+        <div className="flex min-w-0 items-center gap-3">
+          <LogoMark />
+          <h1 className="enter-reveal truncate text-[15px] font-semibold tracking-[-0.02em] text-foreground">
+            <span className="enter-reveal-child">ChromaDeck</span>
+          </h1>
+          <span className="h-4 w-px shrink-0 bg-border" aria-hidden="true" />
+          <span className="mono shrink-0 text-[10px] text-muted-foreground">
+            v{appVersion}
+          </span>
         </div>
       </header>
 
       {/* ── Error banner ────────────────────────────────────────────────── */}
       {error && (
-        <div className="mx-6 mt-4 flex items-center gap-2.5 rounded-brutal border border-border bg-surface px-3 py-2 error-banner-enter">
-          <svg className="size-4 shrink-0 text-danger-ink" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+        <div className="error-banner-enter mx-6 mt-4 flex items-center gap-2.5 rounded-[8px] border border-border bg-surface px-3 py-2">
+          <svg className="size-4 shrink-0 text-destructive" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
           </svg>
-          <span className="flex-1 min-w-0 truncate text-xs font-bold text-danger-ink">
-            Failed to load: {error}
+          <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-destructive">
+            FAILED TO LOAD: {error}
           </span>
-          <button onClick={() => void fetchData()} data-slot="button" className="inline-flex shrink-0 items-center justify-center rounded-brutal border border-border bg-surface px-2.5 py-1 text-xs font-bold text-foreground hover:bg-surface-hover">
+          <button onClick={() => void fetchData()} data-slot="button" className="inline-flex shrink-0 items-center justify-center rounded-[8px] border border-border bg-transparent px-2.5 py-1 font-mono text-[10px] text-foreground transition-colors hover:border-border-hover hover:bg-surface-hover">
             <span className="btn-label">Retry</span>
           </button>
         </div>
       )}
 
-      {/* ── Content column: monitor strip on top, library below ─── */}
-      {/* Capped + centered so ultrawide/maximized windows get margins, not stretched pads */}
-      <div className="flex-1 min-h-0 mx-auto w-full max-w-7xl flex flex-col gap-5 p-6">
-        <MonitorSidebar
-          monitors={monitors}
-          presets={presets}
-          pins={pins}
-          onRefresh={fetchData}
-          onPinChange={fetchData}
-          onApplyFor={(preset, edidId) => { setApplyTargetEdid(edidId); setApplyingPreset(preset); }}
-        />
-        <MonitorList
-          monitors={monitors}
-          presets={presets}
-          loading={loading}
-          onEdit={handleEdit}
-          onRefresh={fetchData}
-          onCreateNew={handleCreateNew}
-          pins={pins}
-          onPinChange={fetchData}
-          appliedMap={appliedMap}
-          onPresetDuplicated={handlePresetDuplicated}
-          onBatchDeleted={handleBatchDeleted}
-          onPresetDeleted={(id) => handleBatchDeleted([id])}
-          lastAddedId={lastAddedId}
-          onApply={(preset) => { setApplyTargetEdid(null); setApplyingPreset(preset); }}
-        />
+      {/* ── Content: two stacked panels, monitors shorter at min height, presets absorb extra ─── */}
+      <div className="flex min-h-0 flex-1 flex-col p-6">
+        <div className="h-4 w-full" />
+        <div
+          className="flex-[0_0_auto] min-h-[200px] shrink-0"
+          style={{ maxHeight: "min(500px, calc(100vh - 440px))" }}
+        >
+          <MonitorSidebar
+            monitors={monitors}
+            presets={presets}
+            pins={pins}
+            appliedMap={appliedMap}
+            setAppliedMap={setAppliedMap}
+            onRefresh={fetchData}
+            onPinChange={fetchData}
+          />
+        </div>
+        <div className="h-4 w-full" />
+        <div className="flex min-h-0 flex-1">
+          <MonitorList
+            monitors={monitors}
+            presets={presets}
+            loading={loading}
+            onEdit={handleEdit}
+            onRefresh={fetchData}
+            onCreateNew={handleCreateNew}
+            pins={pins}
+            onPinChange={fetchData}
+            appliedMap={appliedMap}
+            onPresetDuplicated={handlePresetDuplicated}
+            onPresetDeleted={(id) => handleBatchDeleted([id])}
+            lastAddedId={lastAddedId}
+            onApply={(preset) => { setApplyTargetEdid(null); setApplyingPreset(preset); }}
+          />
+        </div>
+        <div className="h-4 w-full" />
       </div>
 
-      {/* ── Footer / status bar: Floating Glass Pill ─────────────────────────────────────── */}
-      <footer className="flex justify-center pb-6 shell-enter" style={{ ["--shell-delay" as string]: "180ms" }}>
-        <div className="bg-surface/50 backdrop-blur-xl border border-border rounded-full p-3 px-6 w-max">
-          <div className="flex flex-col sm:flex-row items-center sm:items-center justify-between text-xs gap-1">
-            {(() => {
-              const t = loading ? "LOADING…" : `${presets.length} PRESET${presets.length !== 1 ? "S" : ""} · ${monitors.filter((m) => m.connected).length} MONITOR${monitors.filter((m) => m.connected).length !== 1 ? "S" : ""} CONNECTED · ${Object.keys(pins).length} PINNED`;
-              return <span key={t} className="uppercase tracking-[0.12em] mono tabular-nums text-muted-foreground value-swap">{t}</span>;
-            })()}
-            <span className="inline-flex items-center gap-3">
-              {reapplyMsg && <span className="text-muted-foreground transient-enter">{reapplyMsg}</span>}
-              <button
-                data-slot="button"
-                onClick={async () => {
-                  try {
-                    const events: EnforceEvent[] = await reapplyNow();
-                    const applied = events.filter((e) => e.applied).length;
-                    const firstErr = events.find((e) => e.error)?.error;
-                    setReapplyMsg(firstErr ? `Reapply: ${firstErr}` : `Reapplied ${applied}/${events.length}`);
-                  } catch (err) {
-                    setReapplyMsg(`Reapply failed: ${String(err)}`);
+      {/* ── Footer / status bar: flat strip ──────────────────────────── */}
+      <footer
+        className="shell-enter flex h-14 shrink-0 items-center justify-between border-t border-border bg-background pl-6 pr-4"
+        style={{ ["--shell-delay" as string]: "180ms" }}
+      >
+        <div className="flex min-w-0 items-center gap-3">
+          {(() => {
+            const errors = lastReapply?.errors ?? 0;
+            const healthKey: "loading" | "ok" | "error" | "empty" = loading
+              ? "loading"
+              : errors > 0
+                ? "error"
+                : monitors.some((m) => m.connected)
+                  ? "ok"
+                  : "empty";
+            const health =
+              healthKey === "error"
+                ? {
+                    label: `Last reapply reported ${errors} error${errors === 1 ? "" : "s"}`,
+                    tone: "bg-destructive animate-pulse motion-reduce:animate-none",
                   }
-                  setTimeout(() => setReapplyMsg(null), 5000);
-                  fetchData();
-                }}
-                className="inline-flex items-center justify-center rounded-brutal border border-border bg-surface px-2.5 py-1 text-xs font-bold text-foreground hover:bg-surface-hover"
-                title="Re-run enforcement now"
-              >
-                <span className="btn-label">Reapply</span>
-              </button>
-              <AutostartToggle />
-            </span>
-          </div>
+                : healthKey === "ok"
+                  ? { label: "Enforcement OK", tone: "bg-primary" }
+                  : healthKey === "loading"
+                    ? { label: "Loading monitor status", tone: "bg-subtle-fg" }
+                    : { label: "No monitors connected", tone: "bg-subtle-fg" };
+            return (
+              <span
+                // Remount on every health change (and every Reapply) so the
+                // .health-pulse ring animation replays once.
+                key={`${healthKey}-${healthTick}`}
+                role="img"
+                aria-label={health.label}
+                title={health.label}
+                className={`health-pulse relative inline-block size-1.5 shrink-0 rounded-full ${health.tone}`}
+              />
+            );
+          })()}
+          {(() => {
+            const t = loading
+              ? "LOADING…"
+              : `${presets.length} PRESET${presets.length !== 1 ? "S" : ""} · ${monitors.filter((m) => m.connected).length} MONITOR${monitors.filter((m) => m.connected).length !== 1 ? "S" : ""} CONNECTED · ${Object.keys(pins).length} PINNED`;
+            return (
+              <span key={t} className="value-swap mono truncate text-[10px] uppercase tracking-[0.12em] tabular-nums text-muted-foreground">
+                {t}
+              </span>
+            );
+          })()}
+          {reapplyMsg && (
+            <>
+              <span className="h-4 w-px shrink-0 bg-border" aria-hidden="true" />
+              <span className="transient-enter mono truncate text-[10px] text-muted-foreground">
+                {reapplyMsg}
+              </span>
+            </>
+          )}
+        </div>
+        <div className="flex shrink-0 items-center gap-4">
+          <span className="h-4 w-px bg-border" aria-hidden="true" />
+          <AutostartToggle />
+          <button
+            data-slot="button"
+            onClick={async () => {
+              try {
+                const events: EnforceEvent[] = await reapplyNow();
+                setLastReapply({
+                  errors: events.filter((e) => e.error).length,
+                  total: events.length,
+                });
+                setHealthTick((tick) => tick + 1);
+                const applied = events.filter((e) => e.applied).length;
+                const firstErr = events.find((e) => e.error)?.error;
+                showReapplyMsg(firstErr ? `Reapply: ${firstErr}` : `Reapplied ${applied}/${events.length}`);
+              } catch (err) {
+                showReapplyMsg(`Reapply failed: ${String(err)}`);
+              }
+              fetchData();
+            }}
+            className="inline-flex items-center justify-center rounded-[8px] border border-border bg-transparent px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-foreground transition-colors hover:border-border-hover hover:bg-surface-hover"
+            title="Re-run enforcement now"
+          >
+            <span className="btn-label">Reapply</span>
+          </button>
         </div>
       </footer>
 
@@ -298,7 +413,11 @@ function App() {
           monitors={monitors}
           pins={pins}
           initialEdid={applyTargetEdid}
-          onClose={() => { setApplyingPreset(null); setApplyTargetEdid(null); }}
+          onClose={handleDialogCloseRequest}
+          onClosed={() => {
+            setApplyingPreset(null);
+            setApplyTargetEdid(null);
+          }}
           onApplied={(info) => {
             if (info) {
               setAppliedMap((prev) => ({ ...prev, [info.edid]: info.presetId }));
@@ -311,13 +430,19 @@ function App() {
       {/* ── Editor dialog ──────────────────────────────────────────────── */}
       {showEditor && (
         <PresetEditor
-          monitors={monitors}
+          presets={presets}
           editPreset={editingPreset}
-          onClose={handleEditorClose}
+          onClose={handleDialogCloseRequest}
+          onClosed={handleEditorClosed}
           onSaved={handleEditorSaved}
         />
       )}
+
+      {/* ── Drag overlay + undo toast (portals) ────────────────────────── */}
+      <DragGhost />
+      <UndoToast />
     </main>
+    </DragAndDropProvider>
   );
 }
 

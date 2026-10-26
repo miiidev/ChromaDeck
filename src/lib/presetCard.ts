@@ -84,3 +84,18 @@ export function splitCategory(name: string): { category?: string; title: string 
     title: name.slice(idx + 3),
   };
 }
+
+/**
+ * Compose a stored preset name from a category and a title, the inverse of
+ * `splitCategory`. Both parts are trimmed; missing parts are omitted.
+ * - ("Movie", "Warm") → "Movie - Warm"
+ * - ("", "Warm")      → "Warm"
+ * - ("Movie", "")     → "Movie"
+ */
+export function joinCategory(category: string, title: string): string {
+  const trimmedCategory = category.trim();
+  const trimmedTitle = title.trim();
+  if (!trimmedCategory) return trimmedTitle;
+  if (!trimmedTitle) return trimmedCategory;
+  return `${trimmedCategory} - ${trimmedTitle}`;
+}

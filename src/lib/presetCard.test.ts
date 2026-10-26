@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { splitCategory, formatGamma, formatInt, formatStat, isNeutral, STAT_KEYS } from "./presetCard";
+import { splitCategory, joinCategory, formatGamma, formatInt, formatStat, isNeutral, STAT_KEYS } from "./presetCard";
 
 describe("splitCategory", () => {
   it("splits on first \" - \" separator", () => {
@@ -39,8 +39,30 @@ describe("splitCategory", () => {
   });
 });
 
-describe("formatGamma", () => {
-  it("formats 1.0 as '1.00'", () => {
+describe("joinCategory", () => {
+  it("joins category and title with \" - \"", () => {
+    expect(joinCategory("Movie", "Warm")).toBe("Movie - Warm");
+  });
+
+  it("returns the title alone when the category is empty", () => {
+    expect(joinCategory("", "Warm")).toBe("Warm");
+  });
+
+  it("returns the category alone when the title is empty", () => {
+    expect(joinCategory("Movie", "")).toBe("Movie");
+  });
+
+  it("trims both parts", () => {
+    expect(joinCategory("  Movie  ", "  Warm  ")).toBe("Movie - Warm");
+  });
+
+  it("round-trips through splitCategory", () => {
+    const joined = joinCategory("Movie", "Warm");
+    expect(splitCategory(joined)).toEqual({ category: "Movie", title: "Warm" });
+  });
+});
+
+describe("formatGamma", () => {  it("formats 1.0 as '1.00'", () => {
     expect(formatGamma(1.0)).toBe("1.00");
   });
 

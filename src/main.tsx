@@ -1,14 +1,18 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { isTauri } from "@tauri-apps/api/core";
 import App from "./App";
 import IdentifyOverlay from "./components/IdentifyOverlay";
 
-const label = getCurrentWindow().label;
+const label = isTauri() ? getCurrentWindow().label : "main";
 if (label.startsWith("identify-")) {
   // ── Identify overlay window ──────────────────────────────────────────
-  // Parse the trailing number; total is unknown at this point (the Rust
-  // backend knows, but this window only knows its own number).
+  // The overlay window must be see-through: index.html ships an inline cream
+  // background on <body> and App.css paints html/body with --color-background,
+  // so both have to be cleared at runtime.
+  document.documentElement.style.background = "transparent";
+  document.body.style.background = "transparent";
   const n = parseInt(label.replace("identify-", ""), 10);
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>

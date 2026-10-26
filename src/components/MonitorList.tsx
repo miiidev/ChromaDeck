@@ -1,12 +1,21 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 import type { Monitor, Preset } from "../lib/types";
 import PresetCard from "./PresetCard";
-import { deletePreset } from "../lib/tauri";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import WindowDots from "@/components/ui/window-dots";
+import { ArrowLeftGlyph, ArrowRightGlyph } from "@/components/ui/icons";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Plus, Search, X } from "lucide-react";
 import { consumeStagger } from "../lib/motion";
+import {
+  ALL_CATEGORIES,
+  NO_CATEGORY,
+  filterPresets,
+  hasUncategorisedPresets,
+  presetCategories,
+} from "../lib/presetSearch";
 
 interface Props {
   monitors: Monitor[];
@@ -20,7 +29,6 @@ interface Props {
   onApply: (preset: Preset) => void;
   appliedMap: Record<string, string>;
   onPresetDuplicated?: (preset: Preset) => void;
-  onBatchDeleted?: (deletedIds: string[]) => void;
   onPresetDeleted?: (id: string) => void;
   lastAddedId?: string | null;
 }
@@ -28,9 +36,12 @@ interface Props {
 /** Loading skeleton */
 function SkeletonRow() {
   return (
-    <div className="rounded-card border border-border bg-surface p-4 space-y-3">
-      <Skeleton className="h-4 w-1/3" />
-      <Skeleton className="h-3 w-1/2" />
+    <div className="rounded-[8px] border border-border bg-surface p-2">
+      <div className="flex h-[132px] flex-col gap-3 rounded-[8px] border border-border-hover bg-surface p-4">
+        <Skeleton className="h-4 w-20" />
+        <Skeleton className="h-8 w-2/3" />
+        <Skeleton className="mt-auto h-6 w-full" />
+      </div>
     </div>
   );
 }
@@ -38,315 +49,391 @@ function SkeletonRow() {
 /** Full empty state */
 function EmptyState({ onCreateNew }: { onCreateNew: () => void }) {
   return (
-    <div className="flex flex-col items-center justify-center py-16 text-center space-y-4 empty-state-enter">
-      <div className="flex size-20 items-center justify-center rounded-card border border-dashed border-border text-muted-foreground">
-        <svg className="size-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <div className="empty-state-enter flex flex-col items-center justify-center gap-4 py-12 text-center">
+      <div className="flex size-16 items-center justify-center rounded-[8px] border border-dashed border-border text-muted-foreground">
+        <svg className="size-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14M5 12h14" />
         </svg>
       </div>
-      <h3 className="font-display text-lg font-extrabold uppercase tracking-wide text-foreground">No presets yet</h3>
-      <p className="text-xs text-muted-foreground max-w-xs">
-        Create your first colour preset to apply an ICC profile and gamma adjustment to a monitor.
-      </p>
-      <Button variant="default" size="sm" onClick={() => onCreateNew()}>
+      <div className="flex flex-col gap-2">
+        <h3 className="font-display text-xl font-semibold tracking-[-0.48px] text-foreground">No presets yet</h3>
+        <p className="max-w-xs font-mono text-[10px] leading-relaxed text-muted-foreground">
+          Create your first colour preset to apply an ICC profile and gamma adjustment to a monitor.
+        </p>
+      </div>
+      <Button variant="secondary" size="sm" onClick={() => onCreateNew()}>
+        <Plus className="size-3.5" />
         Create preset
       </Button>
     </div>
   );
 }
 
-export default function MonitorList({ monitors, presets, loading, onEdit, onRefresh, onCreateNew, pins, onPinChange, onApply, appliedMap, onPresetDuplicated, onBatchDeleted, onPresetDeleted, lastAddedId }: Props) {
-  const [selecting, setSelecting] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [showBatchDeleteModal, setShowBatchDeleteModal] = useState(false);
-  const [deletingBatch, setDeletingBatch] = useState(false);
-  const [batchDeleteErrors, setBatchDeleteErrors] = useState<string[]>([]);
-  const [explodingIds, setExplodingIds] = useState<Set<string>>(new Set());
-  const fuseRef = useRef<number | null>(null);
+export default function MonitorList({ monitors, presets, loading, onEdit, onRefresh, onCreateNew, pins, onPinChange, onApply, appliedMap, onPresetDuplicated, onPresetDeleted, lastAddedId }: Props) {
+  const carouselRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+  const [query, setQuery] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState<string>(ALL_CATEGORIES);
+  const transitionRef = useRef(false);
 
-  const clearFuse = () => {
-    if (fuseRef.current !== null) {
-      window.clearTimeout(fuseRef.current);
-      fuseRef.current = null;
-    }
-    setExplodingIds(new Set());
-  };
-
-  // Clear a mid-fuse detonation if the component unmounts.
-  useEffect(() => () => {
-    if (fuseRef.current !== null) window.clearTimeout(fuseRef.current);
-  }, []);
-
-  const exitSelecting = () => {
-    clearFuse();
-    setSelecting(false);
-    setSelectedIds(new Set());
-    setBatchDeleteErrors([]);
-  };
-
-  // ── Escape exits selection mode ──────────────────────────────────
-  useEffect(() => {
-    if (!selecting) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        exitSelecting();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selecting]);
-
-  const toggleSelect = (id: string) => {
-    // Dead cards can't be (de)selected mid-explosion.
-    if (explodingIds.has(id)) return;
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const computeInUse = (presetId: string): boolean => {
-    const pinnedToConnected = Object.entries(pins)
-      .some(([edid, pid]) => pid === presetId && monitors.some((m) => m.edid_id === edid && m.connected));
-    const appliedToConnected = Object.entries(appliedMap)
-      .some(([edid, pid]) => pid === presetId && monitors.some((m) => m.edid_id === edid && m.connected));
-    return pinnedToConnected || appliedToConnected;
-  };
-
-  // Two-phase detonation: light the fuse (cards explode visually), wait
-  // out the animation cascade, then perform the deletes and refresh.
-  // Stays in selection mode afterwards — Cancel/Escape still exit.
-  const EXPLODE_MS = 450;
-  const EXPLODE_STEP_MS = 40;
-  const EXPLODE_CAP = 10;
-
-  const handleBatchDelete = async () => {
-    const idsToDelete = [...selectedIds];
-    if (idsToDelete.length === 0) {
-      setShowBatchDeleteModal(false);
+  /** Run a filter-state update inside a View Transition so the carousel
+   *  crossfades between result sets instead of snapping. Falls back to a
+   *  plain update when the API is unavailable, reduced motion is requested,
+   *  or another transition is still in flight. */
+  const applyFilters = useCallback((next: () => void) => {
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (
+      reduced ||
+      typeof document.startViewTransition !== "function" ||
+      transitionRef.current
+    ) {
+      next();
       return;
     }
-    setShowBatchDeleteModal(false);
-    setExplodingIds(new Set(idsToDelete));
-    setDeletingBatch(true);
-    const cascadeMs = Math.min(idsToDelete.length, EXPLODE_CAP) * EXPLODE_STEP_MS;
-    await new Promise<void>((resolve) => {
-      fuseRef.current = window.setTimeout(() => {
-        fuseRef.current = null;
-        resolve();
-      }, EXPLODE_MS + cascadeMs);
+    const release = () => {
+      transitionRef.current = false;
+    };
+    transitionRef.current = true;
+    try {
+      const transition = document.startViewTransition(() => {
+        flushSync(next);
+      });
+      transition.finished.then(release, release);
+    } catch {
+      release();
+      next();
+    }
+  }, []);
+
+  const categories = presetCategories(presets);
+  const showUncategorised = hasUncategorisedPresets(presets);
+  const filteredPresets = filterPresets(presets, query, categoryFilter);
+  const isSearching = query.trim().length > 0 || categoryFilter !== ALL_CATEGORIES;
+
+  // Drop a filter whose category no longer exists (e.g. its presets were deleted).
+  useEffect(() => {
+    if (categoryFilter === ALL_CATEGORIES || categoryFilter === NO_CATEGORY) return;
+    if (!categories.includes(categoryFilter)) setCategoryFilter(ALL_CATEGORIES);
+  }, [categories, categoryFilter]);
+
+  const clearFilters = () => {
+    applyFilters(() => {
+      setQuery("");
+      setCategoryFilter(ALL_CATEGORIES);
     });
-
-    const failed: { id: string; name: string }[] = [];
-    for (const id of idsToDelete) {
-      try {
-        await deletePreset(id);
-      } catch {
-        const p = presets.find((p) => p.id === id);
-        failed.push({ id, name: p?.name || id });
-      }
-    }
-
-    setExplodingIds(new Set());
-    setDeletingBatch(false);
-
-    const succeededIds = idsToDelete.filter((id) => !failed.some((f) => f.id === id));
-    if (failed.length === 0) {
-      // Revived cards (delete failed) come back via refresh below.
-      setSelectedIds(new Set());
-      setBatchDeleteErrors([]);
-    } else {
-      // Keep selection on failed items; clear successfully deleted ones
-      const failedIds = new Set(failed.map((f) => f.id));
-      setSelectedIds(failedIds);
-      setBatchDeleteErrors(failed.map((f) => f.name));
-    }
-
-    // No full reload: drop the deleted cards locally (the explosion already
-    // played) and let the parent sync quietly. Falls back to refresh.
-    if (onBatchDeleted) onBatchDeleted(succeededIds);
-    else onRefresh();
+    searchRef.current?.focus();
   };
 
-  // ── Early return when loading ───────────────────────────────────
+  /** Recompute which arrows are actionable from the deck's live metrics. */
+  const updateScrollState = useCallback(() => {
+    const deck = carouselRef.current;
+    if (!deck) {
+      setCanScrollLeft(false);
+      setCanScrollRight(false);
+      return;
+    }
+    setCanScrollLeft(deck.scrollLeft > 1);
+    setCanScrollRight(deck.scrollLeft < deck.scrollWidth - deck.clientWidth - 1);
+  }, []);
+
+  /** Scroll to the next/previous card's snap position. Measures each card's
+   * actual start, so mixed card widths step exactly one card at a time. */
+  const scrollByCard = useCallback((dir: 1 | -1) => {
+    const deck = carouselRef.current;
+    if (!deck || deck.children.length === 0) return;
+    const deckLeft = deck.getBoundingClientRect().left;
+    const padLeft = parseFloat(getComputedStyle(deck).scrollPaddingLeft) || 0;
+    const maxScroll = deck.scrollWidth - deck.clientWidth;
+    const current = deck.scrollLeft;
+    // Snap target for each card: where scrollLeft must be for it to sit at the padded start.
+    const stops = Array.from(deck.children, (card) =>
+      Math.min(maxScroll, Math.max(0, current + card.getBoundingClientRect().left - deckLeft - padLeft)),
+    );
+    const target =
+      dir === 1
+        ? stops.find((s) => s > current + 1) ?? maxScroll
+        : [...stops].reverse().find((s) => s < current - 1) ?? 0;
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    deck.scrollTo({ left: target, behavior: reduced ? "auto" : "smooth" });
+  }, []);
+
+  /** Arrow keys steer the deck only when focus sits on the deck or a card. */
+  const shouldHandleArrowKeys = (target: EventTarget | null): boolean => {
+    const el = target instanceof HTMLElement ? target : null;
+    if (!el) return false;
+    // Form fields, sliders, dialogs and buttons own their arrow-key behaviour.
+    if (
+      el.closest(
+        'input, textarea, select, [role="slider"], [contenteditable="true"], [contenteditable=""], [role="dialog"], button, a',
+      )
+    ) {
+      return false;
+    }
+    if (el === carouselRef.current) return true;
+    const card = el.closest('[data-slot="card"]');
+    return card !== null && carouselRef.current?.contains(card) === true;
+  };
+
+  // Keep the arrow disabled states in sync with real overflow (mount, resize,
+  // card count changes) instead of reading the ref during render.
+  useEffect(() => {
+    const deck = carouselRef.current;
+    updateScrollState();
+    if (!deck || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(updateScrollState);
+    ro.observe(deck);
+    return () => ro.disconnect();
+  }, [updateScrollState, filteredPresets.length, loading]);
+
+  // A new query or category starts the result list from the first card.
+  useEffect(() => {
+    const deck = carouselRef.current;
+    if (deck) deck.scrollLeft = 0;
+    updateScrollState();
+  }, [query, categoryFilter, updateScrollState]);
+
+  // Pre-compute preset cards for the carousel (avoids IIFE inside JSX)
+  const presetCards = filteredPresets.map((preset, i) => {
+    const isStagger = !loading && filteredPresets.length > 0 && consumeStagger();
+    return (
+      <PresetCard
+        key={preset.id}
+        preset={preset}
+        monitors={monitors}
+        pins={pins}
+        onEdit={onEdit}
+        onRefreshParent={onRefresh}
+        onPinChange={onPinChange}
+        onApply={onApply}
+        appliedMap={appliedMap}
+        staggerEnter={isStagger}
+        staggerMs={Math.min(i, 5) * 60}
+        onDuplicated={onPresetDuplicated}
+        onDeleted={onPresetDeleted}
+        highlightEnter={!isStagger && lastAddedId === preset.id}
+        className="min-w-[288px] shrink-0 snap-start"
+      />
+    );
+  });
+
+  // Pre-computed carousel content (avoids nested JSX expressions inside the ternary)
+  const emptyPresetsContent = (
+    <div className="flex min-h-64 flex-1 flex-col items-center justify-center gap-3 rounded-[8px] border border-dashed border-border bg-transparent py-12 text-center">
+      <p className="font-mono text-[10px] text-muted-foreground">No presets yet</p>
+      <Button variant="secondary" size="sm" onClick={() => onCreateNew()}>
+        <Plus className="size-3.5" />
+        Create preset
+      </Button>
+    </div>
+  );
+
+  const noResultsContent = (
+    <div className="empty-state-enter flex min-h-64 flex-1 flex-col items-center justify-center gap-3 rounded-[8px] border border-dashed border-border bg-transparent py-12 text-center">
+      <p className="max-w-[420px] truncate font-mono text-[10px] text-muted-foreground">
+        No presets match the current filters
+      </p>
+      <Button variant="secondary" size="sm" onClick={clearFilters}>
+        Clear filters
+      </Button>
+    </div>
+  );
+
+  const carouselContent = (
+    <div className="relative flex h-full flex-col">
+      <div
+        ref={carouselRef}
+        className="preset-deck carousel-scroll my-auto flex shrink-0 flex-row gap-4 overflow-x-auto px-12 scroll-px-12 snap-x snap-mandatory"
+        onScroll={updateScrollState}
+      >
+        {presetCards}
+      </div>
+      <button
+        type="button"
+        data-carousel-arrow
+        className="absolute left-2 top-1/2 z-50 inline-flex -translate-y-1/2 shrink-0 items-center justify-center rounded-[8px] border border-border bg-surface px-2.5 py-2 text-muted-foreground transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring disabled:cursor-default disabled:opacity-40 enabled:hover:bg-surface-hover enabled:hover:text-foreground"
+        onClick={() => scrollByCard(-1)}
+        disabled={!canScrollLeft}
+        aria-label="Scroll presets left"
+      >
+        <ArrowLeftGlyph className="size-4" />
+      </button>
+      <button
+        type="button"
+        data-carousel-arrow
+        className="absolute right-2 top-1/2 z-50 inline-flex -translate-y-1/2 shrink-0 items-center justify-center rounded-[8px] border border-border bg-surface px-2.5 py-2 text-muted-foreground transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring disabled:cursor-default disabled:opacity-40 enabled:hover:bg-surface-hover enabled:hover:text-foreground"
+        onClick={() => scrollByCard(1)}
+        disabled={!canScrollRight}
+        aria-label="Scroll presets right"
+      >
+        <ArrowRightGlyph className="size-4" />
+      </button>
+    </div>
+  );
+
+  // Early return when loading
   if (loading) {
     return (
-      <div className="flex-1 min-w-0 min-h-0 w-full space-y-4 overflow-y-auto shell-enter" style={{ ["--shell-delay" as string]: "120ms" }}>
-        <Skeleton className="h-6 w-20 mb-6" />
-        <SkeletonRow />
-        <SkeletonRow />
-      </div>
+      <section className="shell-enter flex min-h-0 min-w-0 flex-1 flex-col" style={{ ["--shell-delay" as string]: "120ms" }}>
+        <div className="flex h-10 shrink-0 items-center border-b border-border pb-2">
+          <Skeleton className="h-3 w-24" />
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-clip pt-4">
+          <div className="flex flex-row gap-4 overflow-hidden">
+            <div className="min-w-[288px] shrink-0">
+              <SkeletonRow />
+            </div>
+            <div className="min-w-[288px] shrink-0">
+              <SkeletonRow />
+            </div>
+            <div className="min-w-[288px] shrink-0">
+              <SkeletonRow />
+            </div>
+          </div>
+        </div>
+      </section>
     );
   }
 
   // Full empty state
   if (monitors.length === 0 && presets.length === 0) {
     return (
-      <div className="flex-1 min-w-0 min-h-0 w-full space-y-6 overflow-y-auto shell-enter" style={{ ["--shell-delay" as string]: "120ms" }}>
-      {/* Sticky header: solid paper so text and Create stay legible over
-          scrolling cards, with a hard rule underneath instead of an edge. */}
-      <div className="flex items-center justify-between sticky top-0 z-10 pb-4 bg-background">
-          <span className="inline-flex items-center gap-2">
-            <WindowDots />
-            <h2 className="font-display text-base font-extrabold uppercase tracking-[0.12em] text-foreground">Library</h2>
+      <section className="shell-enter flex min-h-0 min-w-0 flex-1 flex-col" style={{ ["--shell-delay" as string]: "120ms" }}>
+        <div className="flex h-10 shrink-0 items-center justify-between border-b border-border pb-2">
+          <span className="mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+            Presets (0)
           </span>
-          <Button variant="default" size="sm" onClick={() => onCreateNew()}>
-            + Create
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => onCreateNew()}
+          >
+            <Plus className="size-3.5" />
+            Create preset
           </Button>
         </div>
-        <EmptyState onCreateNew={onCreateNew} />
-      </div>
+        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-clip pt-4">
+          <EmptyState onCreateNew={onCreateNew} />
+        </div>
+      </section>
     );
   }
 
   return (
-    // Flex constraints live HERE (not just on LibraryScrollRoot): this div
-    // is the flex item in App's content column, and without flex-1 min-h-0
-    // it grows unbounded (min-height:auto) and the scrollport below never
-    // gets a height bound — killing library scroll. See: batch-delete wrap.
-    <div
-      className="flex-1 min-w-0 min-h-0 w-full flex flex-col"
+    <section
+      className="flex min-h-0 min-w-0 flex-1 flex-col"
       onKeyDown={(e) => {
-        if (e.key === "Escape" && selecting) {
-          e.preventDefault();
-          e.stopPropagation();
-          setSelecting(false);
-          setSelectedIds(new Set());
-          setBatchDeleteErrors([]);
+        // "/" or Ctrl/Cmd+F jumps to the preset search from anywhere in the panel.
+        const isFindShortcut =
+          (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f";
+        if (isFindShortcut || e.key === "/") {
+          const target = e.target instanceof HTMLElement ? e.target : null;
+          const typing = target?.closest(
+            'input, textarea, select, [contenteditable="true"], [contenteditable=""]',
+          );
+          if (!typing || isFindShortcut) {
+            e.preventDefault();
+            searchRef.current?.focus();
+            return;
+          }
         }
+        if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+        if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+        if (!shouldHandleArrowKeys(e.target)) return;
+        e.preventDefault();
+        scrollByCard(e.key === "ArrowLeft" ? -1 : 1);
       }}
     >
-          {batchDeleteErrors.length > 0 && (
-            <div className="px-1.5 pb-2">
-              <span className="text-xs font-bold text-danger-ink block validation-slide">
-                Failed to delete: {batchDeleteErrors.join(", ")}
-              </span>
-            </div>
-          )}
       <LibraryScrollRoot
         header={
-          selecting ? (
-            <div className="flex items-center justify-between pb-2">
-              <span className="inline-flex items-center gap-2">
-                <WindowDots />
-                <h2 className="font-display text-base font-extrabold uppercase tracking-[0.12em] text-primary">
-                  {selectedIds.size} selected
-                </h2>
-              </span>
-              <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" onClick={exitSelecting} disabled={deletingBatch}>
-                  Cancel
-                </Button>
-                <Button variant="destructive" size="sm" disabled={selectedIds.size === 0 || deletingBatch} onClick={() => setShowBatchDeleteModal(true)}>
-                  {deletingBatch ? "Deleting…" : "Delete"}
-                </Button>
+          <div className="flex h-10 shrink-0 items-center justify-between gap-4 border-b border-border pb-2">
+            <span className="mono min-w-0 truncate text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+              {isSearching
+                ? `Presets (${filteredPresets.length} of ${presets.length})`
+                : `Presets (${presets.length})`}
+            </span>
+            <div className="flex shrink-0 items-center gap-2">
+              <Select
+                value={categoryFilter}
+                onValueChange={(value) => {
+                  const next = (value as string | null) ?? ALL_CATEGORIES;
+                  applyFilters(() => setCategoryFilter(next));
+                }}
+              >
+                <SelectTrigger
+                  size="sm"
+                  aria-label="Filter presets by category"
+                  className="w-[136px] font-mono text-[11px] focus-visible:ring-1 focus-visible:ring-primary-border"
+                >
+                  <SelectValue>{(value: string | null) => (value && value !== ALL_CATEGORIES ? (value === NO_CATEGORY ? "No category" : value) : "All categories")}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_CATEGORIES}>All categories</SelectItem>
+                  {categories.map((category) => (
+                    <SelectItem key={category} value={category}>
+                      {category}
+                    </SelectItem>
+                  ))}
+                  {showUncategorised && (
+                    <SelectItem value={NO_CATEGORY}>No category</SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
+              <div className="relative">
+                <Search
+                  className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
+                  aria-hidden="true"
+                />
+                <Input
+                  ref={searchRef}
+                  type="search"
+                  value={query}
+                  onChange={(e) => {
+                    // Capture now: the view-transition callback runs after the
+                    // synthetic event has been released.
+                    const value = (e.target as HTMLInputElement).value;
+                    applyFilters(() => setQuery(value));
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Escape") return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (query) applyFilters(() => setQuery(""));
+                    else (e.target as HTMLInputElement).blur();
+                  }}
+                  placeholder="Search presets…"
+                  aria-label="Search presets"
+                  title="Search presets (/)"
+                  className="h-8 w-[150px] rounded-[8px] py-1 pr-7 pl-8 font-mono text-[11px] md:text-[11px] min-[1100px]:w-[210px] [&::-webkit-search-cancel-button]:appearance-none"
+                />
+                {isSearching && (
+                  <button
+                    type="button"
+                    aria-label="Clear filters"
+                    title="Clear filters"
+                    onClick={clearFilters}
+                    className="absolute top-1/2 right-1 inline-flex size-6 -translate-y-1/2 items-center justify-center rounded-[6px] text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-none"
+                  >
+                    <X className="size-3" />
+                  </button>
+                )}
               </div>
+              <Button variant="secondary" size="sm" onClick={() => onCreateNew()}>
+                <Plus className="size-3.5" />
+                Create preset
+              </Button>
             </div>
-          ) : (
-            <div className="flex items-center justify-between pb-2">
-              <span className="inline-flex items-center gap-2">
-                <WindowDots />
-                <h2 className="font-display text-base font-extrabold uppercase tracking-[0.12em] text-foreground">Library</h2>
-              </span>
-              <div className="flex items-center gap-2">
-                <Button variant="secondary" size="sm" onClick={() => { setSelecting(true); setBatchDeleteErrors([]); }}>
-                  Select
-                </Button>
-                <Button variant="default" size="sm" onClick={() => onCreateNew()}>
-                  + Create
-                </Button>
-              </div>
-            </div>
-          )
+          </div>
         }
       >
-        {/* ── Global preset deck (Asymmetrical Bento) ──────────────────────────────────────── */}
-        {presets.length === 0 ? (
-          <div className="flex flex-col items-center justify-center flex-1 min-h-64 py-12 text-center space-y-3 rounded-card border border-dashed border-border bg-transparent">
-            <p className="text-xs text-muted-foreground">No presets yet</p>
-            <Button variant="default" size="sm" onClick={() => onCreateNew()}>
-              Create preset
-            </Button>
-          </div>
-        ) : (
-          <div className="preset-deck grid gap-3 p-2 [grid-template-columns:repeat(auto-fill,minmax(272px,1fr))]">
-            {/* p-2 breathing room: rings, focus rings, and tag glows paint
-                outside the card box and would clip at the scrollport walls
-                (first/last columns sit flush against the edge). No negative
-                margin here: it would push the grid past the scrollport and
-                cause horizontal overflow. */}
-            {(() => {
-              const isStagger = !loading && presets.length > 0 && consumeStagger();
-              return presets.map((preset, i) => (
-                <PresetCard
-                  key={preset.id}
-                  preset={preset}
-                  monitors={monitors}
-                  pins={pins}
-                  onEdit={onEdit}
-                  onRefreshParent={onRefresh}
-                  onPinChange={onPinChange}
-                  onApply={onApply}
-                  appliedMap={appliedMap}
-                  staggerEnter={isStagger}
-                  staggerMs={Math.min(i, 5) * 60}
-                  onDuplicated={onPresetDuplicated}
-                  onDeleted={onPresetDeleted}
-                  highlightEnter={!isStagger && lastAddedId === preset.id}
-                  exploding={explodingIds.has(preset.id)}
-                  explodeDelayMs={Math.min(i, 10) * 40}
-                  selectable={selecting}
-                  selected={selectedIds.has(preset.id)}
-                  onToggleSelect={() => toggleSelect(preset.id)}
-                />
-              ));
-            })()}
-          </div>
-        )}
-
-        {/* ── Batch delete confirmation dialog ───────────────────── */}
-        {(() => {
-          if (!showBatchDeleteModal) return null;
-          const selectedArr = presets.filter((p) => selectedIds.has(p.id));
-          const nameList = selectedArr.slice(0, 5).map((p) => `"${p.name}"`).join(", ");
-          const nameOverflow = selectedArr.length > 5 ? `, and ${selectedArr.length - 5} more` : "";
-          const pinnedCount = selectedArr.filter((p) => Object.values(pins).includes(p.id)).length;
-          const inUseCount = selectedArr.filter((p) => computeInUse(p.id)).length;
-          const hasWarning = pinnedCount > 0 || inUseCount > 0;
-          return (
-            <Dialog open onOpenChange={(open) => { if (!open && !deletingBatch) setShowBatchDeleteModal(false); }}>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Delete {selectedIds.size} preset{selectedIds.size !== 1 ? "s" : ""}?</DialogTitle>
-                  <DialogDescription>
-                    Permanently delete {nameList}{nameOverflow}?
-                    {hasWarning && (
-                      <span className="block text-xs text-destructive mt-1">
-                        Warning: {[
-                          pinnedCount > 0 && `${pinnedCount} pinned`,
-                          inUseCount > 0 && `${inUseCount} in use`,
-                        ].filter(Boolean).join(", ")}.
-                      </span>
-                    )}
-                  </DialogDescription>
-                </DialogHeader>
-                <DialogFooter>
-                  <Button variant="outline" size="sm" onClick={() => setShowBatchDeleteModal(false)} disabled={deletingBatch}>
-                    Cancel
-                  </Button>
-                  <Button variant="destructive" size="sm" onClick={() => void handleBatchDelete()} disabled={deletingBatch}>
-                    {deletingBatch ? "Deleting…" : `Delete ${selectedIds.size}`}
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-          );
-        })()}
+        {presets.length === 0
+          ? emptyPresetsContent
+          : filteredPresets.length === 0
+            ? noResultsContent
+            : carouselContent}
       </LibraryScrollRoot>
-    </div>
+    </section>
   );
 }
 
@@ -362,7 +449,7 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
 function LibraryScrollRoot({ header, children }: { header: ReactNode; children: ReactNode }) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // ── IntersectionObserver fallback for unsupported runtimes ─────
+  // IntersectionObserver fallback for unsupported runtimes
   useEffect(() => {
     const scroll = scrollRef.current;
     if (!scroll) return;
@@ -435,13 +522,14 @@ function LibraryScrollRoot({ header, children }: { header: ReactNode; children: 
 
   return (
     <div
-      className="flex-1 min-w-0 min-h-0 w-full flex flex-col shell-enter"
+      className="shell-enter flex min-h-0 min-w-0 flex-1 flex-col"
       style={{ ["--shell-delay" as string]: "120ms" }}
     >
       {header}
       <div
         ref={scrollRef}
-        className="flex-1 min-h-0 overflow-y-auto overflow-x-clip"
+        data-drag-scroll="true"
+        className="min-h-0 flex-1 overflow-y-auto overflow-x-clip pt-4"
       >
         {children}
       </div>

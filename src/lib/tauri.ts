@@ -1,11 +1,16 @@
 /// Tauri bridge — typed invoke wrappers.
 // Mirror the Rust backend commands defined in src-tauri/src/monitor.rs and store.rs.
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
+import { DEMO_APPLIED, DEMO_MONITORS, DEMO_PINS, DEMO_PRESETS } from "./demoData";
+
+/** Browser preview only: no Tauri IPC available. */
+const isBrowserPreview = () => !isTauri();
 import type { ApplyResult, CapturedState, DisplayCapabilities, EnforceEvent, Monitor, MonitorProbe, Preset, PresetInput } from "./types";
 
 /** Fetch the list of connected monitors with their EDID identifiers. */
 export async function listMonitors(): Promise<Monitor[]> {
+  if (isBrowserPreview()) return DEMO_MONITORS;
   return invoke<Monitor[]>("list_monitors_cmd");
 }
 
@@ -15,6 +20,7 @@ export async function listMonitors(): Promise<Monitor[]> {
  * connected if some cannot be located via Win32).
  */
 export async function identifyMonitors(): Promise<number[]> {
+  if (isBrowserPreview()) return [];
   return invoke<number[]>("identify_monitors_cmd");
 }
 
@@ -36,6 +42,7 @@ export async function getIdentifyInfo(n: number): Promise<IdentifyInfo> {
 
 /** Fetch all stored presets. */
 export async function listPresets(): Promise<Preset[]> {
+  if (isBrowserPreview()) return DEMO_PRESETS;
   return invoke<Preset[]>("list_presets_cmd");
 }
 
@@ -129,11 +136,13 @@ export async function unpinMonitor(edidId: string): Promise<void> {
 
 /** Map of edid_id -> preset_id for pinned monitors. */
 export async function listPins(): Promise<Record<string, string>> {
+  if (isBrowserPreview()) return DEMO_PINS;
   return invoke<Record<string, string>>("list_pins_cmd");
 }
 
 /** Map of edid_id -> preset_id for last manual applies. Persisted across restarts. */
 export async function listApplied(): Promise<Record<string, string>> {
+  if (isBrowserPreview()) return DEMO_APPLIED;
   return invoke<Record<string, string>>("list_applied_cmd");
 }
 
@@ -144,6 +153,13 @@ export async function setMonitorName(edidId: string, alias: string): Promise<voi
 
 /** Force a full enforce pass now; returns per-pin outcomes. */
 export async function reapplyNow(): Promise<EnforceEvent[]> {
+  if (isBrowserPreview()) {
+    return DEMO_MONITORS.filter((m) => m.connected).map((m) => ({
+      edid_id: m.edid_id,
+      preset_id: DEMO_PINS[m.edid_id] ?? "",
+      applied: true,
+    }));
+  }
   return invoke<EnforceEvent[]>("reapply_now_cmd");
 }
 

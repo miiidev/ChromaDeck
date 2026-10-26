@@ -16,6 +16,16 @@ export interface GammaRamp {
   blue: number[];
 }
 
+export type TagShape =
+  | "pill"
+  | "round"
+  | "square"
+  | "bar"
+  | "diamond"
+  | "hexagon"
+  | "triangle"
+  | "ring";
+
 export interface Preset {
   id: string;
   name: string;
@@ -29,6 +39,7 @@ export interface Preset {
   saturation: number;   // 0 – 100, 50 neutral
   hue_deg: number;      // 0 – 359 degrees
   color_tag?: string;   // #rrggbb hex or empty/undefined for untagged
+  tag_shape?: TagShape | null; // marker shape; backend may send null = pill
 }
 
 export interface PresetInput {
@@ -42,6 +53,7 @@ export interface PresetInput {
   saturation: number;   // 0 – 100, 50 neutral
   hue_deg: number;
   color_tag?: string;   // #rrggbb hex or empty for untagged
+  tag_shape?: TagShape; // marker shape; empty = pill
 }
 
 export type AdjustmentStatus = "applied" | "skipped" | "failed";

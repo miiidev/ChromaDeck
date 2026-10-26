@@ -1,19 +1,51 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Monitor, Preset } from "../lib/types";
 import { identifyMonitors, resetMonitor, setMonitorName, unpinMonitor, probeMonitor } from "../lib/tauri";
+import { splitCategory } from "../lib/presetCard";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { PresetTag } from "@/components/ui/preset-tag";
 import { Input } from "@/components/ui/input";
-import WindowDots from "@/components/ui/window-dots";
-import { MonitorCheck, Pencil, Stethoscope } from "lucide-react";
+import { IdentifyGlyph, MonitorGlyph, ProbeGlyph, ResetGlyph } from "@/components/ui/icons";
+import { Check, ChevronDown, Pencil, PinOff } from "lucide-react";
+import { useDragAndDrop } from "./DragAndDropContext";
 import { cn } from "cn";
 
-/** Compact inline monitor rename */
+/** One utility action in a monitor card (Figma: icon 13 + mono 10 label). */
+function UtilityButton({
+  label,
+  title,
+  onClick,
+  disabled,
+  icon,
+}: {
+  label: string;
+  title: string;
+  onClick: () => void;
+  disabled?: boolean;
+  icon: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className="inline-flex shrink-0 items-center gap-[6px] rounded-[8px] px-1 py-0.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-none disabled:pointer-events-none"
+    >
+      <span className="shrink-0">{icon}</span>
+      <span className="font-mono text-[10px] leading-[1.4] whitespace-nowrap">{label}</span>
+    </button>
+  );
+}
+
+/** Compact inline monitor rename — revealed on card hover so the default
+ *  identity row matches Figma exactly while renaming stays available. */
 function MonitorNameEditor({ monitor, onRefreshParent }: { monitor: Monitor; onRefreshParent: () => void }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(monitor.alias);
   const [saving, setSaving] = useState(false);
   const displayName = monitor.alias || monitor.model || monitor.device_name || monitor.edid_id.slice(0, 16);
+
   const save = async () => {
     setSaving(true);
     try {
@@ -24,42 +56,73 @@ function MonitorNameEditor({ monitor, onRefreshParent }: { monitor: Monitor; onR
       setSaving(false);
     }
   };
-  if (!editing) {
+
+  if (editing) {
     return (
-      <span className="inline-flex items-center gap-1.5 min-w-0">
-        <span className={`text-sm font-medium truncate ${monitor.connected ? "text-foreground" : "text-muted-foreground"}`}>{displayName}</span>
-        <Button variant="ghost" size="icon-xs" onClick={() => { setDraft(monitor.alias); setEditing(true); }} title="Rename monitor" aria-label={`Rename monitor ${displayName}`}>
-          <Pencil className="size-3.5" />
-        </Button>
+      <span className="flex min-w-0 items-center gap-1.5">
+        <Input
+          type="text"
+          value={draft}
+          autoFocus
+          maxLength={64}
+          placeholder={monitor.model}
+          aria-label="Monitor name"
+          onChange={(e) => setDraft((e.target as HTMLInputElement).value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void save();
+            else if (e.key === "Escape") setEditing(false);
+          }}
+          disabled={saving}
+          className="h-6 min-w-0 flex-1 rounded-[4px] px-1.5 text-[13px]"
+        />
+        <button
+          type="button"
+          onClick={() => void save()}
+          disabled={saving}
+          className="shrink-0 font-mono text-[10px] text-primary hover:opacity-80"
+        >
+          {saving ? "…" : "Save"}
+        </button>
+        <button
+          type="button"
+          onClick={() => setEditing(false)}
+          disabled={saving}
+          className="shrink-0 font-mono text-[10px] text-muted-foreground hover:text-foreground"
+        >
+          Cancel
+        </button>
       </span>
     );
   }
+
   return (
-    <span className="inline-flex items-center gap-1.5">
-      <Input
-        type="text"
-        value={draft}
-        autoFocus
-        maxLength={64}
-        placeholder={monitor.model}
-        aria-label="Monitor name"
-        onChange={(e) => setDraft((e.target as HTMLInputElement).value)}
-        onKeyDown={(e) => { if (e.key === "Enter") void save(); else if (e.key === "Escape") setEditing(false); }}
-        disabled={saving}
-        className="h-8 w-32 px-2 text-sm"
-      />
-      <Button variant="secondary" size="icon-xs" onClick={() => void save()} disabled={saving}>
-        {saving ? "…" : "Save"}
-      </Button>
-      <Button variant="ghost" size="icon-xs" onClick={() => setEditing(false)} disabled={saving}>
-        Cancel
-      </Button>
+    <span className="inline-flex min-w-0 items-center gap-1">
+      <span
+        className={cn(
+          "truncate font-display text-[15px] leading-none",
+          monitor.connected ? "text-foreground" : "text-muted-foreground",
+        )}
+      >
+        {displayName}
+      </span>
+      <button
+        type="button"
+        onClick={() => {
+          setDraft(monitor.alias);
+          setEditing(true);
+        }}
+        title="Rename monitor"
+        aria-label={`Rename monitor ${displayName}`}
+        className="shrink-0 rounded-[4px] p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/pad:opacity-100"
+      >
+        <Pencil className="size-3" strokeWidth={1.5} />
+      </button>
     </span>
   );
 }
 
-/** Monitor reset button */
-function MonitorResetButton({ edidId, onPinChange }: { edidId: string; onPinChange: () => void }) {
+/** Monitor reset action: restore identity colours, then drop the pin. */
+function MonitorResetButton({ edidId, onPinChange, setAppliedMap }: { edidId: string; onPinChange: () => void; setAppliedMap: React.Dispatch<React.SetStateAction<Record<string, string>>> }) {
   const [resetting, setResetting] = useState(false);
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
 
@@ -81,6 +144,12 @@ function MonitorResetButton({ edidId, onPinChange }: { edidId: string; onPinChan
           } catch {
             // best-effort: the reset itself already succeeded
           }
+          // Clear the applied map entry so the UI no longer shows the preset as applied/in-use.
+          setAppliedMap((prev) => {
+            const next = { ...prev };
+            delete next[edidId];
+            return next;
+          });
           setMessage({ text: "Reset to default", ok: true });
           setTimeout(() => setMessage(null), 3000);
         }
@@ -95,26 +164,32 @@ function MonitorResetButton({ edidId, onPinChange }: { edidId: string; onPinChan
   };
 
   return (
-    <span className="inline-flex items-center gap-2">
+    <span className="inline-flex min-w-0 items-center gap-2">
+      <UtilityButton
+        label={resetting ? "…" : "Reset"}
+        title="Reset this monitor to default colours (identity gamma)"
+        onClick={() => void handleReset()}
+        disabled={resetting}
+        icon={<ResetGlyph className="size-[13px]" />}
+      />
       {message && (
-        <span key={message.text} aria-live="polite" className={`transient-enter text-xs font-bold ${message.ok ? "text-foreground" : "text-danger-ink"}`}>
+        <span
+          key={message.text}
+          aria-live="polite"
+          title={message.text}
+          className={cn(
+            "transient-enter max-w-[110px] truncate font-mono text-[9px]",
+            message.ok ? "text-foreground" : "text-destructive",
+          )}
+        >
           {message.text}
         </span>
       )}
-      <Button
-        variant="outline"
-        size="icon-xs"
-        onClick={handleReset}
-        disabled={resetting}
-        title="Reset this monitor to default colours (identity gamma)"
-      >
-        {resetting ? "Resetting…" : "Reset"}
-      </Button>
     </span>
   );
 }
 
-/** Monitor hardware probe button: read live state, change nothing */
+/** Monitor hardware probe: read live state, change nothing. */
 function MonitorProbeButton({ edidId }: { edidId: string }) {
   const [probing, setProbing] = useState(false);
   const [report, setReport] = useState<string | null>(null);
@@ -145,28 +220,247 @@ function MonitorProbeButton({ edidId }: { edidId: string }) {
   };
 
   return (
-    <span className="inline-flex items-center gap-2">
+    <span className="inline-flex min-w-0 items-center gap-2">
+      <UtilityButton
+        label={probing ? "…" : "Probe"}
+        title="Read live hardware state for this monitor (changes nothing)"
+        onClick={() => void handleProbe()}
+        disabled={probing}
+        icon={<ProbeGlyph className="size-[13px]" />}
+      />
       {report && (
-        <span key={report} aria-live="polite" className="text-xs mono text-muted-foreground">{report}</span>
+        <span
+          key={report}
+          aria-live="polite"
+          title={report}
+          className="max-w-[120px] truncate font-mono text-[9px] text-muted-foreground"
+        >
+          {report}
+        </span>
       )}
-      <Button variant="ghost" size="icon-xs" onClick={() => void handleProbe()} disabled={probing} title="Read live hardware state for this monitor (changes nothing)">
-        {probing ? "…" : <Stethoscope className="size-3.5" />}
-      </Button>
     </span>
   );
 }
 
-export default function MonitorSidebar({ monitors, presets, pins, onRefresh, onPinChange, onApplyFor }: {
+/** Monitor card — flat dark surface, 1px outer/inner hairlines. */
+function MonitorCard({ monitor, pinnedPreset, appliedMap, setAppliedMap, pins, presets, onRefresh, onPinChange, index }: {
+  monitor: Monitor;
+  pinnedPreset: Preset | null;
+  appliedMap: Record<string, string>;
+  setAppliedMap: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+  pins: Record<string, string>;
+  presets: Preset[];
+  onRefresh: () => void;
+  onPinChange: () => void;
+  index: number;
+}) {
+  const { target, isDragging, draggingPreset, applyStatus } = useDragAndDrop();
+  // Bumped on every transition into "applied" so the sweep span remounts and
+  // replays its one-shot animation (the status object carries no timestamp).
+  const [sweepKey, setSweepKey] = useState(0);
+
+  const isPinned = !!pinnedPreset;
+  const connected = monitor.connected;
+
+  const appliedPresetId = appliedMap[monitor.edid_id];
+  const appliedPreset = appliedPresetId
+    ? presets.find((p) => p.id === appliedPresetId) ?? null
+    : null;
+  // A drop applies without pinning, so the assignment line reflects the
+  // last applied preset and falls back to the pinned one.
+  const slotPreset = appliedPreset ?? pinnedPreset;
+  const status = applyStatus[monitor.edid_id];
+  const statusPhase = status?.phase;
+
+  // Each transition into "applied" replays the slot sweep.
+  useEffect(() => {
+    if (statusPhase === "applied") setSweepKey((key) => key + 1);
+  }, [statusPhase]);
+
+  const slotTitle = slotPreset
+    ? splitCategory(slotPreset.name)
+    : status
+      ? splitCategory(status.presetName)
+      : null;
+  const tag = /^#[0-9a-fA-F]{6}$/.test(slotPreset?.color_tag ?? "")
+    ? (slotPreset?.color_tag as string)
+    : null;
+
+  /* ── Drop states ────────────────────────────────────────────────────── */
+  const isDropHover =
+    target?.kind === "monitor" && target.edid === monitor.edid_id;
+  const isOfflineHover = isDropHover && !connected;
+  const samePresetApplied =
+    isDragging &&
+    draggingPreset !== null &&
+    appliedMap[monitor.edid_id] === draggingPreset.id;
+  const showValidDrop =
+    isDropHover && connected && !samePresetApplied;
+
+  // While a drag hovers this monitor the drop feedback adopts the dragged
+  // preset's tag colour; otherwise the slot's own preset tag applies.
+  const draggedTag = /^#[0-9a-fA-F]{6}$/.test(draggingPreset?.color_tag ?? "")
+    ? (draggingPreset?.color_tag as string)
+    : null;
+  const dropTag = isDropHover && draggedTag ? draggedTag : tag;
+
+  const showAppliedBadge =
+    isPinned || (connected && appliedPreset !== null);
+
+  return (
+    <div
+      data-drop-monitor={monitor.edid_id}
+      data-drop-enabled={connected ? "true" : "false"}
+      className={cn(
+        "group/pad monitor-card-enter relative h-[160px] shrink-0 rounded-[8px] border bg-surface p-2 transition-[scale,border-color] duration-[var(--motion-fast)]",
+        isPinned && !tag ? "border-primary" : "border-border",
+        // Standalone `scale` (not transform) so the entrance animation keeps
+        // ownership of `transform`.
+        showValidDrop && "monitor-drop-target scale-[1.01]",
+        isDropHover && connected && samePresetApplied &&
+          "cursor-default border-border-hover",
+        isOfflineHover && "cursor-not-allowed border-destructive drop-shake",
+      )}
+      style={
+        {
+          "--stagger-ms": `${Math.min(index * 60, 180)}ms`,
+          // Let .monitor-drop-target own the border while a drag is hovering.
+          ...(isPinned && tag && !isDropHover ? { borderColor: tag } : {}),
+          ...(dropTag ? { "--tag": dropTag } : {}),
+        } as Record<string, string>
+      }
+    >
+      <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[8px] border border-border-hover bg-surface p-4">
+        {/* Identity */}
+        <div className="flex min-w-0 items-center gap-2">
+          <MonitorGlyph
+            className={cn(
+              "shrink-0",
+              connected ? "text-primary" : "text-subtle-fg",
+            )}
+          />
+          <div className="flex min-w-0 flex-1 flex-col gap-[3px]">
+            <MonitorNameEditor monitor={monitor} onRefreshParent={onRefresh} />
+            <span className="truncate font-mono text-[9px] leading-[1.4] text-muted-foreground">
+              {monitor.serial || monitor.edid_id}
+            </span>
+          </div>
+          <Badge variant={showAppliedBadge ? "pinned" : "outline"}>
+            {showAppliedBadge ? "APPLIED" : connected ? "DEFAULT" : "OFFLINE"}
+          </Badge>
+        </div>
+
+        {/* Slot: apply-in-progress / applied summary / drop prompt */}
+        <div
+          className={cn(
+            "mt-3 flex min-h-0 flex-1 flex-col justify-center rounded-[8px] p-2 transition-colors relative overflow-hidden",
+            slotPreset
+              ? "border border-border bg-surface"
+              : "border border-dashed border-border bg-transparent",
+            showValidDrop && "monitor-drop-target",
+            isOfflineHover && "border-destructive",
+          )}
+          style={
+            slotPreset && tag
+              ? { backgroundColor: `color-mix(in srgb, ${tag} 8%, var(--color-surface))` }
+              : undefined
+          }
+        >
+          {status?.phase === "applying" ? (
+            <span className="flex min-w-0 items-center gap-2">
+              <span
+                aria-hidden="true"
+                className="inline-block size-3 shrink-0 animate-spin rounded-full border border-primary-border border-t-primary"
+              />
+              <span className="truncate font-mono text-[9px] leading-[1.3] text-primary">
+                Applying {status.presetName}…
+              </span>
+            </span>
+          ) : status?.phase === "error" ? (
+            <span className="flex min-w-0 flex-col gap-0.5" title={status.error}>
+              <span className="validation-slide truncate font-mono text-[9px] leading-[1.3] text-destructive">
+                Apply failed
+              </span>
+              <span className="truncate font-mono text-[9px] leading-[1.3] text-destructive/80">
+                {status.error}
+              </span>
+            </span>
+          ) : slotTitle ? (
+            <div className="flex min-w-0 items-center gap-2">
+              <PresetTag color={tag ?? undefined} shape={slotPreset?.tag_shape} size="md" />
+              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <span className="truncate font-mono text-[10px] leading-[1.3] text-foreground">
+                  {slotTitle.title}
+                </span>
+                {slotTitle.category && (
+                  <span className="truncate font-mono text-[9px] leading-[1.3] text-muted-foreground">
+                    {slotTitle.category}
+                  </span>
+                )}
+              </div>
+              {status?.phase === "applied" && (
+                <span className="pop-in inline-flex shrink-0 items-center gap-1 rounded-full border border-primary bg-primary-subtle px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.1em] text-primary">
+                  <Check className="size-2.5 stroke-[2]" />
+                  Applied
+                </span>
+              )}
+            </div>
+          ) : (
+            <span className="truncate font-mono text-[9px] text-muted-foreground">
+              {isDragging && connected
+                ? "Release to apply"
+                : connected
+                  ? "Drop preset here"
+                  : "Not connected"}
+            </span>
+          )}
+          {/* Success wash — remounts on every applied transition. */}
+          {statusPhase === "applied" && (
+            <span key={sweepKey} aria-hidden="true" className="apply-sweep absolute inset-0" />
+          )}
+        </div>
+
+        {/* Actions */}
+        <div className={cn("mt-3 flex h-[22px] min-w-0 shrink-0 items-center gap-4", !connected && "opacity-40 transition-opacity hover:opacity-100")}>
+          <MonitorResetButton edidId={monitor.edid_id} onPinChange={onPinChange} setAppliedMap={setAppliedMap} />
+          <MonitorProbeButton edidId={monitor.edid_id} />
+          {pins[monitor.edid_id] && (
+            <button
+              type="button"
+              title="Unpin from this monitor"
+              aria-label={`Unpin from ${monitor.alias || monitor.model}`}
+              onClick={async () => {
+                try {
+                  await unpinMonitor(monitor.edid_id);
+                  onPinChange();
+                } catch { /* silent */ }
+              }}
+              className="inline-flex shrink-0 items-center justify-center rounded-[8px] p-1 text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-none"
+            >
+              <PinOff className="size-[13px]" strokeWidth={1.5} />
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function MonitorSidebar({ monitors, presets, pins, appliedMap, setAppliedMap, onRefresh, onPinChange }: {
   monitors: Monitor[];
   presets: Preset[];
   pins: Record<string, string>;
+  appliedMap: Record<string, string>;
+  setAppliedMap: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   onRefresh: () => void;
   onPinChange: () => void;
-  onApplyFor: (preset: Preset, edidId: string) => void;
 }) {
   const [identifying, setIdentifying] = useState(false);
+  const { isDragging, target } = useDragAndDrop();
 
-  if (monitors.length === 0) return null;
+  const connectedCount = monitors.filter((m) => m.connected).length;
+  const isAllHover = target?.kind === "all";
+  const isPanelHover = target?.kind === "panel";
 
   const handleIdentify = async () => {
     setIdentifying(true);
@@ -180,84 +474,97 @@ export default function MonitorSidebar({ monitors, presets, pins, onRefresh, onP
   };
 
   return (
-    <aside className="w-full shrink-0 rounded-card border border-border bg-surface text-foreground shell-enter" style={{ ["--shell-delay" as string]: "60ms" }}>
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
-        <WindowDots />
-        <span className="text-xs font-bold text-foreground uppercase tracking-[0.12em] mono">
+    <aside
+      data-drop-panel="true"
+      className="shell-enter relative flex min-h-0 min-w-0 flex-1 flex-col"
+      style={{ ["--shell-delay" as string]: "60ms" }}
+    >
+      {/* Panel heading */}
+      <div className="flex h-10 shrink-0 items-center justify-between border-b border-border pb-2">
+        <span className="mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
           Monitors ({monitors.length})
         </span>
-        <span className="flex-1" />
-        <Button
-          variant="outline"
-          size="sm"
+        <button
+          type="button"
           onClick={() => void handleIdentify()}
           disabled={identifying}
           title="Show monitor numbers on each display"
+          className="inline-flex items-center gap-1.5 rounded-[8px] px-1.5 py-1 text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-none disabled:opacity-50"
         >
-          <MonitorCheck className="size-3.5 stroke-[1.75]" />
-          {identifying ? "…" : "Identify"}
-        </Button>
+          <IdentifyGlyph className="size-3.5" />
+          <span className="font-mono text-[10px] leading-[1.4]">
+            {identifying ? "Identifying…" : "Identify"}
+          </span>
+        </button>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 p-3">
-        {monitors.map((m, index) => {
-          const pinnedId = pins[m.edid_id];
-          const pinnedPreset = pinnedId ? presets.find((p) => p.id === pinnedId) : null;
-          const isPinned = !!pinnedPreset;
-          return (
+
+      {/* ── "All monitors" target — overlays the top of the panel only
+             while a drag is in flight, so it never shifts cards under the
+             pointer mid-drag. ─────────────────────────────────────────── */}
+      <div className="relative min-h-0 flex-1">
+        {isDragging && (
+          <>
+            {/* Empty panel space signals "drop here"; releasing applies to all. */}
             <div
-              key={m.edid_id}
+              aria-hidden="true"
               className={cn(
-                "flex flex-col gap-2 rounded-brutal p-3 border border-border bg-surface transition-colors",
-                isPinned ? "border-primary" : "",
-                m.connected ? "" : "border-dashed bg-surface/50"
+                "pointer-events-none absolute inset-0 z-10 rounded-[8px] border border-dashed transition-colors",
+                isPanelHover ? "border-primary-border" : "border-border",
               )}
-              style={{ "--stagger-ms": `${Math.min(index * 60, 180)}ms` } as Record<string, string>}
-            >
-              <div className="flex items-center gap-2 text-foreground">
-                <span
-                  className={cn(
-                    "size-2.5 rounded-full flex-shrink-0",
-                    m.connected ? "bg-primary" : "bg-muted-foreground"
-                  )}
-                  title={m.connected ? "Connected" : "Offline"}
-                />
-                <MonitorNameEditor monitor={m} onRefreshParent={onRefresh} />
-              </div>
-              {m.serial && (
-                <span className="text-xs text-muted-foreground mono" title={m.serial}>{m.serial}</span>
-              )}
-              <div className="flex flex-wrap items-center gap-1">
-                {!m.connected && (
-                  <Badge variant="outline">
-                    OFFLINE
-                  </Badge>
+            />
+            <div className="pointer-events-none absolute inset-x-0 top-2 z-20 flex justify-center">
+              <div
+                data-drop-all="true"
+                aria-hidden="true"
+                className={cn(
+                  "pop-in pointer-events-auto flex h-8 select-none items-center justify-center gap-2 rounded-full border px-3 font-mono text-[10px] uppercase tracking-[0.12em] shadow-[0_8px_24px_rgba(0,0,0,0.45)] transition-colors",
+                  connectedCount === 0
+                    ? "border-border bg-surface text-muted-foreground"
+                    : isAllHover
+                      ? "border-primary bg-primary-subtle text-primary shadow-[inset_0_0_0_1px_var(--color-primary-border)]"
+                      : "border-primary-border bg-surface text-primary",
                 )}
-                {pinnedPreset && (
-                  <span className="inline-flex items-center gap-1">
-                    <span className="size-2 rounded-md bg-primary" title={`Pinned: ${pinnedPreset.name}`} />
-                    <Badge variant="pinned" title={`Pinned: ${pinnedPreset.name}`}>
-                      PINNED: {pinnedPreset.name}
-                    </Badge>
-                  </span>
-                )}
-              </div>
-              <div className="flex flex-wrap items-center gap-1">
-                {pinnedPreset && m.connected && (
-                  <Button variant="default" size="icon-xs" onClick={() => onApplyFor(pinnedPreset, m.edid_id)} title={`Apply ${pinnedPreset.name} to ${m.alias || m.model}`}>
-                    Apply
-                  </Button>
-                )}
-                {pinnedId && (
-                  <Button variant="outline" size="icon-xs" onClick={async () => { try { await unpinMonitor(m.edid_id); onPinChange(); } catch { /* silent */ } }} title="Unpin from this monitor">
-                    Unpin
-                  </Button>
-                )}
-                <MonitorResetButton edidId={m.edid_id} onPinChange={onPinChange} />
-                <MonitorProbeButton edidId={m.edid_id} />
+              >
+                <ChevronDown className="size-3.5 stroke-[1.5]" />
+                <span>All monitors</span>
+                <span className="text-[9px] normal-case tracking-normal text-muted-foreground">
+                  {connectedCount} connected
+                </span>
               </div>
             </div>
-          );
-        })}
+          </>
+        )}
+        <div
+          data-drag-scroll="true"
+          className="h-full min-h-0 overflow-y-auto overflow-x-clip pt-4"
+        >
+          {monitors.length === 0 ? (
+            <div className="rounded-[8px] border border-dashed border-border p-4">
+              <span className="font-mono text-[10px] text-muted-foreground">No monitors detected</span>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 min-[760px]:grid-cols-2 min-[1000px]:grid-cols-3">
+              {monitors.map((m, index) => {
+                const pinnedId = pins[m.edid_id];
+                const pinnedPreset = pinnedId ? presets.find((p) => p.id === pinnedId) ?? null : null;
+                return (
+                  <MonitorCard
+                    key={m.edid_id}
+                    monitor={m}
+                    pinnedPreset={pinnedPreset}
+                    appliedMap={appliedMap}
+                    setAppliedMap={setAppliedMap}
+                    pins={pins}
+                    presets={presets}
+                    onRefresh={onRefresh}
+                    onPinChange={onPinChange}
+                    index={index}
+                  />
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
     </aside>
   );

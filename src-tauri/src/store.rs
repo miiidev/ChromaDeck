@@ -29,6 +29,32 @@ fn is_valid_color_tag(tag: &str) -> bool {
     true
 }
 
+/// Tag marker shapes accepted by the store. An empty value means "pill".
+const TAG_SHAPES: [&str; 8] = [
+    "pill",
+    "round",
+    "square",
+    "bar",
+    "diamond",
+    "hexagon",
+    "triangle",
+    "ring",
+];
+
+/// Validate a tag_shape value: must be empty or one of TAG_SHAPES.
+fn is_valid_tag_shape(shape: &str) -> bool {
+    shape.is_empty() || TAG_SHAPES.contains(&shape)
+}
+
+/// Normalise an optional tag_shape: empty and "pill" are the default and
+/// collapse to None so old and new files stay equivalent.
+fn normalise_tag_shape(shape: Option<String>) -> Option<String> {
+    match shape {
+        Some(s) if s.is_empty() || s == "pill" => None,
+        other => other,
+    }
+}
+
 /// Produce a local-date timestamp string `yyyymmdd-HHMMSS` from SystemTime.
 fn local_timestamp() -> String {
     let dur = std::time::SystemTime::now()
@@ -91,6 +117,8 @@ pub struct Preset {
     pub color_model: String,
     #[serde(default)]
     pub color_tag: Option<String>, // #rrggbb or None for untagged
+    #[serde(default)]
+    pub tag_shape: Option<String>, // pill | round | square | bar; None = pill
 }
 
 /// Input data for creating or updating a preset.
@@ -108,6 +136,8 @@ pub struct PresetInput {
     pub hue_deg: f64,
     #[serde(default)]
     pub color_tag: Option<String>,
+    #[serde(default)]
+    pub tag_shape: Option<String>,
 }
 
 // ── Store errors ───────────────────────────────────────────────────────────
@@ -433,6 +463,14 @@ impl Store {
                 ));
             }
         }
+        // Validate tag_shape
+        if let Some(ref shape) = input.tag_shape {
+            if !is_valid_tag_shape(shape) {
+                return Err(StoreError::InvalidInput(
+                    "tag_shape must be pill, round, square, bar, diamond, hexagon, triangle, ring or empty".into(),
+                ));
+            }
+        }
 
         // Handle optional ICC import
         let (icc_hash, icc_filename) = if let Some(ref src) = input.icc_path {
@@ -461,6 +499,7 @@ impl Store {
             color_tag: if let Some(tag) = input.color_tag {
                 if tag.is_empty() { None } else { Some(tag.into()) }
             } else { None },
+            tag_shape: normalise_tag_shape(input.tag_shape),
         };
 
         self.presets.push(preset.clone());
@@ -523,6 +562,14 @@ impl Store {
                 ));
             }
         }
+        // Validate tag_shape
+        if let Some(ref shape) = input.tag_shape {
+            if !is_valid_tag_shape(shape) {
+                return Err(StoreError::InvalidInput(
+                    "tag_shape must be pill, round, square, bar, diamond, hexagon, triangle, ring or empty".into(),
+                ));
+            }
+        }
 
         // Handle optional ICC import (new path provided) or keep existing
         let (icc_hash, icc_filename) = if let Some(ref src) = input.icc_path {
@@ -552,6 +599,7 @@ impl Store {
             color_tag: if let Some(tag) = input.color_tag {
                 if tag.is_empty() { None } else { Some(tag.into()) }
             } else { None },
+            tag_shape: normalise_tag_shape(input.tag_shape),
         };
 
         self.presets[idx] = updated.clone();
@@ -958,6 +1006,7 @@ mod tests {
             saturation: 50.0,
             hue_deg: 0.0,
             color_tag: None,
+            tag_shape: None,
         }
     }
 
@@ -1097,6 +1146,7 @@ mod tests {
                     saturation: 50.0,
                     hue_deg: 0.0,
                     color_tag: None,
+                    tag_shape: None,
                 },
             )
             .unwrap();
@@ -1212,6 +1262,7 @@ mod tests {
                     saturation: 50.0,
                     hue_deg: 0.0,
                     color_tag: None,
+                    tag_shape: None,
                 })
                 .unwrap();
             assert_eq!(store.list_presets().len(), 2);
@@ -1387,6 +1438,74 @@ mod tests {
         let json = r#"{"id":"x","name":"Old","icc_hash":"","icc_filename":"","brightness":55.0,"contrast":60.0,"rgb_gains":[1.0,1.0,1.0],"gamma":2.2,"vibrance":50.0,"hue_deg":0.0,"color_model":"nvcp-v1"}"#;
         let preset: Preset = serde_json::from_str(json).unwrap();
         assert!(preset.color_tag.is_none(), "old JSON without color_tag loads as None");
+        assert!(preset.tag_shape.is_none(), "old JSON without tag_shape loads as None");
+    }
+
+    // ── tag_shape ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn tag_shape_defaults_to_none() {
+        let mut store = test_store();
+        let preset = store.create_preset(minimal_input()).unwrap();
+        assert!(preset.tag_shape.is_none(), "default marker shape is pill (None)");
+    }
+
+    #[test]
+    fn tag_shape_store_and_roundtrip() {
+        let mut store = test_store();
+        let mut input = minimal_input();
+        input.tag_shape = Some("bar".into());
+        let preset = store.create_preset(input).unwrap();
+        assert_eq!(preset.tag_shape, Some("bar".to_string()));
+    }
+
+    #[test]
+    fn tag_shape_pill_and_empty_normalise_to_none() {
+        let mut store = test_store();
+        let mut input = minimal_input();
+        input.tag_shape = Some("pill".into());
+        assert!(store.create_preset(input).unwrap().tag_shape.is_none());
+
+        let mut input = minimal_input();
+        input.tag_shape = Some("".into());
+        assert!(store.create_preset(input).unwrap().tag_shape.is_none());
+    }
+
+    #[test]
+    fn tag_shape_rejects_unknown_value() {
+        let mut store = test_store();
+        let mut input = minimal_input();
+        input.tag_shape = Some("blob".into());
+        let err = store.create_preset(input).unwrap_err();
+        assert!(err.to_string().contains("tag_shape"));
+    }
+
+    #[test]
+    fn tag_shape_accepts_every_supported_value() {
+        let mut store = test_store();
+        for shape in ["pill", "round", "square", "bar", "diamond", "hexagon", "triangle", "ring"] {
+            let mut input = minimal_input();
+            input.tag_shape = Some(shape.into());
+            assert!(
+                store.create_preset(input).is_ok(),
+                "{shape} should be accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn tag_shape_update_changes_and_clears() {
+        let mut store = test_store();
+        let preset = store.create_preset(minimal_input()).unwrap();
+        let mut input = minimal_input();
+        input.tag_shape = Some("square".into());
+        let updated = store.update_preset(&preset.id, input).unwrap();
+        assert_eq!(updated.tag_shape, Some("square".to_string()));
+
+        let mut input = minimal_input();
+        input.tag_shape = Some("round".into());
+        let updated = store.update_preset(&preset.id, input).unwrap();
+        assert_eq!(updated.tag_shape, Some("round".to_string()));
     }
 
     #[test]
@@ -1409,6 +1528,7 @@ mod tests {
                     saturation: 50.0,
                     hue_deg: 0.0,
                     color_tag: Some("#ef4444".into()),
+                    tag_shape: None,
                 },
             )
             .unwrap();
@@ -1437,6 +1557,7 @@ mod tests {
                     saturation: 50.0,
                     hue_deg: 0.0,
                     color_tag: Some("".into()),
+                    tag_shape: None,
                 },
             )
             .unwrap();
@@ -1462,6 +1583,7 @@ mod tests {
                     saturation: 50.0,
                     hue_deg: 0.0,
                     color_tag: Some("invalid".into()),
+                    tag_shape: None,
                 },
             )
             .unwrap_err();
