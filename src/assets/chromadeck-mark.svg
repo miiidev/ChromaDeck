@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="ChromaDeck">
-  <title>ChromaDeck</title>
-  <g fill="#F4F1EA">
-    <rect x="2" y="2" width="13" height="13" rx="3"/>
-    <rect x="17" y="2" width="13" height="13" rx="3"/>
-    <rect x="2" y="17" width="13" height="13" rx="3"/>
-  </g>
-  <rect x="17" y="17" width="13" height="13" rx="3" fill="#5EEAD4"/>
-</svg>
