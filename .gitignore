@@ -31,3 +31,12 @@ spikes/**/target/
 opencode.json
 opencode.json.bak
 opencode.json.bak2
+opencode.json.bak-memory-install
+.open-mem/
+
+# Local video production project
+/launch-teaser/
+
+# open-mem: Auto-generated folder context files.
+# Uncomment to exclude from version control (recommended for large projects):
+# **/AGENTS.md

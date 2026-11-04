@@ -8,15 +8,15 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          "border-transparent bg-primary text-primary-foreground hover:brightness-105 focus-visible:border-primary",
+          "border-transparent bg-primary text-primary-foreground focus-visible:border-primary",
         outline:
-          "border-border bg-transparent text-foreground hover:border-border-hover hover:bg-surface-hover aria-expanded:bg-surface-hover",
+          "border-border bg-transparent text-foreground hover:border-border-hover aria-expanded:bg-surface-hover",
         secondary:
           "border-border bg-surface-hover text-foreground hover:bg-border-hover aria-expanded:bg-border-hover",
         ghost:
-          "border-transparent bg-transparent text-foreground hover:bg-surface-hover aria-expanded:bg-surface-hover",
+          "border-transparent bg-transparent text-foreground aria-expanded:bg-surface-hover",
         destructive:
-          "border-transparent bg-destructive text-destructive-foreground hover:brightness-105 focus-visible:border-destructive",
+          "border-transparent bg-destructive text-destructive-foreground focus-visible:border-destructive",
         link: "border-transparent text-foreground underline underline-offset-4 hover:underline",
       },
       size: {
@@ -59,7 +59,9 @@ function Button({
       )}
       {...props}
     >
-      <span className="btn-label inline-flex items-center gap-[inherit] relative z-10">
+      <span
+        className="btn-content inline-flex items-center gap-[inherit] relative z-10 transition-[scale] duration-[var(--motion-fast)] ease-[var(--ease-standard)] group-hover/button:scale-[1.04]"
+      >
         {children}
       </span>
       {trailingIcon && (

@@ -29,9 +29,12 @@ function UtilityButton({
       onClick={onClick}
       disabled={disabled}
       title={title}
-      className="inline-flex shrink-0 items-center gap-[6px] rounded-[8px] px-1 py-0.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-none disabled:pointer-events-none"
+      className={cn(
+        "group/util-icon inline-flex shrink-0 items-center gap-[6px] rounded-[8px] px-1 py-0.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-none disabled:pointer-events-none",
+        disabled && "disabled:opacity-50 disabled:pointer-events-none",
+      )}
     >
-      <span className="shrink-0">{icon}</span>
+      <span className="shrink-0 transition-transform duration-[var(--motion-fast)] ease-[var(--ease-standard)] group-hover/util-icon:scale-[1.05]">{icon}</span>
       <span className="font-mono text-[10px] leading-[1.4] whitespace-nowrap">{label}</span>
     </button>
   );
@@ -398,7 +401,7 @@ function MonitorCard({ monitor, pinnedPreset, appliedMap, setAppliedMap, pins, p
     >
       <div
         className={cn(
-          "flex h-full min-h-0 flex-col overflow-hidden rounded-[8px] border border-border-hover bg-surface",
+          "flex h-full min-h-0 flex-col overflow-hidden rounded-[8px] border border-border-hover bg-surface hover:bg-surface-hover",
           compact ? "p-3" : "p-4",
         )}
       >
@@ -544,7 +547,7 @@ function MonitorCard({ monitor, pinnedPreset, appliedMap, setAppliedMap, pins, p
               }}
               className="inline-flex shrink-0 items-center justify-center rounded-[8px] p-1 text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-none"
             >
-              <PinOff className="size-[13px]" strokeWidth={1.5} />
+              <PinOff className="size-[13px] transition-transform duration-[var(--motion-fast)] ease-[var(--ease-standard)] hover:scale-110" strokeWidth={1.5} />
             </button>
           )}
         </div>
@@ -600,7 +603,7 @@ export default function MonitorSidebar({ monitors, presets, pins, appliedMap, se
           title="Show monitor numbers on each display"
           className="inline-flex items-center gap-1.5 rounded-[8px] px-1.5 py-1 text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-none disabled:opacity-50"
         >
-          <IdentifyGlyph className="size-3.5" />
+          <IdentifyGlyph className="size-3.5 transition-transform duration-[var(--motion-fast)] ease-[var(--ease-standard)] hover:scale-110" />
           <span className="font-mono text-[10px] leading-[1.4]">
             {identifying ? "Identifying…" : "Identify"}
           </span>

@@ -488,7 +488,7 @@ export default function PresetCard({
 
               <button
                 type="button"
-                className={cn(iconStripButton, "hover:text-destructive")}
+                className={cn(iconStripButton, "hover:bg-destructive/10 hover:text-destructive")}
                 onClick={(e) => {
                   e.stopPropagation();
                   setDeleteError(null);

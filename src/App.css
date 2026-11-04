@@ -160,9 +160,24 @@ h6,
   to   { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes motion-slide-left {
+  from { opacity: 0; transform: translateX(6px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes motion-slide-right {
+  from { opacity: 0; transform: translateX(-6px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
 @keyframes motion-shell-up {
   from { opacity: 0; transform: translateY(16px); }
   to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes motion-shell-down {
+  from { opacity: 1; transform: translateY(0); }
+  to   { opacity: 0; transform: translateY(16px); }
 }
 
 @keyframes motion-scale-in {
@@ -223,6 +238,14 @@ h6,
   animation: motion-slide-down var(--motion-fast) var(--ease-out) both;
 }
 
+.enter-slide-left {
+  animation: motion-slide-left var(--motion-fast) var(--ease-out) both;
+}
+
+.enter-slide-right {
+  animation: motion-slide-right var(--motion-fast) var(--ease-out) both;
+}
+
 .enter-stagger {
   animation-name: motion-slide-up;
   animation-duration: var(--motion-standard);
@@ -267,6 +290,14 @@ h6,
   animation-delay: var(--shell-delay, 0ms);
 }
 
+.enter-shell-up {
+  animation: motion-shell-up var(--motion-shell) var(--ease-fluid) both;
+}
+
+.exit-shell-down {
+  animation: motion-shell-down var(--motion-fast) var(--ease-exit) both;
+}
+
 /* ── Feedback utilities ────────────────────────────────────────── */
 
 .feedback-enter {
@@ -287,8 +318,11 @@ h6,
 /* ── Button-in-Button: trailing icon circle physics ────────────── */
 
 [data-slot="button"]:not(:disabled):not(:active):hover [data-trailing-icon] {
-  translate: 2px 0;
-  transition: translate var(--motion-fast) var(--ease-fluid);
+  translate: 3px 0;
+  scale: 1.06;
+  transition:
+    translate var(--motion-fast) var(--ease-fluid),
+    scale var(--motion-fast) var(--ease-fluid);
 }
 
 /* ── Dialog timing override (bump from base-ui 100ms default) ──── */
@@ -466,6 +500,21 @@ h6,
 [data-slot="card"]:hover,
 [data-slot="card-outer"]:hover {
   border-color: var(--color-border-hover);
+}
+
+/* ── Icon strip buttons: subtle icon rotation on hover ─────────── */
+
+[data-slot="card"] button:hover svg {
+  scale: 1.1;
+  rotate: 2deg;
+  transition: scale var(--motion-fast) var(--ease-out), rotate var(--motion-fast) var(--ease-out);
+}
+
+/* ── Carousel arrows: icon scale on hover ──────────────────────── */
+
+[data-carousel-arrow]:hover svg {
+  scale: 1.1;
+  transition: scale var(--motion-fast) var(--ease-out);
 }
 
 /* ── PresetCard ring crossfade ──────────────────────────────────── */
