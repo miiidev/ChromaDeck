@@ -650,15 +650,11 @@ function ResetAllButton({ monitors, pins, setAppliedMap, onRefresh, onPinChange 
     setResetting(true);
     try {
       const outcome = await resetAllMonitors();
-      // results[i] is the outcome of connectedMonitors[i] (backend order);
-      // mirror the backend's applied-record clearing in UI state so slots
-      // stop showing presets that no longer apply.
+      // Results are keyed to their monitor; mirror the backend's
+      // applied-record clearing in UI state so slots stop showing
+      // presets that no longer apply.
       const failedIds = new Set(
-        monitors
-          .filter((m) => m.connected)
-          .map((m, i) => ({ id: m.edid_id, error: outcome.results[i]?.error }))
-          .filter(({ error }) => !!error)
-          .map(({ id }) => id),
+        outcome.results.filter((r) => !!r.error).map((r) => r.edid_id),
       );
       setAppliedMap((prev) =>
         Object.fromEntries(Object.entries(prev).filter(([edid]) => failedIds.has(edid))),

@@ -98,9 +98,10 @@ export async function resetMonitor(edidId: string): Promise<ApplyResult> {
   return invoke<ApplyResult>("reset_monitor_cmd", { edidId });
 }
 
-/** Wire shape of reset_all_monitors_cmd's outcome (snake_case on the wire). */
+/** Wire shape of reset_all_monitors_cmd's outcome (snake_case on the wire).
+ *  Each result carries its monitor key flattened next to the ApplyResult. */
 export interface ResetAllOutcome {
-  results: ApplyResult[];
+  results: Array<ApplyResult & { edid_id: string }>;
   pins_removed: number;
 }
 

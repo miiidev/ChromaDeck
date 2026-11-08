@@ -749,19 +749,35 @@ pub fn restore_monitors(
 pub fn reset_all_connected(
     resets: &mut dyn FnMut(&str) -> ApplyResult,
     monitors: &[crate::monitor::Monitor],
-) -> Vec<ApplyResult> {
+) -> Vec<(String, ApplyResult)> {
     monitors
         .iter()
         .filter(|m| m.connected)
-        .map(|m| resets(&m.edid_id))
+        .map(|m| (m.edid_id.clone(), resets(&m.edid_id)))
         .collect()
+}
+
+/// One reset outcome with the monitor key it belongs to, so the UI never
+/// has to reproduce the backend's enumeration to know what reset (and
+/// what failed). `ApplyResult` fields serialize flat.
+#[derive(Debug, Clone, Serialize)]
+pub struct NamedApplyResult {
+    #[serde(flatten)]
+    pub result: ApplyResult,
+    pub edid_id: String,
+}
+
+impl NamedApplyResult {
+    fn new(edid_id: String, result: ApplyResult) -> Self {
+        NamedApplyResult { result, edid_id }
+    }
 }
 
 /// Everything reset-all produced: per-monitor outcomes plus how many pins
 /// were lifted (pins clear unconditionally, offline included).
 #[derive(Debug, Clone, Serialize)]
 pub struct ResetAllOutcome {
-    pub results: Vec<ApplyResult>,
+    pub results: Vec<NamedApplyResult>,
     pub pins_removed: usize,
 }
 
@@ -772,25 +788,36 @@ pub fn reset_all_monitors_cmd(
     let api = RealColorApi;
     let nv = crate::nvapi::RealNvapi;
     let monitors = crate::monitor::list_monitors();
-    let results = reset_all_connected(
-        &mut |edid: &str| -> ApplyResult { reset_monitor(&api, &nv, edid) },
-        &monitors,
-    );
+    let results =
+        reset_all_connected(&mut |edid: &str| -> ApplyResult { reset_monitor(&api, &nv, edid) },
+            &monitors,);
     // Clear each successful monitor's applied record, matching
     // reset_monitor_cmd's semantics.
     if let Ok(mut store) = state.0.lock() {
-        for (m, r) in monitors.iter().filter(|m| m.connected).zip(&results) {
+        for (edid, r) in &results {
             if r.error.is_none() {
-                store.clear_applied(&m.edid_id);
+                store.clear_applied(edid);
             }
         }
         // Unconditional: reset-all is a full tear-down of enforcement
         // intent; otherwise the enforcer would repaint within one tick.
         let pins_removed = store.clear_all_pins();
-        ResetAllOutcome { results, pins_removed }
+        ResetAllOutcome {
+            results: results
+                .into_iter()
+                .map(|(edid, result)| NamedApplyResult::new(edid, result))
+                .collect(),
+            pins_removed,
+        }
     } else {
         // Store lock poison: report resets that ran, 0 pins as unknown-none.
-        ResetAllOutcome { results, pins_removed: 0 }
+        ResetAllOutcome {
+            results: results
+                .into_iter()
+                .map(|(edid, result)| NamedApplyResult::new(edid, result))
+                .collect(),
+            pins_removed: 0,
+        }
     }
 }
 
@@ -1280,6 +1307,9 @@ mod tests {
 
     // Signature under test: aggregates per-connected-monitor resets,
     // skips offline monitors without calling, and keeps failed outcomes.
+    // Pairs accompany each outcome with its monitor key so callers never
+    // depend on enumeration order twice (the stale-list bug the reviewer
+    // caught in the frontend's zip).
     #[test]
     fn reset_all_connected_skips_offline_and_preserves_outcomes() {
         let monitors = vec![
@@ -1304,9 +1334,11 @@ mod tests {
         let results = reset_all_connected(&mut resets, &monitors);
         assert_eq!(seen, vec!["E1", "E2"]);
         assert_eq!(results.len(), 2, "one outcome per touched monitor");
-        assert_eq!(results[0], ApplyResult::success());
+        assert_eq!(results[0].0, "E1");
+        assert_eq!(results[0].1, ApplyResult::success());
+        assert_eq!(results[1].0, "E2");
         assert_eq!(
-            results[1].error,
+            results[1].1.error,
             Some("store lock: x".into()),
             "failed monitor keeps its outcome"
         );
