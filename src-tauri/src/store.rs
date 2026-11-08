@@ -736,6 +736,16 @@ impl Store {
         &self.data_dir
     }
 
+    /// Lift every pin. Returns the number removed and flushes once.
+    pub fn clear_all_pins(&mut self) -> usize {
+        let removed = self.pinned.len();
+        self.pinned.clear();
+        if removed > 0 {
+            let _ = self.flush_pins();
+        }
+        removed
+    }
+
     /// Record a manual preset application for a monitor.
     /// Flushes to applied.json atomically.
     pub fn record_applied(&mut self, edid_id: &str, preset_id: &str) -> Result<(), StoreError> {
@@ -1681,6 +1691,31 @@ mod tests {
         drop(store);
         let reopened = Store::new(dir).unwrap();
         assert_eq!(reopened.list_pins().get("EDID-001"), Some(&preset.id));
+    }
+
+    #[test]
+    fn clear_all_pins_counts_then_zero() {
+        let mut store = test_store();
+        let preset = store.create_preset(minimal_input()).unwrap();
+        store.pin_preset("EDID-001", &preset.id).unwrap();
+        store.pin_preset("EDID-002", &preset.id).unwrap();
+        store.pin_preset("EDID-003", &preset.id).unwrap();
+        let removed = store.clear_all_pins();
+        assert_eq!(removed, 3);
+        assert!(store.list_pins().is_empty());
+        assert_eq!(store.clear_all_pins(), 0);
+    }
+
+    #[test]
+    fn clear_all_pins_flushes_across_reopen() {
+        let dir = test_store_dir();
+        let mut store = Store::new(dir.clone()).unwrap();
+        let preset = store.create_preset(minimal_input()).unwrap();
+        store.pin_preset("EDID-001", &preset.id).unwrap();
+        store.clear_all_pins();
+        drop(store);
+        let reopened = Store::new(dir).unwrap();
+        assert!(reopened.list_pins().is_empty());
     }
 
     // ── applied record (persistent last-manual-apply hint) ──────────────
