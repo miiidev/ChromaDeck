@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import type { Monitor, Preset } from "../lib/types";
-import { identifyMonitors, resetMonitor, setMonitorName, unpinMonitor, probeMonitor } from "../lib/tauri";
+import { identifyMonitors, resetAllMonitors, resetMonitor, setMonitorName, unpinMonitor, probeMonitor } from "../lib/tauri";
+import { resetAllSummary } from "../lib/resetAllSummary";
 import { splitCategory } from "../lib/presetCard";
 import { PresetTag } from "@/components/ui/preset-tag";
 import { Input } from "@/components/ui/input";
 import { IdentifyGlyph, MonitorGlyph, ProbeGlyph, ResetGlyph } from "@/components/ui/icons";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { Check, ChevronDown, Pencil, PinOff } from "lucide-react";
 import { useDragAndDrop, useDragSource } from "./DragAndDropContext";
 import { cn } from "cn";
@@ -556,6 +559,159 @@ function MonitorCard({ monitor, pinnedPreset, appliedMap, setAppliedMap, pins, p
   );
 }
 
+/** Confirm dialog for Reset all — DeletePresetDialog's structure with the
+ *  reset-all copy. Owns open state so the exit animation plays. */
+function ResetAllConfirmDialog({
+  onClosed,
+  onConfirm,
+  resetting,
+}: {
+  onClosed: () => void;
+  onConfirm: () => Promise<boolean>;
+  resetting: boolean;
+}) {
+  const [open, setOpen] = useState(true);
+  const requestClose = (force = false) => {
+    if (resetting && !force) return;
+    setOpen(false);
+    onClosed();
+  };
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) requestClose();
+      }}
+      onOpenChangeComplete={(next) => {
+        if (!next) onClosed();
+      }}
+    >
+      <DialogContent className="sm:max-w-[440px]">
+        <div className="flex size-12 items-center justify-center rounded-[8px] bg-destructive">
+          <ResetGlyph className="size-5 text-white" />
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <DialogTitle className="font-display text-[32px] leading-none tracking-[-0.96px] text-foreground">
+            Reset all monitors?
+          </DialogTitle>
+          <DialogDescription className="font-mono text-[12px] leading-snug text-muted-foreground">
+            Reset every connected screen to default colors and remove all pins?
+          </DialogDescription>
+        </div>
+
+        <p className="font-mono text-[10px] leading-relaxed text-muted-foreground">
+          Pins are lifted even if some screens fail to reset, so enforcement never resumes on its own.
+        </p>
+
+        <DialogFooter>
+          <Button variant="ghost" type="button" onClick={() => requestClose()} disabled={resetting}>
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            type="button"
+            onClick={() => {
+              void (async () => {
+                const done = await onConfirm();
+                // Close through the exit animation only when the reset ran;
+                // a thrown failure keeps the dialog open with the error.
+                if (done) requestClose(true);
+              })();
+            }}
+            disabled={resetting}
+          >
+            {resetting ? "Resetting…" : "Reset all"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Reset-all action: confirm, reset every connected display, lift every
+ *  pin, then toast the outcome summary. Header placement mirrors Identify. */
+function ResetAllButton({ monitors, pins, setAppliedMap, onRefresh, onPinChange }: {
+  monitors: Monitor[];
+  pins: Record<string, string>;
+  setAppliedMap: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+  onRefresh: () => void;
+  onPinChange: () => void;
+}) {
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [toast, setToast] = useState<{ text: string; ok: boolean } | null>(null);
+
+  const nothingToDo =
+    !monitors.some((m) => m.connected) && Object.keys(pins).length === 0;
+
+  const handleConfirm = async (): Promise<boolean> => {
+    setResetting(true);
+    try {
+      const outcome = await resetAllMonitors();
+      // results[i] is the outcome of connectedMonitors[i] (backend order);
+      // mirror the backend's applied-record clearing in UI state so slots
+      // stop showing presets that no longer apply.
+      const failedIds = new Set(
+        monitors
+          .filter((m) => m.connected)
+          .map((m, i) => ({ id: m.edid_id, error: outcome.results[i]?.error }))
+          .filter(({ error }) => !!error)
+          .map(({ id }) => id),
+      );
+      setAppliedMap((prev) =>
+        Object.fromEntries(Object.entries(prev).filter(([edid]) => failedIds.has(edid))),
+      );
+      setToast({ text: resetAllSummary(outcome.results, outcome.pins_removed), ok: true });
+      setTimeout(() => setToast(null), 6000);
+      return true;
+    } catch (err) {
+      setToast({ text: `Reset all failed: ${String(err)}`, ok: false });
+      setTimeout(() => setToast(null), 6000);
+      return false;
+    } finally {
+      onRefresh();
+      onPinChange();
+      setResetting(false);
+    }
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setConfirmOpen(true)}
+        disabled={resetting || nothingToDo}
+        title="Reset every connected screen to default colours and remove all pins"
+        className="inline-flex items-center gap-1.5 rounded-[8px] px-1.5 py-1 text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-none disabled:opacity-50"
+      >
+        <ResetGlyph className="size-3.5 transition-transform duration-[var(--motion-fast)] ease-[var(--ease-standard)] hover:scale-110" />
+        <span className="font-mono text-[10px] leading-[1.4]">Reset all</span>
+      </button>
+      {confirmOpen && (
+        <ResetAllConfirmDialog
+          onClosed={() => setConfirmOpen(false)}
+          onConfirm={handleConfirm}
+          resetting={resetting}
+        />
+      )}
+      {toast && (
+        <div
+          key={toast.text}
+          aria-live="polite"
+          data-slot="undo-toast"
+          className={cn(
+            "undo-toast-enter fixed bottom-[72px] left-1/2 z-[90] flex -translate-x-1/2 items-center gap-3 rounded-[8px] border border-border bg-surface-raised px-3 py-2 shadow-[0_12px_32px_rgba(0,0,0,0.5)]",
+            toast.ok ? "text-foreground" : "text-destructive",
+          )}
+        >
+          <span className="font-mono text-[11px] leading-snug">{toast.text}</span>
+        </div>
+      )}
+    </>
+  );
+}
+
 export default function MonitorSidebar({ monitors, presets, pins, appliedMap, setAppliedMap, onRefresh, onPinChange }: {
   monitors: Monitor[];
   presets: Preset[];
@@ -596,18 +752,27 @@ export default function MonitorSidebar({ monitors, presets, pins, appliedMap, se
         <span className="mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
           Monitors ({monitors.length})
         </span>
-        <button
-          type="button"
-          onClick={() => void handleIdentify()}
-          disabled={identifying}
-          title="Show monitor numbers on each display"
-          className="inline-flex items-center gap-1.5 rounded-[8px] px-1.5 py-1 text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-none disabled:opacity-50"
-        >
-          <IdentifyGlyph className="size-3.5 transition-transform duration-[var(--motion-fast)] ease-[var(--ease-standard)] hover:scale-110" />
-          <span className="font-mono text-[10px] leading-[1.4]">
-            {identifying ? "Identifying…" : "Identify"}
-          </span>
-        </button>
+        <div className="flex items-center gap-1">
+          <ResetAllButton
+            monitors={monitors}
+            pins={pins}
+            setAppliedMap={setAppliedMap}
+            onRefresh={onRefresh}
+            onPinChange={onPinChange}
+          />
+          <button
+            type="button"
+            onClick={() => void handleIdentify()}
+            disabled={identifying}
+            title="Show monitor numbers on each display"
+            className="inline-flex items-center gap-1.5 rounded-[8px] px-1.5 py-1 text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-none disabled:opacity-50"
+          >
+            <IdentifyGlyph className="size-3.5 transition-transform duration-[var(--motion-fast)] ease-[var(--ease-standard)] hover:scale-110" />
+            <span className="font-mono text-[10px] leading-[1.4]">
+              {identifying ? "Identifying…" : "Identify"}
+            </span>
+          </button>
+        </div>
       </div>
 
       {/* ── "All monitors" target — overlays the top of the panel only

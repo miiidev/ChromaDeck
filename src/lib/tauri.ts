@@ -98,6 +98,21 @@ export async function resetMonitor(edidId: string): Promise<ApplyResult> {
   return invoke<ApplyResult>("reset_monitor_cmd", { edidId });
 }
 
+/** Wire shape of reset_all_monitors_cmd's outcome (snake_case on the wire). */
+export interface ResetAllOutcome {
+  results: ApplyResult[];
+  pins_removed: number;
+}
+
+/**
+ * Reset every connected screen to default colors and remove all pins.
+ * ICC associations are left untouched. Pins clear even when individual
+ * monitor resets fail (enforcer must never repaint afterwards).
+ */
+export async function resetAllMonitors(): Promise<ResetAllOutcome> {
+  return invoke<ResetAllOutcome>("reset_all_monitors_cmd");
+}
+
 /**
  * Read live hardware state for a monitor without changing anything:
  * gamma engine, vibrance/hue levels (when supported), OS ramp peak
