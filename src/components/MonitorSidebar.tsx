@@ -642,9 +642,26 @@ function ResetAllButton({ monitors, pins, setAppliedMap, onRefresh, onPinChange 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [toast, setToast] = useState<{ text: string; ok: boolean } | null>(null);
+  // One dismiss timer at a time: a second reset within the window must not
+  // let the first timer hide the newer toast early.
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const TOAST_MS = 6000;
+
+  const showToast = (text: string, ok: boolean) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast({ text, ok });
+    toastTimer.current = setTimeout(() => {
+      setToast(null);
+      toastTimer.current = null;
+    }, TOAST_MS);
+  };
 
   const nothingToDo =
     !monitors.some((m) => m.connected) && Object.keys(pins).length === 0;
+
+  useEffect(() => () => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+  }, []);
 
   const handleConfirm = async (): Promise<boolean> => {
     setResetting(true);
@@ -659,12 +676,10 @@ function ResetAllButton({ monitors, pins, setAppliedMap, onRefresh, onPinChange 
       setAppliedMap((prev) =>
         Object.fromEntries(Object.entries(prev).filter(([edid]) => failedIds.has(edid))),
       );
-      setToast({ text: resetAllSummary(outcome.results, outcome.pins_removed), ok: true });
-      setTimeout(() => setToast(null), 6000);
+      showToast(resetAllSummary(outcome.results, outcome.pins_removed), true);
       return true;
     } catch (err) {
-      setToast({ text: `Reset all failed: ${String(err)}`, ok: false });
-      setTimeout(() => setToast(null), 6000);
+      showToast(`Reset all failed: ${String(err)}`, false);
       return false;
     } finally {
       onRefresh();

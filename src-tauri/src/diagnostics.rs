@@ -5,7 +5,7 @@
 // Pure helpers are unit-tested below; the IO wrapper is thin.
 
 use std::fs::{File, OpenOptions};
-use std::io::{self, Read, Write};
+use std::io::{self, Read, Seek, Write};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -73,27 +73,36 @@ pub fn should_log(last: u64, current: u64) -> bool {
 }
 
 /// The fingerprint from the LAST `--- diagnostics snapshot` header in
-/// `diagnostics.log`, if any (absent file or no header → `None`).
+/// `diagnostics.log`, if any (absent file or no header → `None`). Tail-only:
+/// headers are small and accumulate at the end, so reading the final 64 KiB
+/// is enough to resume (and avoids a full ~1 MiB read on every 5 s poll).
 fn read_last_fingerprint(path: &Path) -> io::Result<Option<u64>> {
     let mut f = match File::open(path) {
         Ok(f) => f,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(e),
     };
-    let mut bytes = Vec::new();
-    f.read_to_end(&mut bytes)?;
-    let text = String::from_utf8_lossy(&bytes);
+    const TAIL: u64 = 64 * 1024;
+    let len = std::fs::metadata(path)?.len();
+    let start = len.saturating_sub(TAIL);
+    let mut tail = Vec::with_capacity((len - start) as usize);
+    f.seek(io::SeekFrom::Start(start))?;
+    f.take(len - start).read_to_end(&mut tail)?;
+    Ok(last_fingerprint_in(&String::from_utf8_lossy(&tail)))
+}
+
+/// Parse the newest snapshot header's fingerprint from text. Pure so it is
+/// unit-tested independently of the IO wrapper.
+fn last_fingerprint_in(text: &str) -> Option<u64> {
     let marker = "--- diagnostics snapshot ";
-    let last = text
-        .rmatch_indices(marker)
+    text.rmatch_indices(marker)
         .next()
         .and_then(|(i, _)| {
             text[i..]
                 .split_whitespace()
                 .find(|w| w.starts_with("fingerprint="))
         })
-        .and_then(|w| w[12..].parse::<u64>().ok());
-    Ok(last)
+        .and_then(|w| w[12..].parse::<u64>().ok())
 }
 
 /// Append the snapshot only when its identity set changed since the last
@@ -139,13 +148,19 @@ fn trim_if_huge(path: &Path) -> io::Result<()> {
     Ok(())
 }
 
-/// UTC RFC3339 from the Unix epoch without a datetime dependency.
-/// Days-to-civil algorithm (Howard Hinnant): z → (y, m, d), then H:M:S.
+/// UTC RFC3339 timestamp for the current instant.
 fn timestamp_now_utc() -> String {
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
+    timestamp_from_epoch(secs)
+}
+
+/// UTC RFC3339 from a Unix-epoch second count, without a datetime
+/// dependency. Days-to-civil algorithm (Howard Hinnant): z → (y, m, d),
+/// then H:M:S. Pure so known epoch↔timestamp pairs pin the arithmetic.
+fn timestamp_from_epoch(secs: i64) -> String {
     let days = secs.div_euclid(86_400);
     let sod = secs.rem_euclid(86_400);
     let (h, m, s) = (
@@ -233,5 +248,71 @@ mod tests {
     fn append_gate_writes_only_on_change() {
         assert!(should_log(7, 9));
         assert!(!should_log(9, 9));
+    }
+
+    #[test]
+    fn timestamp_from_epoch_known_values() {
+        // Instantly catches off-by-one and leap-day regressions in the
+        // days-to-civil algorithm (which CI would otherwise never prove).
+        assert_eq!(timestamp_from_epoch(0), "1970-01-01T00:00:00Z");
+        assert_eq!(timestamp_from_epoch(86_399), "1970-01-01T23:59:59Z");
+        assert_eq!(timestamp_from_epoch(1_000_000_000), "2001-09-09T01:46:40Z");
+        assert_eq!(timestamp_from_epoch(1_709_164_800), "2024-02-29T00:00:00Z");
+        assert_eq!(timestamp_from_epoch(1_762_560_000), "2025-11-08T00:00:00Z");
+    }
+
+    #[test]
+    fn last_fingerprint_in_scans_headers_from_the_tail() {
+        let text = "--- diagnostics snapshot 2026-01-01T00:00:00Z fingerprint=111 ---\n\
+                    edid_id=A connected=1\n\
+                    --- diagnostics snapshot 2026-01-02T00:00:00Z fingerprint=222 ---\n\
+                    edid_id=A connected=0\n";
+        assert_eq!(last_fingerprint_in(text), Some(222));
+        assert_eq!(last_fingerprint_in("no headers here\n"), None);
+    }
+
+    #[test]
+    fn append_gate_io_writes_once_and_resumes() -> io::Result<()> {
+        let temp = TempDir::default();
+        let monitors = vec![m("A", true)];
+        let dir = temp.path();
+        // First run: log does not exist → append.
+        assert!(append_snapshot_if_changed(dir, &monitors)?);
+        let path = dir.join("diagnostics.log");
+        let len1 = path.metadata()?.len();
+        assert!(len1 > 0);
+        // Second run: identical identity set must not grow the log
+        // (re-enumeration churn stays at one snapshot per change).
+        assert!(!append_snapshot_if_changed(dir, &monitors)?);
+        assert_eq!(path.metadata()?.len(), len1);
+        // A change appends again and the resume read (tail-parse) still
+        // sees the newest fingerprint.
+        let changed = vec![m("A", false)];
+        assert!(append_snapshot_if_changed(dir, &changed)?);
+        assert!(path.metadata()?.len() > len1);
+        Ok(())
+    }
+
+    /// Minimal RAII temp dir for IO tests (no external test deps).
+    struct TempDir(std::path::PathBuf);
+    impl TempDir {
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    impl Default for TempDir {
+        fn default() -> Self {
+            let base = std::env::temp_dir().join("chromadeck-diagnostics-test");
+            let dir = base.join(format!("run-{}", std::process::id()));
+            // A stale run dir must not break isolation.
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).expect("temp dir create");
+            TempDir(dir)
+        }
     }
 }
