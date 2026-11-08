@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Search, X } from "lucide-react";
 import { consumeStagger } from "../lib/motion";
+import { cn } from "cn";
 import {
   ALL_CATEGORIES,
   NO_CATEGORY,
@@ -76,6 +77,12 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
   const [canScrollRight, setCanScrollRight] = useState(false);
   const [query, setQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>(ALL_CATEGORIES);
+  const [libraryView, setLibraryView] = useState<"grid" | "carousel">(
+    (localStorage.getItem("chromadeck:library-view") as "grid" | "carousel") ?? "grid"
+  );
+  const draggingDeckRef = useRef(false);
+  const onDragStart = () => { draggingDeckRef.current = true; };
+  const onDragEnd = () => { draggingDeckRef.current = false; };
   const transitionRef = useRef(false);
 
   /** Run a filter-state update inside a View Transition so the carousel
@@ -226,6 +233,8 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
         onDeleted={onPresetDeleted}
         highlightEnter={!isStagger && lastAddedId === preset.id}
         className="min-w-[288px] shrink-0 snap-start"
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
       />
     );
   });
@@ -266,6 +275,10 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
         ref={carouselRef}
         className="preset-deck carousel-scroll my-auto flex shrink-0 flex-row gap-4 overflow-x-auto px-12 scroll-px-12 snap-x snap-mandatory"
         onScroll={updateScrollState}
+        onWheel={(e) => {
+          if (draggingDeckRef.current) e.preventDefault();
+        }}
+        style={{ touchAction: "none" }}
       >
         {presetCards}
       </div>
@@ -289,6 +302,40 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
       >
         <ArrowRightGlyph className="size-4" />
       </button>
+    </div>
+  );
+
+  const gridContent = (
+    <div
+      className={cn(
+        "grid gap-4",
+        // Responsive columns: same logic as MonitorSidebar
+        "grid-cols-1 min-[760px]:grid-cols-2 min-[1000px]:grid-cols-3 min-[1450px]:grid-cols-4"
+      )}
+    >
+      {filteredPresets.map((preset, i) => {
+        const isStagger = !loading && filteredPresets.length > 0 && consumeStagger();
+        return (
+          <PresetCard
+            key={preset.id}
+            preset={preset}
+            monitors={monitors}
+            pins={pins}
+            onEdit={onEdit}
+            onRefreshParent={onRefresh}
+            onPinChange={onPinChange}
+            onApply={onApply}
+            appliedMap={appliedMap}
+            staggerEnter={isStagger}
+            staggerMs={Math.min(i, 3) * 40}
+            onDuplicated={onPresetDuplicated}
+            onDeleted={onPresetDeleted}
+            highlightEnter={!isStagger && lastAddedId === preset.id}
+            onDragStart={onDragStart}
+            onDragEnd={onDragEnd}
+          />
+        );
+      })}
     </div>
   );
 
@@ -443,6 +490,28 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
                 <Plus className="size-3.5" />
                 Create preset
               </Button>
+              <button
+                type="button"
+                onClick={() => setLibraryView(libraryView === "grid" ? "carousel" : "grid")}
+                title={libraryView === "grid" ? "Switch to carousel" : "Switch to grid"}
+                className="inline-flex size-7 items-center justify-center rounded-[8px] text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring"
+                aria-label={libraryView === "grid" ? "Switch to carousel" : "Switch to grid"}
+              >
+                {libraryView === "grid" ? (
+                  <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="3" y="3" width="7" height="7" rx="1" />
+                    <rect x="14" y="3" width="7" height="7" rx="1" />
+                    <rect x="14" y="14" width="7" height="7" rx="1" />
+                    <rect x="3" y="14" width="7" height="7" rx="1" />
+                  </svg>
+                ) : (
+                  <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <line x1="3" y1="6" x2="21" y2="6" />
+                    <line x1="3" y1="12" x2="21" y2="12" />
+                    <line x1="3" y1="18" x2="21" y2="18" />
+                  </svg>
+                )}
+              </button>
             </div>
           </div>
         }
@@ -451,7 +520,9 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
           ? emptyPresetsContent
           : filteredPresets.length === 0
             ? noResultsContent
-            : carouselContent}
+            : libraryView === "carousel"
+              ? carouselContent
+              : gridContent}
       </LibraryScrollRoot>
     </section>
   );

@@ -35,6 +35,8 @@ interface Props {
   highlightEnter?: boolean;
   onDeleted?: (id: string) => void;
   className?: string;
+  onDragStart?: () => void;
+  onDragEnd?: () => void;
 }
 
 export default function PresetCard({
@@ -42,6 +44,8 @@ export default function PresetCard({
   onApply, appliedMap, staggerEnter, staggerMs, onDuplicated,
   highlightEnter, onDeleted,
   className,
+  onDragStart,
+  onDragEnd,
 }: Props) {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -155,10 +159,14 @@ export default function PresetCard({
       // The drop's trailing click must not also open the apply dialog.
       // Cleared when the drag ends + a short grace window (see effect).
       draggedRecently.current = true;
+      onDragStart?.();
       beginDrag(preset, drag.rect, { x: ev.clientX, y: ev.clientY });
     };
 
-    const onUp = () => cleanup();
+    const onUp = () => {
+      cleanup();
+      onDragEnd?.();
+    };
 
     pendingDrag.current = start;
     detachPending.current = cleanup;
