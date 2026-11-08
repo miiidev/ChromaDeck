@@ -24,6 +24,13 @@ pub struct Monitor {
     pub connected: bool,
     pub device_name: String, // e.g. "\\.\DISPLAY1"
     pub alias: String,       // user display name; empty = use model
+    /// Device instance path from the adapter→child walk's `DeviceID`
+    /// (`MONITOR\<model>\<instance>`); port-anchored identity evidence.
+    pub instance_path: String,
+    /// Whether an EDID blob was read from the registry for this monitor.
+    pub edid_present: bool,
+    /// Length of the EDID blob in bytes (0 when absent).
+    pub edid_len: usize,
 }
 
 // ── EDID parsing ───────────────────────────────────────────────────────────
@@ -136,8 +143,10 @@ fn enum_gdi_monitors() -> Vec<Monitor> {
                 continue;
             }
             let device_string = wide_to_string(&child.DeviceString);
-            let edid: Option<[u8; 128]> = read_edid_for_monitor(&instance_id)
-                .and_then(base_block);
+            let edid_blob = read_edid_for_monitor(&instance_id);
+            let edid_present = edid_blob.is_some();
+            let edid_len = edid_blob.as_ref().map(|v| v.len()).unwrap_or(0);
+            let edid: Option<[u8; 128]> = edid_blob.as_ref().and_then(|v| base_block(v.clone()));
             let (edid_id, model, serial) =
                 identify_monitor(edid.as_ref(), &instance_id, &device_string);
             monitors.push(Monitor {
@@ -147,6 +156,9 @@ fn enum_gdi_monitors() -> Vec<Monitor> {
                 connected: adapter_attached,
                 device_name: adapter_name.clone(),
                 alias: String::new(),
+                instance_path: instance_id.clone(),
+                edid_present,
+                edid_len,
             });
         }
     }
@@ -521,5 +533,41 @@ mod tests {
         blob[off + 4 + 6] = 0x0A;
         let base = base_block(blob).expect("first 128 bytes must parse");
         assert_eq!(parse_edid_serial(&base).as_deref(), Some("ABC123"));
+    }
+
+    #[test]
+    fn monitor_fields_carry_instance_and_edid_presence() {
+        let m = Monitor {
+            edid_id: "X".into(),
+            model: "M".into(),
+            serial: String::new(),
+            connected: true,
+            device_name: "D".into(),
+            alias: String::new(),
+            instance_path: r"MONITOR\FERMICAN012\5&2f3a&0&UID265977".into(),
+            edid_present: true,
+            edid_len: 256,
+        };
+        assert!(
+            m.edid_present && m.edid_len == 256 && m.instance_path.contains("UID"),
+            "fields must be public and storable"
+        );
+        // And a no-EDID monitor keeps zeros/empty:
+        let m2 = clone_fields_without_edid();
+        assert!(!m2.edid_present && m2.edid_len == 0 && m2.instance_path.is_empty());
+    }
+
+    fn clone_fields_without_edid() -> Monitor {
+        Monitor {
+            edid_id: "Y".into(),
+            model: String::new(),
+            serial: String::new(),
+            connected: false,
+            device_name: String::new(),
+            alias: String::new(),
+            instance_path: String::new(),
+            edid_present: false,
+            edid_len: 0,
+        }
     }
 }

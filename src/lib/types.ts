@@ -8,6 +8,11 @@ export interface Monitor {
   connected: boolean;
   device_name: string;
   alias: string; // user display name; empty = use model
+  // Identity-chain evidence (diagnostics); optional so payload shims in
+  // tests and non-Windows paths stay valid.
+  instance_path?: string;
+  edid_present?: boolean;
+  edid_len?: number;
 }
 
 export interface GammaRamp {

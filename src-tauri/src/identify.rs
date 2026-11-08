@@ -286,6 +286,9 @@ mod tests {
             connected,
             device_name: device.into(),
             alias: alias.into(),
+            instance_path: String::new(),
+            edid_present: false,
+            edid_len: 0,
         }
     }
 
