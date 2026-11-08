@@ -10,7 +10,7 @@ mod nvgamma;
 mod store;
 
 use capabilities::get_display_capabilities;
-use color::{apply_preset_cmd, probe_monitor_cmd, reset_monitor_cmd};
+use color::{apply_preset_cmd, probe_monitor_cmd, reset_all_monitors_cmd, reset_monitor_cmd};
 use enforce::reapply_now_cmd;
 use identify::{identify_info_cmd, identify_monitors_cmd};
 use monitor::list_monitors_cmd;
@@ -142,6 +142,7 @@ pub fn run() {
             apply_preset_cmd,
             vibrance_supported_cmd,
             reset_monitor_cmd,
+            reset_all_monitors_cmd,
             probe_monitor_cmd,
             pin_preset_cmd,
             unpin_monitor_cmd,

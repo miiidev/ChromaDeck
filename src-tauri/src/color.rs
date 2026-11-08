@@ -739,6 +739,59 @@ pub fn restore_monitors(
         .collect()
 }
 
+/// ── Reset-all (command + pure aggregation) ──────────────────────────────
+
+/// Aggregate per-connected-monitor resets. Offline monitors are skipped
+/// without calling; failed resets still return their outcome so the UI can
+/// count OK vs failed without losing detail.
+pub fn reset_all_connected(
+    resets: &mut dyn FnMut(&str) -> ApplyResult,
+    monitors: &[crate::monitor::Monitor],
+) -> Vec<ApplyResult> {
+    monitors
+        .iter()
+        .filter(|m| m.connected)
+        .map(|m| resets(&m.edid_id))
+        .collect()
+}
+
+/// Everything reset-all produced: per-monitor outcomes plus how many pins
+/// were lifted (pins clear unconditionally, offline included).
+#[derive(Debug, Clone, Serialize)]
+pub struct ResetAllOutcome {
+    pub results: Vec<ApplyResult>,
+    pub pins_removed: usize,
+}
+
+#[tauri::command]
+pub fn reset_all_monitors_cmd(
+    state: tauri::State<'_, crate::store::AppStore>,
+) -> ResetAllOutcome {
+    let api = RealColorApi;
+    let nv = crate::nvapi::RealNvapi;
+    let monitors = crate::monitor::list_monitors();
+    let results = reset_all_connected(
+        &mut |edid: &str| -> ApplyResult { reset_monitor(&api, &nv, edid) },
+        &monitors,
+    );
+    // Clear each successful monitor's applied record, matching
+    // reset_monitor_cmd's semantics.
+    if let Ok(mut store) = state.0.lock() {
+        for (m, r) in monitors.iter().filter(|m| m.connected).zip(&results) {
+            if r.error.is_none() {
+                store.clear_applied(&m.edid_id);
+            }
+        }
+        // Unconditional: reset-all is a full tear-down of enforcement
+        // intent; otherwise the enforcer would repaint within one tick.
+        let pins_removed = store.clear_all_pins();
+        ResetAllOutcome { results, pins_removed }
+    } else {
+        // Store lock poison: report resets that ran, 0 pins as unknown-none.
+        ResetAllOutcome { results, pins_removed: 0 }
+    }
+}
+
 /// Reset a monitor to system defaults: identity gamma ramp
 /// (brightness 1, contrast 1, unit RGB gains, gamma 1) plus neutral
 /// vibrance (50) and hue (0). ICC associations are left untouched.
@@ -1208,6 +1261,67 @@ mod tests {
     // ── reset_monitor ──────────────────────────────────────────────────
 
     use crate::nvapi::{HUE_NEUTRAL, VIBRANCE_NEUTRAL};
+
+    fn chain_monitor(id: &str, connected: bool) -> crate::monitor::Monitor {
+        crate::monitor::Monitor {
+            edid_id: id.into(),
+            model: String::new(),
+            serial: String::new(),
+            connected,
+            device_name: String::new(),
+            alias: String::new(),
+            instance_path: String::new(),
+            edid_present: false,
+            edid_len: 0,
+        }
+    }
+
+    // Signature under test: aggregates per-connected-monitor resets,
+    // skips offline monitors without calling, and keeps failed outcomes.
+    #[test]
+    fn reset_all_connected_skips_offline_and_preserves_outcomes() {
+        let monitors = vec![
+            chain_monitor("E1", true),
+            chain_monitor("E2", true),
+            chain_monitor("E3", false), // offline: never touched
+        ];
+        let mut seen: Vec<String> = Vec::new();
+        let mut resets = |edid: &str| -> ApplyResult {
+            seen.push(edid.into());
+            match edid {
+                "E1" => ApplyResult::success(),
+                "E2" => ApplyResult {
+                    icc_applied: false,
+                    gamma_applied: false,
+                    vibrance_applied: false,
+                    error: Some("store lock: x".into()),
+                },
+                _ => unreachable!("offline monitors are skipped"),
+            }
+        };
+        let results = reset_all_connected(&mut resets, &monitors);
+        assert_eq!(seen, vec!["E1", "E2"]);
+        assert_eq!(results.len(), 2, "one outcome per touched monitor");
+        assert_eq!(results[0], ApplyResult::success());
+        assert_eq!(
+            results[1].error,
+            Some("store lock: x".into()),
+            "failed monitor keeps its outcome"
+        );
+    }
+
+    #[test]
+    fn reset_all_connected_no_connected_monitors_empty() {
+        let monitors = vec![chain_monitor("E1", false)];
+        let mut called = 0;
+        let mut resets = |_: &str| -> ApplyResult {
+            called += 1;
+            ApplyResult::success()
+        };
+        let results = reset_all_connected(&mut resets, &monitors);
+        assert!(results.is_empty());
+        assert_eq!(called, 0);
+    }
 
     /// Reset restores full defaults: identity gamma plus neutral
     /// vibrance/hue, never ICC.
