@@ -196,9 +196,8 @@ pub trait NvColorApi {
 // ── Display-ID resolution helpers (owned by this task) ───────────────────
 
 pub(crate) fn resolve_device_name(edid_id: &str) -> Option<String> {
-    crate::monitor::list_monitors()
-        .into_iter()
-        .find(|m| m.edid_id == edid_id && !m.device_name.is_empty())
+    crate::monitor::find_monitor_by_edid(edid_id)
+        .filter(|m| !m.device_name.is_empty())
         .map(|m| m.device_name)
 }
 

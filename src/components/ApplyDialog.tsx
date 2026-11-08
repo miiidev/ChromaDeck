@@ -3,6 +3,7 @@ import type { Monitor, Preset, ApplyResult } from "../lib/types";
 import { adjustmentLabel, summarizeApply } from "../lib/applyOutcomes";
 import { connectedEdidSignature } from "../lib/connectedSignature";
 import { applyPreset, getDisplayCapabilities } from "../lib/tauri";
+import { valueFor } from "../lib/edidKey";
 import { Button } from "@/components/ui/button";
 import { Checkbox, CheckboxIndicator } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -205,7 +206,7 @@ export default function ApplyDialog({ preset, monitors, pins, initialEdid, onClo
           )}
           {monitors.map((m) => {
             const isSelected = m.edid_id === selectedEdid;
-            const isPinnedHere = pins[m.edid_id] === preset.id;
+            const isPinnedHere = valueFor(pins, m.edid_id) === preset.id;
             const backend = backends[m.edid_id];
             const status = isPinnedHere ? "PINNED" : m.connected ? "READY" : "OFFLINE";
             return (

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Monitor, Preset } from "../lib/types";
 import { identifyMonitors, resetAllMonitors, resetMonitor, setMonitorName, unpinMonitor, probeMonitor } from "../lib/tauri";
 import { resetAllSummary } from "../lib/resetAllSummary";
+import { valueFor } from "../lib/edidKey";
 import { splitCategory } from "../lib/presetCard";
 import { PresetTag } from "@/components/ui/preset-tag";
 import { Input } from "@/components/ui/input";
@@ -281,7 +282,7 @@ function MonitorCard({ monitor, pinnedPreset, appliedMap, setAppliedMap, pins, p
   const isPinned = !!pinnedPreset;
   const connected = monitor.connected;
 
-  const appliedPresetId = appliedMap[monitor.edid_id];
+  const appliedPresetId = valueFor(appliedMap, monitor.edid_id);
   const appliedPreset = appliedPresetId
     ? presets.find((p) => p.id === appliedPresetId) ?? null
     : null;
@@ -312,7 +313,7 @@ function MonitorCard({ monitor, pinnedPreset, appliedMap, setAppliedMap, pins, p
   const samePresetApplied =
     isDragging &&
     draggingPreset !== null &&
-    appliedMap[monitor.edid_id] === draggingPreset.id;
+    valueFor(appliedMap, monitor.edid_id) === draggingPreset.id;
   const showValidDrop =
     isDropHover && connected && !samePresetApplied;
 
@@ -537,7 +538,7 @@ function MonitorCard({ monitor, pinnedPreset, appliedMap, setAppliedMap, pins, p
           <div className={cn("flex h-[22px] min-w-0 shrink-0 items-center gap-4", compact ? "mt-2" : "mt-3", !connected && "opacity-40 transition-opacity hover:opacity-100")}>
           <MonitorResetButton edidId={monitor.edid_id} onPinChange={onPinChange} setAppliedMap={setAppliedMap} />
           <MonitorProbeButton edidId={monitor.edid_id} />
-          {pins[monitor.edid_id] && (
+          {valueFor(pins, monitor.edid_id) && (
             <button
               type="button"
               title="Unpin from this monitor"
@@ -827,7 +828,7 @@ export default function MonitorSidebar({ monitors, presets, pins, appliedMap, se
               )}
             >
               {monitors.map((m, index) => {
-                const pinnedId = pins[m.edid_id];
+                const pinnedId = valueFor(pins, m.edid_id);
                 const pinnedPreset = pinnedId ? presets.find((p) => p.id === pinnedId) ?? null : null;
                 return (
                   <MonitorCard

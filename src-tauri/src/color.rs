@@ -165,11 +165,13 @@ impl RealColorApi {
     }
 
     /// Find the display device name (`\\.\DISPLAY1`) for a given EDID.
+    /// Legacy-record safe: exact key first, then the base-key fallback
+    /// (`monitor::key_match`) so pre-discrimination pins still resolve.
     fn device_name_for_edid(edid_id: &str) -> Option<String> {
         let monitors = crate::monitor::list_monitors();
         monitors
             .into_iter()
-            .find(|m| m.edid_id == edid_id && !m.device_name.is_empty())
+            .find(|m| crate::monitor::key_match(&m.edid_id, edid_id) && !m.device_name.is_empty())
             .map(|m| m.device_name)
     }
 
@@ -194,9 +196,9 @@ impl RealColorApi {
 
 impl ColorApi for RealColorApi {
     fn is_connected(&self, edid_id: &str) -> bool {
-        crate::monitor::list_monitors()
-            .iter()
-            .any(|m| m.edid_id == edid_id && m.connected)
+        crate::monitor::find_monitor_by_edid(edid_id)
+            .map(|m| m.connected)
+            .unwrap_or(false)
     }
 
     fn associate_icc(&self, edid_id: &str, profile_path: &str) -> Result<(), String> {

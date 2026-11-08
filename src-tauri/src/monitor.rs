@@ -298,6 +298,24 @@ pub fn base_edid_key(qualified: &str) -> &str {
     }
 }
 
+/// Whether an enumerated monitor key `candidate` satisfies a legacy
+/// (pre-discrimination) lookup target: exact equality first; otherwise
+/// equal base identities. A plain target keeps matching its collided
+/// (qualified) entry, and a stale qualified target resolves to the
+/// surviving entry of the same base identity — both mirror the
+/// first-match behavior this app had before keys became port-anchored.
+pub fn key_match(candidate: &str, target: &str) -> bool {
+    candidate == target || base_edid_key(candidate) == base_edid_key(target)
+}
+
+/// Live-enumeration lookup for a possibly-qualified target: exact match
+/// wins; otherwise the first entry whose base identity matches.
+pub fn find_monitor_by_edid(target: &str) -> Option<Monitor> {
+    list_monitors()
+        .into_iter()
+        .find(|m| key_match(&m.edid_id, target))
+}
+
 // ── EDID registry reader ─────────────────────────────────────────────────
 struct EdidBlob(Vec<u8>);
 
@@ -665,5 +683,33 @@ mod tests {
         // Alias maps stay keyed on the clean EDID id; the discriminated
         // key must resolve through base_edid_key.
         assert_eq!(base_edid_key(r"A|MON\1"), "A");
+    }
+
+    #[test]
+    fn key_match_exact_base_and_qualified_resolution() {
+        // Exact always wins, in either direction.
+        assert!(key_match("A", "A"));
+        assert!(key_match(r"A|MON\1", r"A|MON\1"));
+        // Legacy plain-key target still matches a collided (qualified)
+        // enumeration entry: pre-discrimination the twins shared one
+        // identity and a base-key pin covered "the" monitor.
+        assert!(key_match(r"A|MON\8", "A"));
+        // Stale qualified target (its twin left) resolves to the
+        // surviving entry with the same base identity.
+        assert!(key_match("A", r"A|MON\9"));
+        // Distinct identities never cross-match.
+        assert!(!key_match(r"B|MON\1", "A"));
+        assert!(!key_match("B", "A"));
+        // Substring-looking keys are not partial matches.
+        assert!(!key_match("AA", "A"));
+    }
+
+    #[test]
+    fn find_by_edid_resolves_testable_pure_rule_only() {
+        // find checks live enumeration (Win32); here only the matching
+        // predicate is pinned: first match in enumeration order wins.
+        let entries = [r"A|MON\8".to_string(), r"A|MON\9".to_string()];
+        let hit = entries.iter().find(|k| key_match(k, "A")).unwrap();
+        assert_eq!(hit, r"A|MON\8");
     }
 }

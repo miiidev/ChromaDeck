@@ -1147,6 +1147,20 @@ pub fn current_1dlut_summary(edid_id: &str) -> Result<(f64, bool), String> {
 /// `target`. `Err` when zero or more than one match — identical-twin panels
 /// (same EDID on two outputs) are reported ambiguous rather than guessed.
 pub(crate) fn correlate(outputs: &[Option<String>], target: &str) -> Result<usize, String> {
+    match correlate_unique(outputs, target) {
+        // No exact match: retry on the target's base identity so a
+        // port-qualified key still resolves when the live output table
+        // is plain EDID (the pre-qualification key shape). Uniqueness is
+        // re-checked on the retry, so twins still refuse without a guess.
+        Err(e) if e.contains("no active Intel output") => correlate_unique(
+            outputs,
+            crate::monitor::base_edid_key(target),
+        ),
+        other => other,
+    }
+}
+
+fn correlate_unique(outputs: &[Option<String>], target: &str) -> Result<usize, String> {
     let mut it = outputs
         .iter()
         .enumerate()
@@ -2031,6 +2045,27 @@ mod tests {
     fn correlate_no_match_is_err() {
         let outs = vec![Some("EDID:AAAA-0001-00000000".to_string())];
         assert!(correlate(&outs, "EDID:FFFF-FFFF-00000000").is_err());
+    }
+
+    #[test]
+    fn correlate_falls_back_to_base_for_qualified_target() {
+        // IGCL output ids are plain (base) EDID keys; a port-qualified
+        // target from a collided enumeration must still resolve when the
+        // base identity is unique among intel outputs.
+        let outs = vec![Some("EDID:AAAA-0001-00000000".to_string())];
+        assert_eq!(correlate(&outs, r"EDID:AAAA-0001-00000000|MON\1").unwrap(), 0);
+    }
+
+    #[test]
+    fn correlate_qualified_target_ambiguous_stays_err() {
+        // Two twins sharing one base identity: qualified target must still
+        // refuse rather than pick a port.
+        let outs = vec![
+            Some("EDID:AAAA-0001-00000000".to_string()),
+            Some("EDID:AAAA-0001-00000000".to_string()),
+        ];
+        let err = correlate(&outs, r"EDID:AAAA-0001-00000000|MON\1").unwrap_err();
+        assert!(err.contains("ambiguous"), "got: {err}");
     }
 
     #[test]
