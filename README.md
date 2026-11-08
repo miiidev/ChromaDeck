@@ -4,6 +4,8 @@ Per-monitor display color profile manager for Windows. Save color presets — br
 
 ![Preset library](docs/screenshots/library.png)
 
+![Preset editor](docs/screenshots/edit-preset.png)
+
 ## Features
 
 - **Global presets, per-monitor pins** — presets are monitor-agnostic and apply to any display (identified by EDID, stable across docking, reconnects, and reboots); pin one preset per monitor for enforcement. Monitors are user-renamable.
@@ -16,6 +18,7 @@ Per-monitor display color profile manager for Windows. Save color presets — br
 - **Reset, duplicate, delete** — full-default reset (gamma + vibrance + hue), one-click duplicate, delete with confirmation.
 - **Import NVCP state** — capture the driver's live color state straight into a new preset.
 - **Preset deck UI** — light neobrutalist theme: paper background, black borders, hard offset shadows, mint accent fills, tap-to-apply deck, in-use highlighting on preset cards, monitor sidebar, support for offline monitors.
+- **Preset editor** — fine-tune gamma, contrast, brightness, RGB gains, vibrance, saturation, hue, tag colour, and tag shape with live before/after swatch preview. Reset, duplicate, and delete presets from any card.
 - **Tray-native window** — closing hides to the tray; every re-open (tray Show, tray click, second launch) replays the staged load animation; the window spawns centered on launch.
 
 ## Installation (Windows 10/11 x64)
