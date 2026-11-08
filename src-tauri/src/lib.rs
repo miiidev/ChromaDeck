@@ -1,6 +1,7 @@
 mod backend;
 mod capabilities;
 mod color;
+mod diagnostics;
 mod enforce;
 mod identify;
 mod monitor;

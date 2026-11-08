@@ -730,6 +730,12 @@ impl Store {
         self.monitor_names.clone()
     }
 
+    /// The directory backing this store (diagnostics log lives alongside
+    /// the JSON state files).
+    pub fn data_dir(&self) -> &Path {
+        &self.data_dir
+    }
+
     /// Record a manual preset application for a monitor.
     /// Flushes to applied.json atomically.
     pub fn record_applied(&mut self, edid_id: &str, preset_id: &str) -> Result<(), StoreError> {

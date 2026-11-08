@@ -309,6 +309,8 @@ pub fn list_monitors_cmd(state: tauri::State<'_, crate::store::AppStore>) -> Vec
                 m.alias = alias.clone();
             }
         }
+        // Rolling diagnostics log: best-effort, any IO error ignored.
+        let _ = crate::diagnostics::append_snapshot_if_changed(store.data_dir(), &monitors);
     }
     monitors
 }
