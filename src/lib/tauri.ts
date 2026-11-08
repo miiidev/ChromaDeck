@@ -24,10 +24,12 @@ export async function identifyMonitors(): Promise<number[]> {
   return invoke<number[]>("identify_monitors_cmd");
 }
 
-/** Overlay payload for a 1-based monitor number: display name + total. */
+/** Overlay payload for a 1-based monitor number: name, total, chain. */
 export interface IdentifyInfo {
   name: string;
   total: number;
+  /** Raw identity chain line (machine-parsable diagnostics evidence). */
+  chain?: string;
 }
 
 /**

@@ -5,6 +5,8 @@ interface Props {
   number: number;
   total?: number;
   monitorName?: string;
+  /** Raw identity chain line from the backend; rendered under the name. */
+  chain?: string;
 }
 
 /**
@@ -16,18 +18,25 @@ interface Props {
  *
  * Uses shadcn‑style token classes only (bg-background, text-foreground, etc.).
  */
-export default function IdentifyOverlay({ number, total: totalProp, monitorName: nameProp }: Props) {
+export default function IdentifyOverlay({
+  number,
+  total: totalProp,
+  monitorName: nameProp,
+  chain: chainProp,
+}: Props) {
   const [name, setName] = useState<string | null>(nameProp ?? null);
   const [total, setTotal] = useState<number | null>(totalProp ?? null);
+  const [chain, setChain] = useState<string | null>(chainProp ?? null);
 
   useEffect(() => {
-    if (nameProp !== undefined && totalProp !== undefined) return;
+    if (nameProp !== undefined && totalProp !== undefined && chainProp !== undefined) return;
     let live = true;
     getIdentifyInfo(number)
       .then((info) => {
         if (!live) return;
         if (nameProp === undefined) setName(info.name);
         if (totalProp === undefined) setTotal(info.total);
+        if (chainProp === undefined) setChain(info.chain ?? null);
       })
       .catch(() => {
         // e.g. browser dev preview without Tauri backend: number only
@@ -35,7 +44,7 @@ export default function IdentifyOverlay({ number, total: totalProp, monitorName:
     return () => {
       live = false;
     };
-  }, [number, nameProp, totalProp]);
+  }, [number, nameProp, totalProp, chainProp]);
 
   const prefersReducedMotion =
     typeof window !== "undefined" &&
@@ -76,6 +85,17 @@ export default function IdentifyOverlay({ number, total: totalProp, monitorName:
             </span>
           )}
         </p>
+
+        {/* Raw identity chain — diagnostics evidence, machine-parsable. */}
+        {chain && (
+          <p className="max-w-[min(80vw,80ch)] break-all text-center font-mono text-[clamp(10px,1.3vmin,16px)] text-foreground/60">
+            <span className="uppercase tracking-widest text-foreground/70">
+              Monitor identity chain
+            </span>
+            <br />
+            {chain.includes("EDID=none") ? "EDID not available" : chain}
+          </p>
+        )}
       </div>
     </div>
   );

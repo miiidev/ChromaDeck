@@ -91,11 +91,13 @@ pub fn display_name(m: &Monitor) -> String {
     m.edid_id.chars().take(16).collect()
 }
 
-/// Overlay payload for monitor `n`: display name + connected total.
+/// Overlay payload for monitor `n`: display name + connected total + raw
+/// identity-chain line (machine-parsable; rendered under the number).
 #[derive(serde::Serialize)]
 pub struct IdentifyInfo {
     pub name: String,
     pub total: u32,
+    pub chain: String,
 }
 
 /// Pure mapping from a monitor list to overlay info for 1-based `n`.
@@ -107,6 +109,7 @@ pub fn identify_info_for(monitors: &[Monitor], n: u32) -> Option<IdentifyInfo> {
     Some(IdentifyInfo {
         name: display_name(m),
         total,
+        chain: crate::diagnostics::per_monitor_line(m),
     })
 }
 
@@ -317,6 +320,11 @@ mod tests {
         ];
         let info = identify_info_for(&monitors, 1).unwrap();
         assert_eq!((info.name.as_str(), info.total), ("Left", 2));
+        // Raw chain readout: every monitor line carries the evidence fields.
+        assert!(
+            info.chain.contains("instance=") && info.chain.contains("connected=1"),
+            "chain must be the machine-parsable per-monitor line"
+        );
         let info = identify_info_for(&monitors, 2).unwrap();
         assert_eq!((info.name.as_str(), info.total), ("RightModel", 2));
     }
