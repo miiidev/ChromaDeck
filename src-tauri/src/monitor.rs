@@ -3,6 +3,7 @@
 // from EDID. Pure identify_monitor() resolves identity without Win32 calls.
 
 use serde::Serialize;
+use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::ffi::OsString;
 use std::io;
@@ -162,6 +163,16 @@ fn enum_gdi_monitors() -> Vec<Monitor> {
             });
         }
     }
+    // Collided identities cannot coexist under one key: suffix every
+    // collided occurrence with its port-anchored instance path.
+    let entries: Vec<(String, String)> = monitors
+        .iter()
+        .map(|m| (m.edid_id.clone(), m.instance_path.clone()))
+        .collect();
+    let discriminated = discriminate_edids(&entries);
+    for (m, (edid_id, _)) in monitors.iter_mut().zip(discriminated) {
+        m.edid_id = edid_id;
+    }
     monitors
 }
 
@@ -251,6 +262,42 @@ pub(crate) fn edid_id_from_bytes(ed: &[u8; 128]) -> String {
     format!("EDID:{mfr:04X}-{prod:04X}-{ser:08X}")
 }
 
+// ── Port-anchored identity disambiguation ───────────────────────────────
+
+/// When two or more panels in one enumeration resolve to the same
+/// `edid_id` (same model + blank/duplicated serial — the identical-twin
+/// case), EDID keys alone cannot separate them and the app's
+/// everything-keyed-on-edid_id model collapses them into one. Suffix ALL
+/// collided occurrences with their device instance path (`|MONITOR\...`),
+/// which is port-anchored: stable across reboots while the panel stays on
+/// the same port. Unique keys pass through untouched.
+pub fn discriminate_edids(entries: &[(String, String)]) -> Vec<(String, String)> {
+    let mut counts: HashMap<&str, usize> = HashMap::new();
+    for (k, _) in entries {
+        *counts.entry(k).or_insert(0) += 1;
+    }
+    entries
+        .iter()
+        .map(|(k, instance)| {
+            if counts.get(k.as_str()).copied().unwrap_or(0) > 1 {
+                (format!("{k}|{instance}"), instance.clone())
+            } else {
+                (k.clone(), instance.clone())
+            }
+        })
+        .collect()
+}
+
+/// Clean EDID key from a possibly discriminated one: everything before
+/// the first `|`. Alias/pin/applied maps are keyed on clean keys, so
+/// lookups fall back through this.
+pub fn base_edid_key(qualified: &str) -> &str {
+    match qualified.find('|') {
+        Some(i) => &qualified[..i],
+        None => qualified,
+    }
+}
+
 // ── EDID registry reader ─────────────────────────────────────────────────
 struct EdidBlob(Vec<u8>);
 
@@ -305,7 +352,12 @@ pub fn list_monitors_cmd(state: tauri::State<'_, crate::store::AppStore>) -> Vec
     if let Ok(store) = state.0.lock() {
         let names = store.list_monitor_names();
         for m in &mut monitors {
-            if let Some(alias) = names.get(&m.edid_id) {
+            // Direct key first; discriminated keys (`EDID|instance`) fall
+            // back to their base EDID key so aliases keep applying.
+            let alias = names
+                .get(&m.edid_id)
+                .or_else(|| names.get(base_edid_key(&m.edid_id)));
+            if let Some(alias) = alias {
                 m.alias = alias.clone();
             }
         }
@@ -571,5 +623,47 @@ mod tests {
             edid_present: false,
             edid_len: 0,
         }
+    }
+
+    #[test]
+    fn discriminate_suffixes_only_collided_keys() {
+        let out = discriminate_edids(&[
+            ("A".into(), r"MON\A\1".into()),
+            ("EDID:0441-1234-12345678".into(), r"MON\E1\9".into()),
+            ("EDID:0441-1234-12345678".into(), r"MON\E1\10".into()),
+        ]);
+        assert_eq!(out[0].0, "A"); // unique untouched
+        assert_eq!(out[1].0, r"EDID:0441-1234-12345678|MON\E1\9");
+        assert_eq!(out[2].0, r"EDID:0441-1234-12345678|MON\E1\10");
+    }
+
+    #[test]
+    fn three_way_collision_all_suffixed() {
+        let out = discriminate_edids(&[
+            ("K".into(), "I1".into()),
+            ("K".into(), "I2".into()),
+            ("K".into(), "I3".into()),
+        ]);
+        assert!(
+            out.iter()
+                .all(|(k, i)| k.contains('|') && k.ends_with(&format!("|{i}"))),
+            "every collided occurrence is suffixed with its own instance"
+        );
+    }
+
+    #[test]
+    fn base_edid_key_strips_at_first_pipe() {
+        assert_eq!(
+            base_edid_key(r"EDID:06AF-F7AD-00000000|MONITOR\FOO\1"),
+            "EDID:06AF-F7AD-00000000"
+        );
+        assert_eq!(base_edid_key("PLAIN"), "PLAIN");
+    }
+
+    #[test]
+    fn alias_lookup_falls_back_to_base_key() {
+        // Alias maps stay keyed on the clean EDID id; the discriminated
+        // key must resolve through base_edid_key.
+        assert_eq!(base_edid_key(r"A|MON\1"), "A");
     }
 }
