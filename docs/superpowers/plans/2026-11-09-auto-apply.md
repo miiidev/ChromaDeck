@@ -347,3 +347,32 @@ App state `autoMap`; on mount fetch `listAutoApplied()`; `listen("auto-apply://o
 - **Deferred by spec:** nothing else in §2. Projector (§5) stays deferred.
 - **Self-process rule** is a builder call, recorded here so it is not re-litigated: ChromaDeck's own foreground window is ignored to avoid self-inflicted reverts.
 - **Cold start:** the watcher seeds its last-seen key from the first tick without acting, so a program already foreground at launch is never applied until it changes.
+
+---
+
+## Post-release fix (v0.8.4)
+
+**Report:** auto-apply "didn't work"; the reporter's `%LOCALAPPDATA%\ChromaDeck` had no `settings.json` (the switch value was never persisted) and one mapping (`Gaming - L4D2` → `left4dead2.exe`).
+
+### Root cause
+
+`AutoRuntime.seeded` was `false` after `set_auto_apply(true)`. The first tick that saw a non-ChromaDeck foreground only recorded `last_key` and returned (the cold-start seed), so the mapped program never applied until the user alt-tabbed away and back. Enabling the switch while ChromaDeck was focused made this worse: the self-window guard returned before seeding, so the first program observed afterwards was always seeded-but-ignored.
+
+Secondary spec violation: `set_auto_apply(false)` and the disabled tick branch cleared `rt.active` without resetting the monitor, so an auto-applied look could survive the switch being turned off.
+
+### Fix
+
+- `set_auto_apply(true)` marks the runtime seeded and clears `last_key`, so the next tick evaluates the current foreground immediately. Cold-start seeding (app launch with the switch already on) is unchanged.
+- `set_auto_apply(false)` reverts the active auto application synchronously (`reset_monitor`) and emits `reverted`; the disabled tick branch keeps the same revert as a fallback.
+- Device-name matching is case-insensitive.
+- New `<data_dir>/auto-apply.log` (epoch-ms lines, capped at 256 KiB): switch changes, foreground/device/EDID changes (deduplicated), self-window skips, and apply/revert/skip results with errors.
+- Preset editor copy now states that the footer switch must be on.
+
+### Verification
+
+- `cargo test`: 272 passed, 1 ignored (3 new runtime tests for the switch bookkeeping).
+- `npm run test`: 186 passed.
+- `npm run build`: OK.
+- Live reproduction (debug build, isolated `CHROMADECK_DATA_DIR`, mapping `winver.exe`): log shows `cold start: seeded` → focus change → `apply ok` → focus away → `revert ... error=None`.
+- Zoom report: every visible top-level window's rect and DPI was captured before/after an auto-apply and after the revert — no changes. The Windows System log window around the report has no display-configuration events, and no ChromaDeck path changes display mode, DPI awareness, or another window's geometry. The cause needs reporter detail (which program, ChromaDeck's window or the other window, and whether it persisted).
+

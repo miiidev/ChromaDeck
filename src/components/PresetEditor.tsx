@@ -487,6 +487,7 @@ export default function PresetEditor({ presets, editPreset, onClose, onClosed, o
             </div>
             <p className="mono text-[10px] text-muted-foreground">
               Applies this preset to the monitor showing the program when it comes forward.
+              Auto-apply must be switched on in the footer.
             </p>
             {form.attached_programs.length > 0 && (
               <div className="flex flex-wrap gap-2">

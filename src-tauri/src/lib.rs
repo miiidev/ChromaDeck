@@ -151,7 +151,7 @@ fn greet(name: &str) -> String {
 pub fn run() {
     let store_path = store::default_store_path();
     let app_store = AppStore(std::sync::Mutex::new(
-        store::Store::new(store_path).expect("failed to initialise preset store"),
+        store::Store::new(store_path.clone()).expect("failed to initialise preset store"),
     ));
 
     tauri::Builder::default()
@@ -159,7 +159,7 @@ pub fn run() {
             show_main_window(app);
         }))
         .manage(app_store)
-        .manage(auto_apply_runtime::AutoState::default())
+        .manage(auto_apply_runtime::AutoState::new(store_path))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(

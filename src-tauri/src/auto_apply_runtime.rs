@@ -7,6 +7,8 @@
 // State is in-memory by design. Nothing here writes `applied.json`, so an
 // auto-applied look never survives a restart or masquerades as a manual apply.
 
+use std::io::Write;
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 use serde::Serialize;
@@ -50,20 +52,90 @@ pub struct AutoRuntime {
     /// Cold start: the first tick only records the key, never acts, so a
     /// program already in front at launch is not stomped on.
     seeded: bool,
+    /// Last observation written to the diagnostics log, so the 1 s poll only
+    /// logs real foreground / monitor changes instead of one line per second.
+    last_logged: String,
+}
+
+impl AutoRuntime {
+    /// Reset bookkeeping for a master-switch change.
+    ///
+    /// Enabling marks the runtime seeded and forgets the last key, so the very
+    /// next tick evaluates whatever is in front immediately. Without this the
+    /// first tick only seeded itself and the user had to alt-tab away and back
+    /// before anything applied — the "auto-apply does nothing" report.
+    ///
+    /// Disabling keeps `active` so the next tick can revert the colour that
+    /// auto-apply applied; `seeded` is cleared so re-enabling starts fresh.
+    fn apply_switch(&mut self, enabled: bool) {
+        self.last_key = None;
+        self.last_logged.clear();
+        if enabled {
+            self.active = None;
+            self.seeded = true;
+        } else {
+            self.seeded = false;
+        }
+    }
 }
 
 pub struct AutoState {
     pub runtime: Mutex<AutoRuntime>,
     pub check_item: Mutex<Option<tauri::menu::CheckMenuItem<tauri::Wry>>>,
+    /// Store directory, used only for the append-only diagnostics log.
+    data_dir: PathBuf,
 }
 
-impl Default for AutoState {
-    fn default() -> Self {
+impl AutoState {
+    pub fn new(data_dir: PathBuf) -> Self {
         Self {
             runtime: Mutex::new(AutoRuntime::default()),
             check_item: Mutex::new(None),
+            data_dir,
         }
     }
+}
+
+// ── Diagnostics ────────────────────────────────────────────────────────────
+
+const LOG_FILE: &str = "auto-apply.log";
+/// Truncate the log once it reaches this size; auto-apply is a background
+/// feature and its diagnostics must never grow without bound.
+const LOG_MAX_BYTES: u64 = 256 * 1024;
+
+/// Append one diagnostic line to `<data>/auto-apply.log`. Best effort: a
+/// failed write must never disturb the watcher. Timestamps are Unix epoch
+/// milliseconds so the file sorts and correlates with system logs.
+fn log(app: &AppHandle, message: &str) {
+    let Some(state) = app.try_state::<AutoState>() else {
+        return;
+    };
+    let path = state.data_dir.join(LOG_FILE);
+    if let Ok(meta) = std::fs::metadata(&path) {
+        if meta.len() >= LOG_MAX_BYTES {
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+    let ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
+        let _ = writeln!(file, "{ms} {message}");
+    }
+}
+
+/// Log an observation only when it differs from the previous tick's.
+fn log_observed(app: &AppHandle, rt: &mut AutoRuntime, line: String) {
+    if rt.last_logged == line {
+        return;
+    }
+    rt.last_logged = line.clone();
+    log(app, &line);
 }
 
 /// 1 s foreground watcher. Spawned once from setup alongside the enforcer.
@@ -98,22 +170,44 @@ fn tick(app: &AppHandle) {
     };
 
     if !enabled {
-        if rt.active.take().is_some() {
+        // Turning the switch off must undo the colour auto-apply wrote, not
+        // just forget the record: the preset could otherwise stay on the
+        // panel after the user believed auto-apply was off.
+        if let Some(active) = rt.active.take() {
+            let preset_name = presets
+                .iter()
+                .find(|p| p.id == active.preset_id)
+                .map(|p| p.name.clone())
+                .unwrap_or_default();
+            let result = crate::color::reset_monitor(
+                &crate::color::RealColorApi,
+                &crate::nvapi::RealNvapi,
+                &active.edid_id,
+            );
+            let monitors = crate::monitor::list_monitors();
+            log(
+                app,
+                &format!(
+                    "switch off: reverted edid={} preset={:?} error={:?}",
+                    active.edid_id, preset_name, result.error
+                ),
+            );
             emit(
                 app,
                 AutoApplyEvent {
-                    kind: "cleared".into(),
-                    edid_id: String::new(),
-                    preset_id: String::new(),
-                    preset_name: String::new(),
-                    monitor_name: String::new(),
+                    kind: "reverted".into(),
+                    monitor_name: monitor_name(&monitors, &active.edid_id),
+                    edid_id: active.edid_id,
+                    preset_id: active.preset_id,
+                    preset_name,
                     program: String::new(),
-                    error: None,
+                    error: result.error,
                 },
             );
         }
         rt.last_key = None;
         rt.seeded = false;
+        rt.last_logged.clear();
         return;
     }
 
@@ -128,6 +222,7 @@ fn tick(app: &AppHandle) {
         {
             let edid = active.edid_id.clone();
             rt.active = None;
+            log(app, &format!("active display gone: cleared edid={edid}"));
             emit_cleared(app, &edid);
             return;
         }
@@ -140,22 +235,41 @@ fn tick(app: &AppHandle) {
         Some(w) => w,
         None => {
             // No foreground window (lock screen, secure desktop): do nothing.
+            log_observed(app, &mut rt, "fg=none".into());
             return;
         }
     };
     if self_program.as_deref() == Some(observed.program.as_str()) {
+        log_observed(
+            app,
+            &mut rt,
+            format!("fg={} self window: skipped", observed.program),
+        );
         return;
     }
 
-    let foreground = observed.device_name.as_ref().and_then(|device| {
+    // Compare device names case-insensitively: Windows is not guaranteed to
+    // preserve the casing returned by EnumDisplayDevices.
+    let matched = observed.device_name.as_ref().and_then(|device| {
         monitors
             .iter()
-            .find(|m| m.device_name == *device)
-            .map(|m| ObservedForeground {
-                program: observed.program.clone(),
-                edid_id: m.edid_id.clone(),
-            })
+            .find(|m| m.device_name.eq_ignore_ascii_case(device))
     });
+    let foreground = matched.map(|m| ObservedForeground {
+        program: observed.program.clone(),
+        edid_id: m.edid_id.clone(),
+    });
+
+    log_observed(
+        app,
+        &mut rt,
+        format!(
+            "fg={} device={} edid={}",
+            observed.program,
+            observed.device_name.as_deref().unwrap_or("none"),
+            matched.map(|m| m.edid_id.as_str()).unwrap_or("unmatched"),
+        ),
+    );
 
     let key = foreground
         .as_ref()
@@ -164,6 +278,7 @@ fn tick(app: &AppHandle) {
     if !rt.seeded {
         rt.seeded = true;
         rt.last_key = key;
+        log(app, "cold start: seeded foreground without acting");
         return;
     }
     if rt.last_key == key {
@@ -189,12 +304,26 @@ fn tick(app: &AppHandle) {
                     &edid_id,
                 );
                 if let Some(error) = result.error {
+                    log(
+                        app,
+                        &format!(
+                            "apply failed preset={:?} edid={} program={} error={error}",
+                            preset.name, edid_id, program
+                        ),
+                    );
                     emit(
                         app,
                         event_for("error", &edid_id, preset, &program, &monitors, Some(error)),
                     );
                     rt.active = None;
                 } else {
+                    log(
+                        app,
+                        &format!(
+                            "apply ok preset={:?} edid={} program={}",
+                            preset.name, edid_id, program
+                        ),
+                    );
                     rt.active = Some(ActiveAuto {
                         edid_id: edid_id.clone(),
                         preset_id: preset_id.clone(),
@@ -221,6 +350,13 @@ fn tick(app: &AppHandle) {
                     .find(|p| p.id == preset_id)
                     .map(|p| p.name.clone())
                     .unwrap_or_default();
+                log(
+                    app,
+                    &format!(
+                        "revert edid={} preset={:?} error={:?}",
+                        edid_id, preset_name, result.error
+                    ),
+                );
                 emit(
                     app,
                     AutoApplyEvent {
@@ -245,6 +381,13 @@ fn tick(app: &AppHandle) {
                     .find(|p| p.id == preset_id)
                     .map(|p| p.name.clone())
                     .unwrap_or_default();
+                log(
+                    app,
+                    &format!(
+                        "skip preset={:?} edid={} program={} reason={}",
+                        preset_name, edid_id, program, reason
+                    ),
+                );
                 emit(
                     app,
                     AutoApplyEvent {
@@ -316,8 +459,14 @@ fn monitor_name(monitors: &[Monitor], edid_id: &str) -> String {
 }
 
 /// Turn the master switch on/off from either surface (footer or tray).
-/// Persists the value, syncs the tray checkbox, drops the auto record, and
-/// notifies the frontend.
+/// Persists the value, syncs the tray checkbox, resets the watcher's
+/// bookkeeping, and notifies the frontend.
+///
+/// Enabling does not apply immediately (the watcher owns hardware calls);
+/// it marks the runtime seeded so the *next* tick acts on the current
+/// foreground. Disabling reverts the active auto application synchronously,
+/// before the event is emitted: the panel must not keep an auto preset after
+/// the user turned the feature off.
 pub fn set_auto_apply(app: &AppHandle, enabled: bool) -> Result<(), String> {
     {
         let store_state = app
@@ -329,11 +478,15 @@ pub fn set_auto_apply(app: &AppHandle, enabled: bool) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
     }
 
+    // The tick holds the runtime lock for the whole hardware write, so taking
+    // it here cannot interleave with an in-flight apply.
+    let mut reverted: Option<ActiveAuto> = None;
     if let Some(state) = app.try_state::<AutoState>() {
         if let Ok(mut rt) = state.runtime.lock() {
-            rt.active = None;
-            rt.last_key = None;
-            rt.seeded = false;
+            rt.apply_switch(enabled);
+            if !enabled {
+                reverted = rt.active.take();
+            }
         }
         if let Ok(item) = state.check_item.lock() {
             if let Some(item) = item.as_ref() {
@@ -342,9 +495,52 @@ pub fn set_auto_apply(app: &AppHandle, enabled: bool) -> Result<(), String> {
         }
     }
 
-    if !enabled {
-        emit_cleared(app, "");
+    if let Some(active) = reverted {
+        let preset_name = app
+            .try_state::<AppStore>()
+            .and_then(|s| s.0.lock().ok().map(|s| s.list_presets()))
+            .and_then(|presets| {
+                presets
+                    .iter()
+                    .find(|p| p.id == active.preset_id)
+                    .map(|p| p.name.clone())
+            })
+            .unwrap_or_default();
+        let result = crate::color::reset_monitor(
+            &crate::color::RealColorApi,
+            &crate::nvapi::RealNvapi,
+            &active.edid_id,
+        );
+        let monitors = crate::monitor::list_monitors();
+        log(
+            app,
+            &format!(
+                "switch off: reverted edid={} preset={:?} error={:?}",
+                active.edid_id, preset_name, result.error
+            ),
+        );
+        emit(
+            app,
+            AutoApplyEvent {
+                kind: "reverted".into(),
+                monitor_name: monitor_name(&monitors, &active.edid_id),
+                edid_id: active.edid_id,
+                preset_id: active.preset_id,
+                preset_name,
+                program: String::new(),
+                error: result.error,
+            },
+        );
     }
+
+    log(
+        app,
+        if enabled {
+            "switch on: next tick evaluates the current foreground"
+        } else {
+            "switch off: revert complete"
+        },
+    );
     let _ = app.emit(ENABLED_EVENT, enabled);
     Ok(())
 }
@@ -356,4 +552,61 @@ pub fn list_auto_applied_cmd(state: tauri::State<'_, AutoState>) -> Option<AutoA
         edid_id: a.edid_id.clone(),
         preset_id: a.preset_id.clone(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn active() -> ActiveAuto {
+        ActiveAuto {
+            edid_id: "D1".into(),
+            preset_id: "p1".into(),
+            program: "vlc.exe".into(),
+        }
+    }
+
+    #[test]
+    fn enabling_seeds_and_forgets_the_last_key() {
+        // Regression: enabling used to leave `seeded = false`, so the first
+        // tick after the switch only seeded and silently skipped the apply
+        // until the user alt-tabbed away and back.
+        let mut rt = AutoRuntime {
+            active: Some(active()),
+            last_key: Some(("old.exe".into(), "D1".into())),
+            seeded: false,
+            last_logged: String::new(),
+        };
+        rt.apply_switch(true);
+        assert!(rt.seeded, "next tick must evaluate the foreground");
+        assert_eq!(rt.last_key, None, "the stale key must not suppress the apply");
+        assert!(rt.active.is_none(), "a fresh enable starts with no active record");
+    }
+
+    #[test]
+    fn disabling_keeps_the_active_record_for_the_revert_tick() {
+        let mut rt = AutoRuntime {
+            active: Some(active()),
+            last_key: Some(("vlc.exe".into(), "D1".into())),
+            seeded: true,
+            last_logged: String::new(),
+        };
+        rt.apply_switch(false);
+        assert!(
+            rt.active.is_some(),
+            "the watcher still needs the record to reset the monitor"
+        );
+        assert!(!rt.seeded);
+        assert_eq!(rt.last_key, None);
+    }
+
+    #[test]
+    fn re_enabling_after_a_disable_evaluates_the_foreground_again() {
+        let mut rt = AutoRuntime::default();
+        rt.apply_switch(true);
+        rt.seeded = false; // simulate the disabled branch resetting the flag
+        rt.apply_switch(true);
+        assert!(rt.seeded);
+        assert_eq!(rt.last_key, None);
+    }
 }
