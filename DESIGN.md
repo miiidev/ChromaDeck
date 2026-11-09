@@ -86,7 +86,7 @@ Drag-and-drop (pointer-based, portal ghost): preset cards are draggable; monitor
 | ICC chip | outline, muted mono text |
 | Stat | label mono 9px muted, value mono 17px (mint when non-neutral, bone when neutral) |
 | UNPIN | icon-only ghost |
-| Monitor identity | 24px monitor glyph (mint connected / subtle offline) + a single status chip: assigned monitors show the preset **category** on a pill tinted with the preset's tag colour (18% fill, tag border and text; mint fallback when untagged, 60% opacity while offline); otherwise a muted `DEFAULT` / `OFFLINE` pill. Text always carries the state, so colour is supplementary. No separate status dot. |
+| Monitor identity | 24px monitor glyph (mint connected / subtle offline) + a single status chip: assigned monitors show the preset **category** on a pill tinted with the preset's tag colour (18% fill, tag border and text; mint fallback when untagged, 60% opacity while offline); otherwise a muted `DEFAULT` / `OFFLINE` pill. Text always carries the state, so colour is supplementary. No separate status dot. An auto-applied monitor also shows a small mint outline `AUTO` tag beside the pill, but never when the monitor is pinned (pin wins). |
 | Offline row | dashed `border` on paper, muted name, actions at 40% opacity |
 | Warning | `--color-warning` (`#fbbf24`), graphics only |
 | Focus | 3px `ring` (mint) |
@@ -120,7 +120,7 @@ While a preset is dragged over a valid monitor the pad scales to 1.01 and its bo
 
 ## Footer status bar
 
-Flat strip (`h-14`, `border-t border-border`, `bg-background`, `pl-6 pr-4`): health light + `N PRESETS · M MONITORS CONNECTED · K PINNED` (mono 10px), a transient reapply message, a 1px × 20px divider, the **Autostart** checkbox (14px mint-checked box + mono 10px label), and the **Reapply** ghost button (rounded-[8px], mono 10px uppercase).
+Flat strip (`h-14`, `border-t border-border`, `bg-background`, `pl-6 pr-4`): health light + `N PRESETS · M MONITORS CONNECTED · K PINNED` (mono 10px), a transient reapply message, a 1px × 20px divider, the **Auto-apply** checkbox (14px mint-checked box + mono 10px label; mirrors the tray `Auto-apply` menu checkbox), the **Autostart** checkbox (14px mint-checked box + mono 10px label), and the **Reapply** ghost button (rounded-[8px], mono 10px uppercase).
 
 The health light is 6px: mint when at least one monitor is connected and the last Reapply had no errors, red with a continuous pulse after a Reapply error, muted while loading or with no monitors. It plays one expanding ring whenever its state changes.
 
@@ -233,6 +233,10 @@ The library is a single-row, snap-scrolling carousel of preset cards (`min-w-[28
 
 The section heading is `PRESETS (n)` (mono 10px, uppercase, 0.14em tracking).
 
+## Auto-apply
+
+A foreground watcher (1s poll) maps an executable base name to a preset and applies it to the monitor showing that window. Mappings are edited in the preset editor's **Programs** row (removable mono chips + name input + `Browse…` `.exe` picker). One program maps to exactly one preset; a conflict shows inline, naming the owning preset. The master switch lives in the footer and the tray, defaults off, and persists in `settings.json`; auto-applied state itself is in-memory only, skips ICC, and never writes `applied.json`. A pin always beats auto-apply. Reverting (program closes, moves, or the switch goes off) returns the monitor to identity. ChromaDeck's own foreground window is ignored so opening the app never reverts.
+
 ## Flat Card Architecture
 
 ```
@@ -243,7 +247,7 @@ Outer: rounded-[8px] p-2 border border-border bg-surface
 
 PresetCard and MonitorCard both use this pattern. The active/pinned card swaps the outer border to the preset's tag colour (`var(--tag, var(--color-primary))`). No glass fill, no inset highlight, no shadows.
 
-PresetCard body: status badges (PresetTag marker + optional tag-colour dot + category + ICC + IN USE) → 32px title → mono summary line (always visible) → action strip (`Apply →` + edit/duplicate/delete/unpin icons, 60% opacity, 100% on hover/focus).
+PresetCard body: status badges (PresetTag marker + optional tag-colour dot + category + ICC + IN USE + AUTO) → 32px title → mono summary line (always visible) → action strip (`Apply →` + edit/duplicate/delete/unpin icons, 60% opacity, 100% on hover/focus). The `AUTO` badge (outline, muted mono text) marks a preset auto-applied for a mapped program; such a preset stays in the library and is only hidden by a manual apply.
 
 ## Button-in-Button Pattern
 
