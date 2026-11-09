@@ -29,6 +29,8 @@ interface Props {
   onPinChange: () => void;
   onApply: (preset: Preset) => void;
   appliedMap: Record<string, string>;
+  /** Auto-applied for a mapped program; the card stays in the library. */
+  autoApplied?: boolean;
   staggerEnter?: boolean;
   staggerMs?: number;
   onDuplicated?: (preset: Preset) => void;
@@ -41,7 +43,7 @@ interface Props {
 
 export default function PresetCard({
   preset, monitors, pins, onEdit, onRefreshParent, onPinChange,
-  onApply, appliedMap, staggerEnter, staggerMs, onDuplicated,
+  onApply, appliedMap, autoApplied, staggerEnter, staggerMs, onDuplicated,
   highlightEnter, onDeleted,
   className,
   onDragStart,
@@ -362,6 +364,14 @@ export default function PresetCard({
                   title="Currently applied to a connected monitor"
                 >
                   IN USE
+                </span>
+              )}
+              {autoApplied && (
+                <span
+                  className="pop-in inline-flex shrink-0 items-center whitespace-nowrap rounded-[8px] border border-border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground"
+                  title="Auto-applied for a mapped program"
+                >
+                  AUTO
                 </span>
               )}
             </div>

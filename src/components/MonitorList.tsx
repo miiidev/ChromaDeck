@@ -29,6 +29,8 @@ interface Props {
   onPinChange: () => void;
   onApply: (preset: Preset) => void;
   appliedMap: Record<string, string>;
+  /** edid -> preset id for auto-applied presets; these stay in the library. */
+  autoMap: Record<string, string>;
   onPresetDuplicated?: (preset: Preset) => void;
   onPresetDeleted?: (id: string) => void;
   lastAddedId?: string | null;
@@ -70,7 +72,7 @@ function EmptyState({ onCreateNew }: { onCreateNew: () => void }) {
   );
 }
 
-export default function MonitorList({ monitors, presets, loading, onEdit, onRefresh, onCreateNew, pins, onPinChange, onApply, appliedMap, onPresetDuplicated, onPresetDeleted, lastAddedId }: Props) {
+export default function MonitorList({ monitors, presets, loading, onEdit, onRefresh, onCreateNew, pins, onPinChange, onApply, appliedMap, autoMap, onPresetDuplicated, onPresetDeleted, lastAddedId }: Props) {
   const carouselRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
@@ -227,6 +229,7 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
         onPinChange={onPinChange}
         onApply={onApply}
         appliedMap={appliedMap}
+        autoApplied={Object.values(autoMap).includes(preset.id)}
         staggerEnter={isStagger}
         staggerMs={Math.min(i, 5) * 60}
         onDuplicated={onPresetDuplicated}
@@ -326,6 +329,7 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
             onPinChange={onPinChange}
             onApply={onApply}
             appliedMap={appliedMap}
+            autoApplied={Object.values(autoMap).includes(preset.id)}
             staggerEnter={isStagger}
             staggerMs={Math.min(i, 3) * 40}
             onDuplicated={onPresetDuplicated}

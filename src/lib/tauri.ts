@@ -185,3 +185,37 @@ export async function reapplyNow(): Promise<EnforceEvent[]> {
 export async function captureNvcp(edidId: string): Promise<CapturedState> {
   return invoke<CapturedState>("capture_nvcp_cmd", { edidId });
 }
+
+// ── Auto-apply ──────────────────────────────────────────────────────────────
+
+/** Whether the auto-apply master switch is on (persisted, default off). */
+export async function getAutoApplyEnabled(): Promise<boolean> {
+  if (isBrowserPreview()) return false;
+  return invoke<boolean>("get_auto_apply_enabled_cmd");
+}
+
+/** Turn auto-apply on or off. Persists and syncs the tray checkbox. */
+export async function setAutoApplyEnabled(enabled: boolean): Promise<void> {
+  if (isBrowserPreview()) return;
+  return invoke<void>("set_auto_apply_enabled_cmd", { enabled });
+}
+
+/** The monitor/preset pair currently auto-applied, or null. In-memory only. */
+export async function listAutoApplied(): Promise<{ edid_id: string; preset_id: string } | null> {
+  if (isBrowserPreview()) return null;
+  return invoke<{ edid_id: string; preset_id: string } | null>("list_auto_applied_cmd");
+}
+
+/**
+ * One auto-apply outcome. `kind` is applied | reverted | skipped | error |
+ * cleared; `error` carries the skip reason or failure text.
+ */
+export interface AutoApplyEvent {
+  kind: "applied" | "reverted" | "skipped" | "error" | "cleared";
+  edid_id: string;
+  preset_id: string;
+  preset_name: string;
+  monitor_name: string;
+  program: string;
+  error: string | null;
+}

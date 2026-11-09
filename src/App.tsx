@@ -6,9 +6,10 @@ import "@fontsource/geist/600.css";
 import "@fontsource/geist/700.css";
 import "@fontsource/jetbrains-mono/500.css";
 import "@fontsource/jetbrains-mono/700.css";
-import { listMonitors, listPresets, listPins, listApplied, reapplyNow } from "./lib/tauri";
+import { listMonitors, listPresets, listPins, listApplied, reapplyNow, getAutoApplyEnabled, setAutoApplyEnabled, listAutoApplied, type AutoApplyEvent } from "./lib/tauri";
 import { version as appVersion } from "../package.json";
 import type { Monitor, Preset, EnforceEvent } from "./lib/types";
+import { applyAutoEvent, type AutoMap } from "./lib/autoApplyState";
 import { mergeMonitors } from "./lib/monitorMerge";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { isTauri } from "@tauri-apps/api/core";
@@ -52,6 +53,37 @@ function AutostartToggle() {
   );
 }
 
+/** Master switch for foreground auto-apply. Mirrors the tray checkbox. */
+function AutoApplyToggle({ on, onChange }: { on: boolean; onChange: (next: boolean) => void }) {
+  const [busy, setBusy] = useState(false);
+  const toggle = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await setAutoApplyEnabled(!on);
+      onChange(!on);
+    } catch {
+      // keep current state on failure
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <label className="inline-flex cursor-pointer items-center gap-2">
+      <input
+        type="checkbox"
+        checked={on}
+        onChange={toggle}
+        aria-label="Auto-apply mapped programs"
+        className="size-[14px] rounded-[4px] accent-[var(--color-primary)]"
+      />
+      <span className="mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+        Auto-apply
+      </span>
+    </label>
+  );
+}
+
 function App() {
   const [monitors, setMonitors] = useState<Monitor[]>([]);
   const [presets, setPresets] = useState<Preset[]>([]);
@@ -68,8 +100,25 @@ function App() {
   const [applyingPreset, setApplyingPreset] = useState<Preset | null>(null);
   const [applyTargetEdid, setApplyTargetEdid] = useState<string | null>(null);
   const [appliedMap, setAppliedMap] = useState<Record<string, string>>({});
+  // Auto-apply is a separate, in-memory map: presets stay in the library.
+  const [autoMap, setAutoMap] = useState<AutoMap>({});
+  const [autoEnabled, setAutoEnabled] = useState(false);
+  const [autoMsg, setAutoMsg] = useState<string | null>(null);
   const [lastAddedId, setLastAddedId] = useState<string | null>(null);
   const reapplyTimerRef = useRef<number | null>(null);
+  const autoTimerRef = useRef<number | null>(null);
+
+  /** Transient footer note for auto-apply outcomes. */
+  const showAutoMsg = (message: string) => {
+    if (autoTimerRef.current !== null) {
+      window.clearTimeout(autoTimerRef.current);
+    }
+    setAutoMsg(message);
+    autoTimerRef.current = window.setTimeout(() => {
+      autoTimerRef.current = null;
+      setAutoMsg(null);
+    }, 5000);
+  };
 
   // Reapply status is transient: replace any pending clear, and clean up on unmount.
   const showReapplyMsg = (message: string) => {
@@ -87,6 +136,9 @@ function App() {
     () => () => {
       if (reapplyTimerRef.current !== null) {
         window.clearTimeout(reapplyTimerRef.current);
+      }
+      if (autoTimerRef.current !== null) {
+        window.clearTimeout(autoTimerRef.current);
       }
     },
     [],
@@ -199,6 +251,48 @@ function App() {
     };
   }, []);
 
+  // ── Auto-apply: seed markers + follow watcher outcomes ──────────────
+  useEffect(() => {
+    if (!isTauri()) return;
+    let mounted = true;
+
+    void listAutoApplied()
+      .then((info) => {
+        if (mounted && info) {
+          setAutoMap({ [info.edid_id]: info.preset_id });
+        }
+      })
+      .catch(() => {});
+    void getAutoApplyEnabled()
+      .then((on) => {
+        if (mounted) setAutoEnabled(on);
+      })
+      .catch(() => {});
+
+    const outcome = listen<AutoApplyEvent>("auto-apply://outcome", (event) => {
+      const payload = event.payload;
+      setAutoMap((prev) => applyAutoEvent(prev, payload));
+      if (payload.kind === "applied") {
+        showAutoMsg(`Auto-applied ${payload.preset_name} to ${payload.monitor_name}`);
+      } else if (payload.kind === "reverted") {
+        showAutoMsg(`Reverted ${payload.monitor_name}`);
+      } else if (payload.kind === "skipped") {
+        showAutoMsg(`Auto-apply skipped: ${payload.error ?? "monitor is pinned"}`);
+      } else if (payload.kind === "error") {
+        showAutoMsg(`Auto-apply failed: ${payload.error ?? "unknown error"}`);
+      }
+    });
+    const enabled = listen<boolean>("auto-apply://enabled", (event) => {
+      setAutoEnabled(event.payload);
+    });
+
+    return () => {
+      mounted = false;
+      outcome.then((unlisten) => unlisten()).catch(() => {});
+      enabled.then((unlisten) => unlisten()).catch(() => {});
+    };
+  }, []);
+
   const handleEdit = (preset: Preset) => {
     setEditingPreset(preset);
     setShowEditor(true);
@@ -294,6 +388,7 @@ function App() {
             presets={presets}
             pins={pins}
             appliedMap={appliedMap}
+            autoMap={autoMap}
             setAppliedMap={setAppliedMap}
             onRefresh={fetchData}
             onPinChange={fetchData}
@@ -311,6 +406,7 @@ function App() {
             pins={pins}
             onPinChange={fetchData}
             appliedMap={appliedMap}
+            autoMap={autoMap}
             onPresetDuplicated={handlePresetDuplicated}
             onPresetDeleted={(id) => handleBatchDeleted([id])}
             lastAddedId={lastAddedId}
@@ -376,9 +472,18 @@ function App() {
               </span>
             </>
           )}
+          {autoMsg && (
+            <>
+              <span className="h-4 w-px shrink-0 bg-border" aria-hidden="true" />
+              <span className="transient-enter mono truncate text-[10px] text-muted-foreground">
+                {autoMsg}
+              </span>
+            </>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-4">
           <span className="h-4 w-px bg-border" aria-hidden="true" />
+          <AutoApplyToggle on={autoEnabled} onChange={setAutoEnabled} />
           <AutostartToggle />
           <button
             data-slot="button"

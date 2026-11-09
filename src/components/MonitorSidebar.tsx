@@ -249,10 +249,11 @@ function MonitorProbeButton({ edidId }: { edidId: string }) {
 }
 
 /** Monitor card — flat dark surface, 1px outer/inner hairlines. */
-function MonitorCard({ monitor, pinnedPreset, appliedMap, setAppliedMap, pins, presets, onRefresh, onPinChange, index, compact }: {
+function MonitorCard({ monitor, pinnedPreset, appliedMap, autoMap, setAppliedMap, pins, presets, onRefresh, onPinChange, index, compact }: {
   monitor: Monitor;
   pinnedPreset: Preset | null;
   appliedMap: Record<string, string>;
+  autoMap: Record<string, string>;
   setAppliedMap: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   pins: Record<string, string>;
   presets: Preset[];
@@ -286,9 +287,18 @@ function MonitorCard({ monitor, pinnedPreset, appliedMap, setAppliedMap, pins, p
   const appliedPreset = appliedPresetId
     ? presets.find((p) => p.id === appliedPresetId) ?? null
     : null;
+  // Auto-apply is a separate, in-memory assignment: it never hides presets and
+  // never outranks a pin.
+  const autoPresetId = valueFor(autoMap, monitor.edid_id);
+  const autoPreset = autoPresetId
+    ? presets.find((p) => p.id === autoPresetId) ?? null
+    : null;
+  const isAuto = !pinnedPreset && autoPreset !== null;
   // A drop applies without pinning, so the assignment line reflects the
   // last applied preset and falls back to the pinned one.
-  const slotPreset = appliedPreset ?? pinnedPreset;
+  const slotPreset = isPinned
+    ? pinnedPreset
+    : autoPreset ?? appliedPreset ?? pinnedPreset;
   const status = applyStatus[monitor.edid_id];
   const statusPhase = status?.phase;
 
@@ -368,7 +378,7 @@ function MonitorCard({ monitor, pinnedPreset, appliedMap, setAppliedMap, pins, p
   const dropTag = isDropHover && draggedTag ? draggedTag : tag;
 
   const showAppliedBadge =
-    isPinned || (connected && appliedPreset !== null);
+    isPinned || (connected && (appliedPreset !== null || isAuto));
 
   // Single status chip replaces the old dot + APPLIED/DEFAULT/OFFLINE badge:
   // assigned monitors show the preset's category on a tag-tinted pill, so the
@@ -452,6 +462,15 @@ function MonitorCard({ monitor, pinnedPreset, appliedMap, setAppliedMap, pins, p
           >
             <span className="truncate">{chipLabel}</span>
           </span>
+          {isAuto && (
+            <span
+              data-slot="auto-badge"
+              title="Applied automatically for a mapped program"
+              className="mono shrink-0 rounded-[8px] border border-primary px-1 py-[1px] text-[8px] leading-[1.4] uppercase tracking-[0.1em] text-primary"
+            >
+              AUTO
+            </span>
+          )}
         </div>
 
         {/* Slot: apply-in-progress / applied summary / drop prompt.
@@ -724,11 +743,12 @@ function ResetAllButton({ monitors, pins, setAppliedMap, onRefresh, onPinChange 
   );
 }
 
-export default function MonitorSidebar({ monitors, presets, pins, appliedMap, setAppliedMap, onRefresh, onPinChange }: {
+export default function MonitorSidebar({ monitors, presets, pins, appliedMap, autoMap, setAppliedMap, onRefresh, onPinChange }: {
   monitors: Monitor[];
   presets: Preset[];
   pins: Record<string, string>;
   appliedMap: Record<string, string>;
+  autoMap: Record<string, string>;
   setAppliedMap: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   onRefresh: () => void;
   onPinChange: () => void;
@@ -847,6 +867,7 @@ export default function MonitorSidebar({ monitors, presets, pins, appliedMap, se
                     monitor={m}
                     pinnedPreset={pinnedPreset}
                     appliedMap={appliedMap}
+                    autoMap={autoMap}
                     setAppliedMap={setAppliedMap}
                     pins={pins}
                     presets={presets}

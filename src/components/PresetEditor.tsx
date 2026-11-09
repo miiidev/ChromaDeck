@@ -4,6 +4,7 @@ import type { Preset, PresetInput } from "../lib/types";
 import { createPreset, updatePreset, importIcc } from "../lib/tauri";
 import { validatePresetForm, type ValidationErrors } from "../lib/validation";
 import { DEFAULT_PRESET_INPUT, presetToFormValues } from "../lib/presetForm";
+import { addProgram } from "../lib/programMapping";
 import { joinCategory, splitCategory } from "../lib/presetCard";
 import { applyPreviewPixel, type RgbColor } from "../lib/preview";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -145,6 +146,8 @@ export default function PresetEditor({ presets, editPreset, onClose, onClosed, o
   const [saving, setSaving] = useState(false);
   const [iccStatus, setIccStatus] = useState<{ hash: string; filename: string } | null>(null);
   const [iccImporting, setIccImporting] = useState(false);
+  const [programInput, setProgramInput] = useState("");
+  const [programError, setProgramError] = useState<string | null>(null);
 
   // Escape and backdrop dismissal must respect the same in-flight guard as the
   // disabled Save button; the save-success path passes `force` to close itself.
@@ -172,6 +175,8 @@ export default function PresetEditor({ presets, editPreset, onClose, onClosed, o
     setErrors({});
     setCategoryError(null);
     setIccImporting(false);
+    setProgramInput("");
+    setProgramError(null);
   }, [editPreset]);
 
   const handleBrowseIcc = async () => {
@@ -196,6 +201,47 @@ export default function PresetEditor({ presets, editPreset, onClose, onClosed, o
       setErrors((prev) => ({ ...prev, icc_path: `ICC import failed: ${err}` }));
     } finally {
       setIccImporting(false);
+    }
+  };
+
+  const handleAddProgram = () => {
+    const result = addProgram(
+      form.attached_programs,
+      programInput,
+      presets,
+      editPreset?.id,
+    );
+    if (result.error) {
+      setProgramError(result.error);
+      return;
+    }
+    updateField("attached_programs", result.list);
+    setProgramInput("");
+    setProgramError(null);
+  };
+
+  const handleBrowseProgram = async () => {
+    try {
+      const selected = await open({
+        multiple: true,
+        filters: [{ name: "Programs", extensions: ["exe"] }],
+      });
+      if (!selected) return;
+      const paths = Array.isArray(selected) ? selected : [selected];
+      let list = form.attached_programs;
+      let error: string | undefined;
+      for (const path of paths) {
+        const result = addProgram(list, path, presets, editPreset?.id);
+        list = result.list;
+        if (result.error) {
+          error = result.error;
+          break;
+        }
+      }
+      updateField("attached_programs", list);
+      setProgramError(error ?? null);
+    } catch (err) {
+      setProgramError(`Could not read selected programs: ${err}`);
     }
   };
 
@@ -427,6 +473,83 @@ export default function PresetEditor({ presets, editPreset, onClose, onClosed, o
                 })}
               </div>
             </div>
+          </div>
+
+          {/* ── Programs (auto-apply) ────────────────────────────── */}
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between gap-3">
+              <span className="mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+                Programs
+              </span>
+              <span className="mono text-[10px] text-muted-foreground">
+                {form.attached_programs.length} mapped
+              </span>
+            </div>
+            <p className="mono text-[10px] text-muted-foreground">
+              Applies this preset to the monitor showing the program when it comes forward.
+            </p>
+            {form.attached_programs.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {form.attached_programs.map((program) => (
+                  <span
+                    key={program}
+                    data-slot="program-chip"
+                    className="mono inline-flex items-center gap-1 rounded-[6px] border border-border bg-surface-hover py-1 pr-1 pl-2 text-[10px] text-foreground"
+                  >
+                    {program}
+                    <button
+                      type="button"
+                      aria-label={`Remove ${program}`}
+                      title={`Remove ${program}`}
+                      onClick={() =>
+                        updateField(
+                          "attached_programs",
+                          form.attached_programs.filter((p) => p !== program),
+                        )
+                      }
+                      className="inline-flex size-4 items-center justify-center rounded-[4px] text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-none"
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="flex items-center gap-2">
+              <Input
+                value={programInput}
+                onChange={(e) => {
+                  setProgramInput((e.target as HTMLInputElement).value);
+                  if (programError) setProgramError(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleAddProgram();
+                  }
+                }}
+                placeholder="chrome.exe"
+                aria-label="Program executable"
+                className="flex-1"
+              />
+              <button
+                type="button"
+                onClick={handleAddProgram}
+                className="shrink-0 rounded-full border border-border px-2.5 py-1 font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground transition-colors hover:border-border-hover hover:text-foreground"
+              >
+                Add
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleBrowseProgram()}
+                className="shrink-0 rounded-full border border-border px-2.5 py-1 font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground transition-colors hover:border-border-hover hover:text-foreground"
+              >
+                Browse…
+              </button>
+            </div>
+            {programError && (
+              <p className="mono text-[10px] text-destructive validation-slide">{programError}</p>
+            )}
           </div>
 
           {/* ── Live colour bar preview ──────────────────────────── */}
