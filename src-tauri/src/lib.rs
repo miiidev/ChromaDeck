@@ -1,9 +1,11 @@
 mod backend;
 mod auto_apply;
+mod auto_apply_runtime;
 mod capabilities;
 mod color;
 mod diagnostics;
 mod enforce;
+mod foreground;
 mod identify;
 mod monitor;
 mod nvapi;
@@ -24,7 +26,7 @@ use store::{
     AppStore,
 };
 use tauri::{
-    menu::{Menu, MenuItem, PredefinedMenuItem},
+    menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager, WindowEvent,
 };
@@ -34,10 +36,34 @@ use tauri::{
 fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
     let show = MenuItem::with_id(app, "tray-show", "Show", true, None::<&str>)?;
     let reapply = MenuItem::with_id(app, "tray-reapply", "Reapply now", true, None::<&str>)?;
+    let auto_checked = app
+        .try_state::<AppStore>()
+        .and_then(|s| s.0.lock().ok().map(|s| s.auto_apply_enabled()))
+        .unwrap_or(false);
+    let auto_apply = CheckMenuItem::with_id(
+        app,
+        auto_apply_runtime::TRAY_CHECK_ID,
+        "Auto-apply",
+        true,
+        auto_checked,
+        None::<&str>,
+    )?;
+    // Keep a handle so the footer toggle can sync the checkbox.
+    if let Some(state) = app.try_state::<auto_apply_runtime::AutoState>() {
+        if let Ok(mut item) = state.check_item.lock() {
+            *item = Some(auto_apply.clone());
+        }
+    }
     let quit = MenuItem::with_id(app, "tray-quit", "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
-        &[&show, &reapply, &PredefinedMenuItem::separator(app)?, &quit],
+        &[
+            &show,
+            &reapply,
+            &auto_apply,
+            &PredefinedMenuItem::separator(app)?,
+            &quit,
+        ],
     )?;
     // Reuse the app/window icon for the tray so the title bar, taskbar and
     // tray stay consistent. The icon comes from `bundle.icon` in
@@ -59,6 +85,15 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
             }
             "tray-show" => {
                 show_main_window(app);
+            }
+            auto_apply_runtime::TRAY_CHECK_ID => {
+                // The check item has already toggled visually; persist the
+                // inverse of the last known value and sync the checkbox.
+                let current = app
+                    .try_state::<AppStore>()
+                    .and_then(|s| s.0.lock().ok().map(|s| s.auto_apply_enabled()))
+                    .unwrap_or(false);
+                let _ = auto_apply_runtime::set_auto_apply(app, !current);
             }
             "tray-reapply" => {
                 use tauri::Manager;
@@ -124,6 +159,7 @@ pub fn run() {
             show_main_window(app);
         }))
         .manage(app_store)
+        .manage(auto_apply_runtime::AutoState::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(
@@ -152,6 +188,7 @@ pub fn run() {
             list_applied_cmd,
             get_auto_apply_enabled_cmd,
             set_auto_apply_enabled_cmd,
+            auto_apply_runtime::list_auto_applied_cmd,
             reapply_now_cmd,
             capture_nvcp_cmd,
             set_monitor_name_cmd,
@@ -160,12 +197,18 @@ pub fn run() {
         .setup(|app| {
             build_tray(app.handle())?;
             let handle = app.handle().clone();
+            let auto_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 // Reassert pinned/applied presets once through the backend
                 // registry before the drift loop takes over. Runs off the main
                 // thread; disconnected displays are skipped.
                 crate::enforce::startup_reapply(&handle);
                 crate::enforce::enforce_loop(handle).await;
+            });
+            // Foreground watcher runs on its own task so a slow colour write
+            // never delays drift enforcement.
+            tauri::async_runtime::spawn(async move {
+                crate::auto_apply_runtime::auto_apply_loop(auto_handle).await;
             });
             Ok(())
         })

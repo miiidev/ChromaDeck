@@ -1067,14 +1067,8 @@ pub fn get_auto_apply_enabled_cmd(state: tauri::State<'_, AppStore>) -> Result<b
 }
 
 #[tauri::command]
-pub fn set_auto_apply_enabled_cmd(
-    state: tauri::State<'_, AppStore>,
-    enabled: bool,
-) -> Result<(), String> {
-    let mut store = state.0.lock().map_err(|e| e.to_string())?;
-    store
-        .set_auto_apply_enabled(enabled)
-        .map_err(|e| e.to_string())
+pub fn set_auto_apply_enabled_cmd(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    crate::auto_apply_runtime::set_auto_apply(&app, enabled)
 }
 
 #[tauri::command]
