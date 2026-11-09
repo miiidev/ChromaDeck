@@ -59,7 +59,7 @@ These are the failure modes most likely to bite a real user, in order. Each has 
 - Consumes: existing `StoreError::InvalidInput`.
 - Produces: `Preset.attached_programs: Vec<String>`, `PresetInput.attached_programs: Vec<String>`; `pub fn normalize_program_name(raw: &str) -> Option<String>`.
 
-- [ ] **Step 1: Write the failing normalisation test**
+- [x] **Step 1: Write the failing normalisation test**
 
 ```rust
 #[test]
@@ -71,16 +71,16 @@ fn normalizes_full_paths_and_case() {
 }
 ```
 
-- [ ] **Step 2: Run it and confirm it fails**
+- [x] **Step 2: Run it and confirm it fails**
 
 Run: `cargo test --quiet normalize_program_name`
 Expected: FAIL — function/ module missing.
 
-- [ ] **Step 3: Implement the type and helper**
+- [x] **Step 3: Implement the type and helper**
 
 Add `#[serde(default)] pub attached_programs: Vec<String>` to both `Preset` and `PresetInput`. `normalize_program_name`: trim, take substring after the last `/` or `\`, lowercase, return `None` for empty or whitespace-containing names.
 
-- [ ] **Step 4: Persist and validate uniqueness**
+- [x] **Step 4: Persist and validate uniqueness**
 
 In `create_preset` and `update_preset`, normalise every entry, drop empties, dedupe within the input, and reject a name already present on any *other* preset:
 
@@ -90,11 +90,11 @@ return Err(StoreError::InvalidInput(format!("{program} is already mapped to \"{}
 
 Map the input into the stored preset. Add tests: creating a preset with `["chrome.exe"]` persists it; creating a second preset with `["CHROME.EXE"]` fails; updating a preset with its own existing program succeeds.
 
-- [ ] **Step 5: Mirror the field in TypeScript**
+- [x] **Step 5: Mirror the field in TypeScript**
 
 Add `attached_programs?: string[]` to `Preset` and `attached_programs: string[]` to `PresetInput`; add `attached_programs: []` to `DEFAULT_PRESET_INPUT` and map `preset.attached_programs ?? []` in `presetToFormValues`.
 
-- [ ] **Step 6: Run gates and commit**
+- [x] **Step 6: Run gates and commit**
 
 Run: `cargo test --quiet`, `npm run test`, `npm run build`.
 Commit: `feat: presets carry mapped programs`.
@@ -110,7 +110,7 @@ Commit: `feat: presets carry mapped programs`.
 **Interfaces:**
 - Produces: `Store::auto_apply_enabled(&self) -> bool`, `Store::set_auto_apply_enabled(&mut self, enabled: bool) -> Result<(), StoreError>`, `settings.json` `{ "auto_apply_enabled": bool }`; commands `get_auto_apply_enabled_cmd` and `set_auto_apply_enabled_cmd`.
 
-- [ ] **Step 1: Write failing store tests**
+- [x] **Step 1: Write failing store tests**
 
 ```rust
 #[test]
@@ -125,15 +125,15 @@ fn auto_apply_defaults_off_and_persists() {
 
 A corrupt `settings.json` must be backed up and leave the switch OFF (reuse `read_json_or_backup`).
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Add `settings_path`, `auto_apply_enabled` to `Store`. Load with `read_json_or_backup`; flush only the settings file on change. `ensure_writable` applies to this write.
 
-- [ ] **Step 3: Add commands**
+- [x] **Step 3: Add commands**
 
 `get_auto_apply_enabled_cmd(state) -> bool`; `set_auto_apply_enabled_cmd(state, enabled) -> Result<(), String>`.
 
-- [ ] **Step 4: Run gates and commit**
+- [x] **Step 4: Run gates and commit**
 
 `cargo test --quiet`; commit `feat: persist auto-apply master switch`.
 
@@ -164,7 +164,7 @@ pub fn transition(
 ) -> Vec<AutoAction>;
 ```
 
-- [ ] **Step 1: Write failing tests** covering the Review Focus cases:
+- [x] **Step 1: Write failing tests** covering the Review Focus cases:
 
 ```rust
 #[test]
@@ -183,13 +183,13 @@ fn same_preset_same_monitor_is_a_noop() { /* different program, same preset+edid
 fn no_active_and_unmapped_is_a_noop() { /* -> [] */ }
 ```
 
-- [ ] **Step 2: Run and confirm failure** — `cargo test --quiet auto_apply`.
+- [x] **Step 2: Run and confirm failure** — `cargo test --quiet auto_apply`.
 
-- [ ] **Step 3: Implement `transition`**
+- [x] **Step 3: Implement `transition`**
 
 Rules in order: no foreground or unmapped → revert active if any. Mapped to pinned target → revert active if any, then `Skip` reason `"monitor is pinned"`. Mapped to the same preset on the same monitor as active → no action. Otherwise revert active if any, then `Apply`.
 
-- [ ] **Step 4: Run and commit** — `cargo test --quiet`; commit `feat: pure auto-apply state machine`.
+- [x] **Step 4: Run and commit** — `cargo test --quiet`; commit `feat: pure auto-apply state machine`.
 
 ---
 
@@ -202,17 +202,17 @@ Rules in order: no foreground or unmapped → revert active if any. Mapped to pi
 **Interfaces:**
 - Produces: `pub fn foreground_window() -> Option<ObservedWindow>` where `ObservedWindow { program: String, device_name: Option<String> }`; `pub fn self_program() -> Option<String>`.
 
-- [ ] **Step 1: Add Windows features** — `Win32_UI_WindowsAndMessaging`, `Win32_System_Threading`.
+- [x] **Step 1: Add Windows features** — `Win32_UI_WindowsAndMessaging`, `Win32_System_Threading`.
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 `GetForegroundWindow` → null is `None`. `GetWindowThreadProcessId` → PID. `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid)`; `QueryFullProcessImageNameW`; `CloseHandle` on every path. Lowercase the base name with `normalize_program_name`.
 
 Monitor: `MonitorFromWindow(hwnd, MONITOR_DEFAULTTOPRIMARY)`; `GetMonitorInfoW` with `MONITORINFOEXW`; return `szDevice` as `device_name`. `self_program()` resolves the current process image with the same helper.
 
-- [ ] **Step 3: Extract a pure helper + test** — `program_from_path(path: &str) -> Option<String>` reuses `normalize_program_name`; test `C:\Games\Game.EXE → game.exe`.
+- [x] **Step 3: Extract a pure helper + test** — `program_from_path(path: &str) -> Option<String>` reuses `normalize_program_name`; test `C:\Games\Game.EXE → game.exe`.
 
-- [ ] **Step 4: Commit** — `feat: read foreground window and its monitor`.
+- [x] **Step 4: Commit** — `feat: read foreground window and its monitor`.
 
 ---
 
@@ -239,7 +239,7 @@ pub struct AutoApplyEvent {
 }
 ```
 
-- [ ] **Step 1: Implement the loop**
+- [x] **Step 1: Implement the loop**
 
 Every 1 s: if disabled, clear active state once and emit `cleared` (no colour reset). Read foreground; if its program equals `self_program()`, skip the tick entirely. Resolve `device_name` to `edid_id` via `list_monitors()`. Build `(program, edid_id)`; if unchanged from the last tick, do nothing. Otherwise call `transition`, execute actions in order:
 
@@ -249,15 +249,15 @@ Every 1 s: if disabled, clear active state once and emit `cleared` (no colour re
 
 If the active monitor disconnects, clear state and emit `cleared`.
 
-- [ ] **Step 2: Add `list_auto_applied_cmd`** returning `Option<AutoAppliedInfo { edid_id, preset_id }>`.
+- [x] **Step 2: Add `list_auto_applied_cmd`** returning `Option<AutoAppliedInfo { edid_id, preset_id }>`.
 
-- [ ] **Step 3: Tray checkbox**
+- [x] **Step 3: Tray checkbox**
 
 Use `CheckMenuItem::with_id` labelled `Auto-apply`, checked from the store at build time. On click call `set_auto_apply`, sync the check state, and emit `auto-apply://enabled` with the new bool. `set_auto_apply` persists, updates the check item, and emits the same event.
 
-- [ ] **Step 4: Spawn the loop** in `setup` next to `enforce_loop`.
+- [x] **Step 4: Spawn the loop** in `setup` next to `enforce_loop`.
 
-- [ ] **Step 5: Commit** — `feat: auto-apply watcher and tray switch`.
+- [x] **Step 5: Commit** — `feat: auto-apply watcher and tray switch`.
 
 ---
 
@@ -269,8 +269,8 @@ Use `CheckMenuItem::with_id` labelled `Auto-apply`, checked from the store at bu
 **Interfaces:**
 - Produces: `getAutoApplyEnabled(): Promise<boolean>`, `setAutoApplyEnabled(enabled: boolean): Promise<void>`, `listAutoApplied(): Promise<{ edid_id: string; preset_id: string } | null>`, `AutoApplyEvent` interface.
 
-- [ ] **Step 1: Add typed wrappers** matching the backend names. Browser preview: `false`, no-op, `null`.
-- [ ] **Step 2: Commit** — `feat: frontend bridge for auto-apply`.
+- [x] **Step 1: Add typed wrappers** matching the backend names. Browser preview: `false`, no-op, `null`.
+- [x] **Step 2: Commit** — `feat: frontend bridge for auto-apply`.
 
 ---
 
@@ -284,10 +284,10 @@ Use `CheckMenuItem::with_id` labelled `Auto-apply`, checked from the store at bu
 **Interfaces:**
 - Produces: `normalizeProgramName(raw: string): string | null`, `addProgram(list: string[], raw: string): { list: string[]; error?: string }`, `duplicateOwner(presets: Preset[], program: string, selfId?: string): string | null`.
 
-- [ ] **Step 1: Write failing Vitest cases** — full path → base name; duplicate inside the list ignored silently; program owned by another preset → error naming that preset.
-- [ ] **Step 2: Implement the pure helpers.**
-- [ ] **Step 3: Add the editor section** after the tag/shape block: a `PROGRAMS` label, removable chips, a text input + `Add`, and `Browse…` using `open({ multiple: true, filters: [{ name: "Programs", extensions: ["exe"] }] })`. Selected paths are normalised to base names. A rejected duplicate renders inline: `chrome.exe is already mapped to "Work"`.
-- [ ] **Step 4: Run Vitest, typecheck, commit** — `npm run test`, `npm run build`; commit `feat: map programs to presets in the editor`.
+- [x] **Step 1: Write failing Vitest cases** — full path → base name; duplicate inside the list ignored silently; program owned by another preset → error naming that preset.
+- [x] **Step 2: Implement the pure helpers.**
+- [x] **Step 3: Add the editor section** after the tag/shape block: a `PROGRAMS` label, removable chips, a text input + `Add`, and `Browse…` using `open({ multiple: true, filters: [{ name: "Programs", extensions: ["exe"] }] })`. Selected paths are normalised to base names. A rejected duplicate renders inline: `chrome.exe is already mapped to "Work"`.
+- [x] **Step 4: Run Vitest, typecheck, commit** — `npm run test`, `npm run build`; commit `feat: map programs to presets in the editor`.
 
 ---
 
@@ -301,18 +301,18 @@ Use `CheckMenuItem::with_id` labelled `Auto-apply`, checked from the store at bu
 **Interfaces:**
 - Produces: `autoMap: Record<string, string>` (edid → preset id) in `App`; reducer `applyAutoEvent(map, event) -> map` (applied sets, reverted/cleared/error deletes, skipped leaves unchanged).
 
-- [ ] **Step 1: Write failing reducer tests** for each `kind`.
-- [ ] **Step 2: Implement the reducer and App wiring**
+- [x] **Step 1: Write failing reducer tests** for each `kind`.
+- [x] **Step 2: Implement the reducer and App wiring**
 
 App state `autoMap`; on mount fetch `listAutoApplied()`; `listen("auto-apply://outcome")` updates the map and shows a transient message: `Auto-applied <preset> to <monitor>`, `Reverted <monitor>`, or the skip reason. `listen("auto-apply://enabled")` flips the toggle. Pass `autoMap` to `MonitorSidebar` and `MonitorList`.
 
-- [ ] **Step 3: Footer toggle** — checkbox labelled `Auto-apply` beside `Autostart`, initialised from `getAutoApplyEnabled()`, calling `setAutoApplyEnabled`.
+- [x] **Step 3: Footer toggle** — checkbox labelled `Auto-apply` beside `Autostart`, initialised from `getAutoApplyEnabled()`, calling `setAutoApplyEnabled`.
 
-- [ ] **Step 4: Monitor status** — in `MonitorCard`, an active auto entry takes display precedence when the monitor is not pinned: show the preset's category chip plus a small `AUTO` mono tag. Do not feed auto into `appliedMap`.
+- [x] **Step 4: Monitor status** — in `MonitorCard`, an active auto entry takes display precedence when the monitor is not pinned: show the preset's category chip plus a small `AUTO` mono tag. Do not feed auto into `appliedMap`.
 
-- [ ] **Step 5: Library marker** — pass `autoApplied={Object.values(autoMap).includes(preset.id)}` to `PresetCard`; render a tiny `AUTO` badge. Do not remove the preset from `libraryPresets` for auto applies.
+- [x] **Step 5: Library marker** — pass `autoApplied={Object.values(autoMap).includes(preset.id)}` to `PresetCard`; render a tiny `AUTO` badge. Do not remove the preset from `libraryPresets` for auto applies.
 
-- [ ] **Step 6: Run gates and commit** — `npm run test`, `npm run build`; commit `feat: auto-apply markers, switch, and toast`.
+- [x] **Step 6: Run gates and commit** — `npm run test`, `npm run build`; commit `feat: auto-apply markers, switch, and toast`.
 
 ---
 
@@ -321,10 +321,23 @@ App state `autoMap`; on mount fetch `listAutoApplied()`; `listen("auto-apply://o
 **Files:**
 - Modify: `package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`
 
-- [ ] **Step 1:** Bump all three to `0.8.3`.
-- [ ] **Step 2:** Run `cargo test`, `npm run test`, `npm run build`.
-- [ ] **Step 3:** Visual QA of the editor chips, footer toggle, and monitor `AUTO` marker against the running app.
-- [ ] **Step 4:** Commit `release: v0.8.3 auto-apply`.
+- [x] **Step 1:** Bump all three to `0.8.3`.
+- [x] **Step 2:** Run `cargo test`, `npm run test`, `npm run build`.
+- [x] **Step 3:** Visual QA of the editor chips, footer toggle, and monitor `AUTO` marker against the running app.
+  - Editor `PROGRAMS` row + chips and the footer `Auto-apply` toggle were screenshot-verified against the design rules in the browser preview (Vite, `localhost:1420`).
+  - The monitor `AUTO` tag and card `AUTO` badge cannot be exercised in the browser preview (demo data has no auto-apply entries, and the watcher needs Win32 + real monitors). They are covered by `autoApplyState.test.ts` and reviewed against `DESIGN.md`.
+- [x] **Step 4:** Commit `release: v0.8.3 auto-apply`.
+
+**Commits (local `master`, not yet pushed):**
+
+| Commit | Content |
+|---|---|
+| `a2c590a..1955ecd` (11 commits, cherry-picked) | Restored the post-meetup 0.8.3 work (diagnostics, collision fix, reset-all) |
+| `8e357b4` | `docs: auto-apply implementation plan` |
+| `1507bed` | `feat: auto-apply backend foundation (mapped programs, master switch, state machine)` |
+| `7c92293` | `feat: auto-apply watcher, foreground probe, and tray switch` |
+| `eda2348` | `feat: auto-apply editor mapping, markers, and master switch` |
+| `7fa9fa8` | `release: v0.8.3 auto-apply` |
 
 ---
 
