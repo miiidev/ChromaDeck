@@ -742,6 +742,7 @@ fn p(id: &str, _edid: &str, brightness: f64, vibrance: f64, hue: f64) -> crate::
 color_model: "nvcp-v1".into(),
             color_tag: None,
             tag_shape: None,
+            attached_programs: Vec::new(),
         }
     }
 

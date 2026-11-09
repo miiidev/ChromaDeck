@@ -45,6 +45,8 @@ export interface Preset {
   hue_deg: number;      // 0 – 359 degrees
   color_tag?: string;   // #rrggbb hex or empty/undefined for untagged
   tag_shape?: TagShape | null; // marker shape; backend may send null = pill
+  /** Executable base names (lowercase) that auto-apply this preset. */
+  attached_programs?: string[];
 }
 
 export interface PresetInput {
@@ -59,6 +61,8 @@ export interface PresetInput {
   hue_deg: number;
   color_tag?: string;   // #rrggbb hex or empty for untagged
   tag_shape?: TagShape; // marker shape; empty = pill
+  /** Executable base names (lowercase) that auto-apply this preset. */
+  attached_programs: string[];
 }
 
 export type AdjustmentStatus = "applied" | "skipped" | "failed";

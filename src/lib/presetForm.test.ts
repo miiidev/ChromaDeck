@@ -40,6 +40,7 @@ describe("preset editor saturation round-trip", () => {
       hue_deg: PRESET.hue_deg,
       color_tag: PRESET.color_tag,
       tag_shape: PRESET.tag_shape,
+      attached_programs: [],
     });
   });
 

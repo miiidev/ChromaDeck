@@ -1,4 +1,5 @@
 mod backend;
+mod auto_apply;
 mod capabilities;
 mod color;
 mod diagnostics;
@@ -17,8 +18,9 @@ use monitor::list_monitors_cmd;
 use nvapi::vibrance_supported_cmd;
 use nvgamma::capture_nvcp_cmd;
 use store::{
-    create_preset_cmd, delete_preset_cmd, import_icc_cmd, list_applied_cmd, list_pins_cmd,
-    list_presets_cmd, pin_preset_cmd, set_monitor_name_cmd, unpin_monitor_cmd, update_preset_cmd,
+    create_preset_cmd, delete_preset_cmd, get_auto_apply_enabled_cmd, import_icc_cmd,
+    list_applied_cmd, list_pins_cmd, list_presets_cmd, pin_preset_cmd,
+    set_auto_apply_enabled_cmd, set_monitor_name_cmd, unpin_monitor_cmd, update_preset_cmd,
     AppStore,
 };
 use tauri::{
@@ -148,6 +150,8 @@ pub fn run() {
             unpin_monitor_cmd,
             list_pins_cmd,
             list_applied_cmd,
+            get_auto_apply_enabled_cmd,
+            set_auto_apply_enabled_cmd,
             reapply_now_cmd,
             capture_nvcp_cmd,
             set_monitor_name_cmd,

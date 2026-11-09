@@ -1090,6 +1090,7 @@ mod tests {
             color_model: "nvcp-v1".into(),
             color_tag: None,
             tag_shape: None,
+            attached_programs: Vec::new(),
         }
     }
 
@@ -1683,6 +1684,7 @@ mod tests {
             color_model: "nvcp-v1".into(),
             color_tag: None,
             tag_shape: None,
+            attached_programs: Vec::new(),
         }
     }
 

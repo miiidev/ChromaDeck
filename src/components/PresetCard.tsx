@@ -188,6 +188,9 @@ export default function PresetCard({
         hue_deg: preset.hue_deg,
         color_tag: preset.color_tag,
         tag_shape: preset.tag_shape ?? undefined,
+        // A copy must not claim programs already owned by the original;
+        // mappings are intentionally not duplicated.
+        attached_programs: [],
       });
       if (onDuplicated) onDuplicated(created);
       else onRefreshParent();

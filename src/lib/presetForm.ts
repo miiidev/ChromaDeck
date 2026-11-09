@@ -20,6 +20,7 @@ export const DEFAULT_PRESET_INPUT: PresetInput = {
   hue_deg: 0,
   color_tag: "",
   tag_shape: "pill",
+  attached_programs: [],
 };
 
 /** Populate the editor form from a stored preset (edit mode). */
@@ -35,6 +36,7 @@ export function presetToFormValues(preset: Preset): PresetInput {
     hue_deg: preset.hue_deg,
     color_tag: preset.color_tag ?? "",
     tag_shape: preset.tag_shape ?? "pill",
+    attached_programs: preset.attached_programs ?? [],
   };
 }
 

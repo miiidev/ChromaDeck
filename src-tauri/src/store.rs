@@ -119,6 +119,10 @@ pub struct Preset {
     pub color_tag: Option<String>, // #rrggbb or None for untagged
     #[serde(default)]
     pub tag_shape: Option<String>, // pill | round | square | bar; None = pill
+    /// Executable base names (lowercased) that auto-apply this preset when
+    /// they become the foreground window. One preset may map many programs.
+    #[serde(default)]
+    pub attached_programs: Vec<String>,
 }
 
 /// Input data for creating or updating a preset.
@@ -138,6 +142,16 @@ pub struct PresetInput {
     pub color_tag: Option<String>,
     #[serde(default)]
     pub tag_shape: Option<String>,
+    #[serde(default)]
+    pub attached_programs: Vec<String>,
+}
+
+/// Persisted user settings (`settings.json`). Additive fields default so a
+/// file written by an older build still loads.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct Settings {
+    #[serde(default)]
+    auto_apply_enabled: bool,
 }
 
 // ── Store errors ───────────────────────────────────────────────────────────
@@ -258,6 +272,8 @@ pub struct Store {
     applied: HashMap<String, String>, // edid_id -> preset_id (last manual apply; not verified)
     names_path: PathBuf,
     monitor_names: HashMap<String, String>, // edid_id -> user alias
+    settings_path: PathBuf,
+    auto_apply_enabled: bool, // persisted master switch; default false
     faults: LoadFaults,
 }
 
@@ -284,6 +300,10 @@ impl Store {
         let monitor_names: HashMap<String, String> =
             read_json_or_backup(&names_path, &mut faults)?.unwrap_or_default();
 
+        let settings_path = data_dir.join("settings.json");
+        let settings: Settings =
+            read_json_or_backup(&settings_path, &mut faults)?.unwrap_or_default();
+
         let applied_path = data_dir.join("applied.json");
         // ── Stale-record honesty ─────────────────────────────────────────────
         // The applied map is a recency hint: it records the last manually
@@ -308,6 +328,8 @@ impl Store {
             applied,
             names_path,
             monitor_names,
+            settings_path,
+            auto_apply_enabled: settings.auto_apply_enabled,
             faults,
         };
 
@@ -410,6 +432,40 @@ impl Store {
         self.presets.clone()
     }
 
+    /// Normalise a submitted program list and enforce global uniqueness:
+    /// one executable may map to only one preset at a time. `self_id` is the
+    /// preset being updated (`None` when creating) so its own entries do not
+    /// collide with themselves.
+    fn normalize_program_list(
+        &self,
+        input: &[String],
+        self_id: Option<&str>,
+    ) -> Result<Vec<String>, StoreError> {
+        let mut out: Vec<String> = Vec::new();
+        for raw in input {
+            let Some(name) = crate::auto_apply::normalize_program_name(raw) else {
+                continue; // drop empty / malformed entries instead of blocking the save
+            };
+            if out.iter().any(|existing| existing == &name) {
+                continue;
+            }
+            if let Some(owner) = self.presets.iter().find(|preset| {
+                Some(preset.id.as_str()) != self_id
+                    && preset
+                        .attached_programs
+                        .iter()
+                        .any(|mapped| mapped == &name)
+            }) {
+                return Err(StoreError::InvalidInput(format!(
+                    "{name} is already mapped to \"{}\"",
+                    owner.name
+                )));
+            }
+            out.push(name);
+        }
+        Ok(out)
+    }
+
     /// Create a new preset from `input`.  Returns the created `Preset`.
     pub fn create_preset(&mut self, input: PresetInput) -> Result<Preset, StoreError> {
         self.ensure_writable()?;
@@ -417,6 +473,7 @@ impl Store {
         if input.name.trim().is_empty() {
             return Err(StoreError::InvalidInput("name cannot be empty".into()));
         }
+        let attached_programs = self.normalize_program_list(&input.attached_programs, None)?;
         if !(0.0..=100.0).contains(&input.brightness) {
             return Err(StoreError::InvalidInput(
                 "brightness must be in 0.0..=100.0".into(),
@@ -500,6 +557,7 @@ impl Store {
                 if tag.is_empty() { None } else { Some(tag.into()) }
             } else { None },
             tag_shape: normalise_tag_shape(input.tag_shape),
+            attached_programs,
         };
 
         self.presets.push(preset.clone());
@@ -554,6 +612,9 @@ impl Store {
             ));
         }
 
+        let attached_programs =
+            self.normalize_program_list(&input.attached_programs, Some(id))?;
+
         // Validate color_tag
         if let Some(ref tag) = input.color_tag {
             if !is_valid_color_tag(tag) {
@@ -600,6 +661,7 @@ impl Store {
                 if tag.is_empty() { None } else { Some(tag.into()) }
             } else { None },
             tag_shape: normalise_tag_shape(input.tag_shape),
+            attached_programs,
         };
 
         self.presets[idx] = updated.clone();
@@ -770,6 +832,21 @@ impl Store {
         self.applied.clone()
     }
 
+    /// Whether the auto-apply master switch is on (persisted, default false).
+    pub fn auto_apply_enabled(&self) -> bool {
+        self.auto_apply_enabled
+    }
+
+    /// Persist the auto-apply master switch. No-op writes are skipped.
+    pub fn set_auto_apply_enabled(&mut self, enabled: bool) -> Result<(), StoreError> {
+        self.ensure_writable()?;
+        if self.auto_apply_enabled == enabled {
+            return Ok(());
+        }
+        self.auto_apply_enabled = enabled;
+        self.flush_settings()
+    }
+
     /// Every monitor that currently references `preset_id`, as the union of
     /// pins and applied records (sorted, de-duplicated). Captured before a
     /// preset delete so the affected displays can be restored through the
@@ -819,6 +896,19 @@ impl Store {
         let tmp = self.data_dir.join("pins.json.tmp");
         std::fs::write(&tmp, &json)?;
         std::fs::rename(&tmp, &self.pins_path)?;
+        Ok(())
+    }
+
+    /// Atomically persist user settings to `settings.json`.
+    fn flush_settings(&self) -> Result<(), StoreError> {
+        self.ensure_writable()?;
+        let settings = Settings {
+            auto_apply_enabled: self.auto_apply_enabled,
+        };
+        let json = serde_json::to_string_pretty(&settings)?;
+        let tmp = self.data_dir.join("settings.json.tmp");
+        std::fs::write(&tmp, &json)?;
+        std::fs::rename(&tmp, &self.settings_path)?;
         Ok(())
     }
 }
@@ -971,6 +1061,23 @@ pub fn list_applied_cmd(
 }
 
 #[tauri::command]
+pub fn get_auto_apply_enabled_cmd(state: tauri::State<'_, AppStore>) -> Result<bool, String> {
+    let store = state.0.lock().map_err(|e| e.to_string())?;
+    Ok(store.auto_apply_enabled())
+}
+
+#[tauri::command]
+pub fn set_auto_apply_enabled_cmd(
+    state: tauri::State<'_, AppStore>,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut store = state.0.lock().map_err(|e| e.to_string())?;
+    store
+        .set_auto_apply_enabled(enabled)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn set_monitor_name_cmd(
     state: tauri::State<'_, AppStore>,
     edid_id: String,
@@ -1023,6 +1130,7 @@ mod tests {
             hue_deg: 0.0,
             color_tag: None,
             tag_shape: None,
+            attached_programs: vec![],
         }
     }
 
@@ -1163,6 +1271,7 @@ mod tests {
                     hue_deg: 0.0,
                     color_tag: None,
                     tag_shape: None,
+                    attached_programs: vec![],
                 },
             )
             .unwrap();
@@ -1279,6 +1388,7 @@ mod tests {
                     hue_deg: 0.0,
                     color_tag: None,
                     tag_shape: None,
+                    attached_programs: vec![],
                 })
                 .unwrap();
             assert_eq!(store.list_presets().len(), 2);
@@ -1545,6 +1655,7 @@ mod tests {
                     hue_deg: 0.0,
                     color_tag: Some("#ef4444".into()),
                     tag_shape: None,
+                    attached_programs: vec![],
                 },
             )
             .unwrap();
@@ -1574,6 +1685,7 @@ mod tests {
                     hue_deg: 0.0,
                     color_tag: Some("".into()),
                     tag_shape: None,
+                    attached_programs: vec![],
                 },
             )
             .unwrap();
@@ -1600,6 +1712,7 @@ mod tests {
                     hue_deg: 0.0,
                     color_tag: Some("invalid".into()),
                     tag_shape: None,
+                    attached_programs: vec![],
                 },
             )
             .unwrap_err();
@@ -2075,5 +2188,118 @@ mod tests {
             vec!["EDID-A".to_string(), "EDID-B".to_string(), "EDID-C".to_string()]
         );
         assert!(store.monitors_using("does-not-exist").is_empty());
+    }
+
+    // ── attached programs (auto-apply mappings) ──────────────────────────
+
+    #[test]
+    fn attached_programs_are_normalized_and_persisted() {
+        let dir = test_store_dir_unique();
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("presets.json"), b"[]").unwrap();
+        let mut store = Store::new(dir.clone()).unwrap();
+        let mut input = minimal_input();
+        input.attached_programs = vec![
+            r"C:\Games\VLC.EXE".into(),
+            "mpc-hc.exe".into(),
+            "mpc-hc.exe".into(),
+            "   ".into(),
+        ];
+        let preset = store.create_preset(input).unwrap();
+        assert_eq!(
+            preset.attached_programs,
+            vec!["vlc.exe".to_string(), "mpc-hc.exe".to_string()]
+        );
+        drop(store);
+        let reopened = Store::new(dir.clone()).unwrap();
+        assert_eq!(
+            reopened.list_presets()[0].attached_programs,
+            vec!["vlc.exe".to_string(), "mpc-hc.exe".to_string()]
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn duplicate_program_across_presets_is_rejected() {
+        let mut store = test_store();
+        let mut first = minimal_input();
+        first.attached_programs = vec!["chrome.exe".into()];
+        store.create_preset(first).unwrap();
+
+        let mut second = minimal_input();
+        second.name = "Second".into();
+        second.attached_programs = vec!["CHROME.EXE".into()];
+        let err = store.create_preset(second).unwrap_err();
+        assert!(matches!(err, StoreError::InvalidInput(_)), "{err}");
+        assert!(
+            err.to_string().contains("already mapped to \"Test Preset\""),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn updating_a_preset_keeps_its_own_programs() {
+        let mut store = test_store();
+        let mut input = minimal_input();
+        input.attached_programs = vec!["chrome.exe".into()];
+        let preset = store.create_preset(input).unwrap();
+
+        let mut update = minimal_input();
+        update.attached_programs = vec!["chrome.exe".into(), "code.exe".into()];
+        let updated = store.update_preset(&preset.id, update).unwrap();
+        assert_eq!(
+            updated.attached_programs,
+            vec!["chrome.exe".to_string(), "code.exe".to_string()]
+        );
+    }
+
+    #[test]
+    fn legacy_preset_json_without_attached_programs_loads_empty() {
+        let json = r#"{"id":"x","name":"Old","icc_hash":"","icc_filename":"","brightness":50.0,"contrast":50.0,"rgb_gains":[1.0,1.0,1.0],"gamma":1.0}"#;
+        let preset: Preset = serde_json::from_str(json).unwrap();
+        assert!(preset.attached_programs.is_empty());
+    }
+
+    // ── auto-apply master switch ─────────────────────────────────────────
+
+    #[test]
+    fn auto_apply_defaults_off_and_persists() {
+        let dir = test_store_dir_unique();
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("presets.json"), b"[]").unwrap();
+
+        {
+            let mut store = Store::new(dir.clone()).unwrap();
+            assert!(!store.auto_apply_enabled(), "default is off");
+            store.set_auto_apply_enabled(true).unwrap();
+            assert!(store.auto_apply_enabled());
+        }
+
+        let reopened = Store::new(dir.clone()).unwrap();
+        assert!(reopened.auto_apply_enabled(), "switch survives reload");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn corrupt_settings_is_backed_up_and_leaves_switch_off() {
+        let dir = test_store_dir_unique();
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("presets.json"), b"[]").unwrap();
+        let corrupt = br#"not json"#;
+        std::fs::write(dir.join("settings.json"), corrupt).unwrap();
+
+        let mut store = Store::new(dir.clone()).unwrap();
+        assert!(!store.auto_apply_enabled());
+        let backups: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|n| n.starts_with("settings.json.bak-") && n.ends_with("-corrupt"))
+            .collect();
+        assert_eq!(backups.len(), 1, "corrupt settings file is backed up");
+        assert_eq!(std::fs::read(dir.join(&backups[0])).unwrap(), corrupt);
+
+        let err = store.set_auto_apply_enabled(true).unwrap_err();
+        assert!(matches!(err, StoreError::LoadFault(_)), "{err}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
