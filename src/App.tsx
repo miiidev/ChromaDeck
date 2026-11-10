@@ -367,9 +367,13 @@ function App() {
             date: info.date,
           },
         });
-        // Always show the dialog on startup — whether or not an update exists.
-        setUpdateDialogOpen(true);
-        setUpdateDialogKind(info.available ? "available" : "up-to-date");
+        // Only show the dialog on startup if an update is available.
+        if (info.available) {
+          setUpdateDialogOpen(true);
+          setUpdateDialogKind("available");
+        } else {
+          showUpdateMsg("You're up to date");
+        }
       })
       .catch((err) => {
         if (!mounted) return;
