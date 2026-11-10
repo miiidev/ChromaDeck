@@ -112,6 +112,8 @@ function App() {
   const autoTimerRef = useRef<number | null>(null);
   const [updateState, dispatchUpdate] = useReducer(updateStateReducer, initialUpdateState());
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
+  const [updateMsg, setUpdateMsg] = useState<string | null>(null);
+  const updateTimerRef = useRef<number | null>(null);
 
   /** Transient footer note for auto-apply outcomes. */
   const showAutoMsg = (message: string) => {
@@ -137,6 +139,18 @@ function App() {
     }, 5000);
   };
 
+  // Update check status: transient footer note for update check outcomes.
+  const showUpdateMsg = (message: string) => {
+    if (updateTimerRef.current !== null) {
+      window.clearTimeout(updateTimerRef.current);
+    }
+    setUpdateMsg(message);
+    updateTimerRef.current = window.setTimeout(() => {
+      updateTimerRef.current = null;
+      setUpdateMsg(null);
+    }, 5000);
+  };
+
   useEffect(
     () => () => {
       if (reapplyTimerRef.current !== null) {
@@ -144,6 +158,9 @@ function App() {
       }
       if (autoTimerRef.current !== null) {
         window.clearTimeout(autoTimerRef.current);
+      }
+      if (updateTimerRef.current !== null) {
+        window.clearTimeout(updateTimerRef.current);
       }
     },
     [],
@@ -319,11 +336,14 @@ function App() {
         });
         if (info.available) {
           setUpdateDialogOpen(true);
+        } else {
+          showUpdateMsg("You're up to date");
         }
       })
       .catch((err) => {
         if (!mounted) return;
         dispatchUpdate({ type: "CHECK_FAILURE", payload: { message: String(err) } });
+        showUpdateMsg(`Update check failed: ${String(err)}`);
       });
 
     const progress = listen<{ downloaded: number; total: number | null; percent: number | null }>(
@@ -365,9 +385,12 @@ function App() {
       });
       if (info.available) {
         setUpdateDialogOpen(true);
+      } else {
+        showUpdateMsg("You're up to date!");
       }
     } catch (err) {
       dispatchUpdate({ type: "CHECK_FAILURE", payload: { message: String(err) } });
+      showUpdateMsg(`Update check failed: ${String(err)}`);
     }
   };
 
@@ -570,6 +593,14 @@ function App() {
               <span className="h-4 w-px shrink-0 bg-border" aria-hidden="true" />
               <span className="transient-enter mono truncate text-[10px] text-muted-foreground">
                 {autoMsg}
+              </span>
+            </>
+          )}
+          {updateMsg && (
+            <>
+              <span className="h-4 w-px shrink-0 bg-border" aria-hidden="true" />
+              <span className="transient-enter mono truncate text-[10px] text-muted-foreground">
+                {updateMsg}
               </span>
             </>
           )}
