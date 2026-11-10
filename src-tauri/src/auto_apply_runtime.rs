@@ -15,6 +15,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::auto_apply::{transition, ActiveAuto, AutoAction, ObservedForeground};
+use crate::foreground::ObservedWindow;
 use crate::monitor::Monitor;
 use crate::store::{AppStore, Preset};
 
@@ -138,11 +139,15 @@ fn log_observed(app: &AppHandle, rt: &mut AutoRuntime, line: String) {
     log(app, &line);
 }
 
-/// 1 s foreground watcher. Spawned once from setup alongside the enforcer.
+/// Fast foreground watcher (500 ms poll). Spawned once from setup alongside
+/// the enforcer. Half a second is imperceptible enough that apply / un-apply
+/// feels instant when switching between mapped programs, while staying gentle
+/// on CPU. Foreground changes are detected within one poll cycle so both
+/// apply and un-apply (including minimize) happen without perceptible delay.
 pub async fn auto_apply_loop(app: AppHandle) {
     loop {
         tick(&app);
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     }
 }
 
@@ -234,9 +239,17 @@ fn tick(app: &AppHandle) {
     let observed = match crate::foreground::foreground_window() {
         Some(w) => w,
         None => {
-            // No foreground window (lock screen, secure desktop): do nothing.
+            // No foreground window (lock screen, secure desktop, or the
+            // foreground process could not be queried — e.g. after
+            // minimizing a mapped program). Treat as unmapped so any
+            // active auto-apply is reverted rather than left stuck.
+            // An empty program / None device flows through the normal path
+            // so `rt.last_key` is reset and `transition(None)` reverts.
             log_observed(app, &mut rt, "fg=none".into());
-            return;
+            ObservedWindow {
+                program: String::new(),
+                device_name: None,
+            }
         }
     };
     if self_program.as_deref() == Some(observed.program.as_str()) {
