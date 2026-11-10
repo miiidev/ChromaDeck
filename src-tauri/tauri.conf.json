@@ -27,7 +27,7 @@
   "plugins": {
     "updater": {
       "active": true,
-      "endpoints": ["https://miiidev.github.io/chromadeck-web/update-manifest.json"],
+      "endpoints": ["https://chromadeck.github.io/update-manifest.json"],
       "pubkey": "RWQUd31f18orPh5B1vFNWN+soX8MZhkMmIILUKJRT/5QLlODorxRcsi3"
     }
   },
