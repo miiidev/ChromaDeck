@@ -11,6 +11,7 @@ mod monitor;
 mod nvapi;
 mod nvgamma;
 mod store;
+mod updater;
 
 use capabilities::get_display_capabilities;
 use color::{apply_preset_cmd, probe_monitor_cmd, reset_all_monitors_cmd, reset_monitor_cmd};
@@ -30,6 +31,7 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager, WindowEvent,
 };
+use updater::{check_for_update_cmd, download_and_install_cmd};
 
 // ── System tray ──────────────────────────────────────────────────────────────
 
@@ -167,8 +169,11 @@ pub fn run() {
                 .app_name("ChromaDeck")
                 .build(),
         )
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             greet,
+            check_for_update_cmd,
+            download_and_install_cmd,
             list_monitors_cmd,
             identify_monitors_cmd,
             identify_info_cmd,
