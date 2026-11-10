@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useReducer } from "react";
 import { flushSync } from "react-dom";
 import "./App.css";
 import "@fontsource/geist/400.css";
@@ -6,10 +6,11 @@ import "@fontsource/geist/600.css";
 import "@fontsource/geist/700.css";
 import "@fontsource/jetbrains-mono/500.css";
 import "@fontsource/jetbrains-mono/700.css";
-import { listMonitors, listPresets, listPins, listApplied, reapplyNow, getAutoApplyEnabled, setAutoApplyEnabled, listAutoApplied, type AutoApplyEvent } from "./lib/tauri";
+import { listMonitors, listPresets, listPins, listApplied, reapplyNow, getAutoApplyEnabled, setAutoApplyEnabled, listAutoApplied, checkForUpdate, downloadAndInstallUpdate, type AutoApplyEvent } from "./lib/tauri";
 import { version as appVersion } from "../package.json";
 import type { Monitor, Preset, EnforceEvent } from "./lib/types";
 import { applyAutoEvent, type AutoMap } from "./lib/autoApplyState";
+import { updateStateReducer, initialUpdateState, type UpdateState } from "./lib/autoUpdateState";
 import { mergeMonitors } from "./lib/monitorMerge";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { isTauri } from "@tauri-apps/api/core";
@@ -20,6 +21,8 @@ import MonitorList from "./components/MonitorList";
 import MonitorSidebar from "./components/MonitorSidebar";
 import ApplyDialog from "./components/ApplyDialog";
 import PresetEditor from "./components/PresetEditor";
+import UpdateCheckButton from "./components/updater/UpdateCheckButton";
+import UpdateDialog from "./components/updater/UpdateDialog";
 import { DragAndDropProvider } from "./components/DragAndDropContext";
 import DragGhost from "./components/DragGhost";
 import UndoToast from "./components/UndoToast";
@@ -107,6 +110,8 @@ function App() {
   const [lastAddedId, setLastAddedId] = useState<string | null>(null);
   const reapplyTimerRef = useRef<number | null>(null);
   const autoTimerRef = useRef<number | null>(null);
+  const [updateState, dispatchUpdate] = useReducer(updateStateReducer, initialUpdateState());
+  const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
 
   /** Transient footer note for auto-apply outcomes. */
   const showAutoMsg = (message: string) => {
@@ -292,6 +297,94 @@ function App() {
       enabled.then((unlisten) => unlisten()).catch(() => {});
     };
   }, []);
+
+  // ── Auto-updater: check on startup + follow progress events ───────────
+  const updateProgressRef = useRef<{ downloaded: number; total: number | null; percent: number | null } | null>(null);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    let mounted = true;
+
+    void checkForUpdate()
+      .then((info) => {
+        if (!mounted) return;
+        dispatchUpdate({
+          type: "CHECK_SUCCESS",
+          payload: {
+            available: info.available,
+            version: info.version,
+            notes: info.notes,
+            date: info.date,
+          },
+        });
+        if (info.available) {
+          setUpdateDialogOpen(true);
+        }
+      })
+      .catch((err) => {
+        if (!mounted) return;
+        dispatchUpdate({ type: "CHECK_FAILURE", payload: { message: String(err) } });
+      });
+
+    const progress = listen<{ downloaded: number; total: number | null; percent: number | null }>(
+      "update://progress",
+      (event) => {
+        const payload = event.payload;
+        updateProgressRef.current = payload;
+        if (mounted) {
+          dispatchUpdate({
+            type: "DOWNLOAD_PROGRESS",
+            payload,
+          });
+          if (payload.percent != null && payload.percent >= 100) {
+            dispatchUpdate({ type: "DOWNLOAD_SUCCESS" });
+            setUpdateDialogOpen(true);
+          }
+        }
+      },
+    );
+
+    return () => {
+      mounted = false;
+      progress.then((unlisten) => unlisten()).catch(() => {});
+    };
+  }, []);
+
+  const handleCheckUpdate = async () => {
+    dispatchUpdate({ type: "CHECK_START" });
+    try {
+      const info = await checkForUpdate();
+      dispatchUpdate({
+        type: "CHECK_SUCCESS",
+        payload: {
+          available: info.available,
+          version: info.version,
+          notes: info.notes,
+          date: info.date,
+        },
+      });
+      if (info.available) {
+        setUpdateDialogOpen(true);
+      }
+    } catch (err) {
+      dispatchUpdate({ type: "CHECK_FAILURE", payload: { message: String(err) } });
+    }
+  };
+
+  const handleDownloadAndInstall = async () => {
+    dispatchUpdate({ type: "DOWNLOAD_START" });
+    try {
+      await downloadAndInstallUpdate();
+      // On Windows the app exits after install; on other platforms we wait
+      // for the progress event to fire DOWNLOAD_SUCCESS.
+    } catch (err) {
+      dispatchUpdate({ type: "DOWNLOAD_FAILURE", payload: { message: String(err) } });
+    }
+  };
+
+  const handleRestartNow = () => {
+    void downloadAndInstallUpdate();
+  };
 
   const handleEdit = (preset: Preset) => {
     setEditingPreset(preset);
@@ -508,6 +601,10 @@ function App() {
           >
             <span className="btn-label">Reapply</span>
           </button>
+          <UpdateCheckButton
+            checking={updateState.status === "checking"}
+            onCheck={handleCheckUpdate}
+          />
         </div>
       </footer>
 
@@ -546,6 +643,52 @@ function App() {
       {/* ── Drag overlay + undo toast (portals) ────────────────────────── */}
       <DragGhost />
       <UndoToast />
+
+      {/* ── Update dialog ──────────────────────────────────────────────── */}
+      {(updateState.status === "available" ||
+        updateState.status === "downloading" ||
+        updateState.status === "ready-to-install") && updateDialogOpen && (
+        <UpdateDialog
+          open={updateDialogOpen}
+          onClose={() => setUpdateDialogOpen(false)}
+          onDownloadAndInstall={handleDownloadAndInstall}
+          onRestart={handleRestartNow}
+          onRestartLater={() => setUpdateDialogOpen(false)}
+          update={{
+            available: true,
+            version:
+              updateState.status === "available" ||
+              updateState.status === "downloading" ||
+              updateState.status === "ready-to-install"
+                ? (updateState as Extract<UpdateState, { status: "available" }>).version
+                : "",
+            notes:
+              updateState.status === "available" ||
+              updateState.status === "downloading" ||
+              updateState.status === "ready-to-install"
+                ? (updateState as Extract<UpdateState, { status: "available" }>).notes
+                : null,
+            date:
+              updateState.status === "available" ||
+              updateState.status === "downloading" ||
+              updateState.status === "ready-to-install"
+                ? (updateState as Extract<UpdateState, { status: "available" }>).date
+                : null,
+          }}
+          kind={
+            updateState.status === "downloading"
+              ? "downloading"
+              : updateState.status === "ready-to-install"
+                ? "ready"
+                : "available"
+          }
+          progress={
+            updateState.status === "downloading"
+              ? (updateState as Extract<UpdateState, { status: "downloading" }>).percent
+              : null
+          }
+        />
+      )}
     </main>
     </DragAndDropProvider>
   );
