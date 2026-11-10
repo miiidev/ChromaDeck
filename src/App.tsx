@@ -10,7 +10,7 @@ import { listMonitors, listPresets, listPins, listApplied, reapplyNow, getAutoAp
 import { version as appVersion } from "../package.json";
 import type { Monitor, Preset, EnforceEvent } from "./lib/types";
 import { applyAutoEvent, type AutoMap } from "./lib/autoApplyState";
-import { updateStateReducer, initialUpdateState } from "./lib/autoUpdateState";
+import { updateStateReducer, initialUpdateState, type UpdateState } from "./lib/autoUpdateState";
 import { mergeMonitors } from "./lib/monitorMerge";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { isTauri } from "@tauri-apps/api/core";
@@ -26,6 +26,37 @@ import UpdateDialog from "./components/updater/UpdateDialog";
 import { DragAndDropProvider } from "./components/DragAndDropContext";
 import DragGhost from "./components/DragGhost";
 import UndoToast from "./components/UndoToast";
+
+// ── Update suppression ─────────────────────────────────────────────────────
+// When the user clicks "Remind me later", suppress the update dialog for 24h.
+// Clicking "Check for updates" manually always overrides the suppression.
+
+const UPDATE_SUPPRESSED_KEY = "chromadeck.updateSuppressedUntil";
+const SUPPRESS_MS = 24 * 60 * 60 * 1000;
+
+function getUpdateSuppressedUntil(): number | null {
+  try {
+    const raw = localStorage.getItem(UPDATE_SUPPRESSED_KEY);
+    if (!raw) return null;
+    const ts = Number(raw);
+    return Number.isFinite(ts) ? ts : null;
+  } catch {
+    return null;
+  }
+}
+
+function setUpdateSuppressedUntil(ts: number): void {
+  try {
+    localStorage.setItem(UPDATE_SUPPRESSED_KEY, String(ts));
+  } catch {
+    // localStorage may be unavailable in some environments; fail silently.
+  }
+}
+
+function isUpdateSuppressed(): boolean {
+  const until = getUpdateSuppressedUntil();
+  return until !== null && until > Date.now();
+}
 
 function AutostartToggle() {
   const [on, setOn] = useState<boolean | null>(null);
@@ -112,6 +143,7 @@ function App() {
   const autoTimerRef = useRef<number | null>(null);
   const [updateState, dispatchUpdate] = useReducer(updateStateReducer, initialUpdateState());
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
+  const [updateDialogKind, setUpdateDialogKind] = useState<"available" | "up-to-date" | "downloading" | "ready">("available");
   const [updateMsg, setUpdateMsg] = useState<string | null>(null);
   const updateTimerRef = useRef<number | null>(null);
 
@@ -320,6 +352,7 @@ function App() {
 
   useEffect(() => {
     if (!isTauri()) return;
+    if (isUpdateSuppressed()) return;
     let mounted = true;
 
     void checkForUpdate()
@@ -334,11 +367,9 @@ function App() {
             date: info.date,
           },
         });
-        if (info.available) {
-          setUpdateDialogOpen(true);
-        } else {
-          showUpdateMsg("You're up to date");
-        }
+        // Always show the dialog on startup — whether or not an update exists.
+        setUpdateDialogOpen(true);
+        setUpdateDialogKind(info.available ? "available" : "up-to-date");
       })
       .catch((err) => {
         if (!mounted) return;
@@ -358,6 +389,7 @@ function App() {
           });
           if (payload.percent != null && payload.percent >= 100) {
             dispatchUpdate({ type: "DOWNLOAD_SUCCESS" });
+            setUpdateDialogKind("ready");
             setUpdateDialogOpen(true);
           }
         }
@@ -371,6 +403,8 @@ function App() {
   }, []);
 
   const handleCheckUpdate = async () => {
+    // Manual check always overrides suppression.
+    setUpdateSuppressedUntil(0);
     dispatchUpdate({ type: "CHECK_START" });
     try {
       const info = await checkForUpdate();
@@ -383,11 +417,9 @@ function App() {
           date: info.date,
         },
       });
-      if (info.available) {
-        setUpdateDialogOpen(true);
-      } else {
-        showUpdateMsg("You're up to date!");
-      }
+      // Always show the dialog on manual check.
+      setUpdateDialogOpen(true);
+      setUpdateDialogKind(info.available ? "available" : "up-to-date");
     } catch (err) {
       dispatchUpdate({ type: "CHECK_FAILURE", payload: { message: String(err) } });
       showUpdateMsg(`Update check failed: ${String(err)}`);
@@ -403,6 +435,12 @@ function App() {
     } catch (err) {
       dispatchUpdate({ type: "DOWNLOAD_FAILURE", payload: { message: String(err) } });
     }
+  };
+
+  const handleRemindMeLater = () => {
+    // Suppress the update dialog for 24 hours.
+    setUpdateSuppressedUntil(Date.now() + SUPPRESS_MS);
+    setUpdateDialogOpen(false);
   };
 
   const handleRestartNow = () => {
@@ -676,31 +714,38 @@ function App() {
       <UndoToast />
 
       {/* ── Update dialog ──────────────────────────────────────────────── */}
-      {(updateState.status === "available" ||
-        updateState.status === "downloading" ||
-        updateState.status === "ready-to-install") && updateDialogOpen && (
+      {updateDialogOpen && (
         <UpdateDialog
           open={updateDialogOpen}
           onClose={() => setUpdateDialogOpen(false)}
           onDownloadAndInstall={handleDownloadAndInstall}
           onRestart={handleRestartNow}
-          onRestartLater={() => setUpdateDialogOpen(false)}
+          onRemindMeLater={handleRemindMeLater}
           update={{
-            available: true,
-            version: updateState.version,
-            notes: updateState.notes,
-            date: updateState.date,
+            available: updateDialogKind === "available",
+            version:
+              updateDialogKind === "available" ||
+              updateDialogKind === "downloading" ||
+              updateDialogKind === "ready"
+                ? (updateState as Extract<UpdateState, { status: "available" }>).version
+                : appVersion,
+            notes:
+              updateDialogKind === "available" ||
+              updateDialogKind === "downloading" ||
+              updateDialogKind === "ready"
+                ? (updateState as Extract<UpdateState, { status: "available" }>).notes
+                : null,
+            date:
+              updateDialogKind === "available" ||
+              updateDialogKind === "downloading" ||
+              updateDialogKind === "ready"
+                ? (updateState as Extract<UpdateState, { status: "available" }>).date
+                : null,
           }}
-          kind={
-            updateState.status === "downloading"
-              ? "downloading"
-              : updateState.status === "ready-to-install"
-                ? "ready"
-                : "available"
-          }
+          kind={updateDialogKind}
           progress={
             updateState.status === "downloading"
-              ? updateState.percent
+              ? (updateState as Extract<UpdateState, { status: "downloading" }>).percent
               : null
           }
         />

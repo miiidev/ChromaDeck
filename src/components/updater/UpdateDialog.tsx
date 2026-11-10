@@ -12,26 +12,26 @@ import {
 } from "@/components/ui/dialog";
 import type { UpdateInfo } from "@/lib/tauri";
 
-type DialogKind = "available" | "downloading" | "ready";
+type DialogKind = "available" | "downloading" | "ready" | "up-to-date";
 
 interface Props {
   open: boolean;
   onClose: () => void;
   onDownloadAndInstall: () => void;
   onRestart: () => void;
-  onRestartLater: () => void;
+  onRemindMeLater: () => void;
   update: UpdateInfo | null;
   kind: DialogKind;
   progress: number | null;
 }
 
-/** Dialog shown when an update is available or being downloaded/installed. */
+/** Dialog shown when an update check completes — whether or not an update exists. */
 export default function UpdateDialog({
   open,
   onClose,
   onDownloadAndInstall,
   onRestart,
-  onRestartLater,
+  onRemindMeLater,
   update,
   kind,
   progress,
@@ -54,7 +54,11 @@ export default function UpdateDialog({
     }}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Update available</DialogTitle>
+          {kind === "up-to-date" ? (
+            <DialogTitle>You&rsquo;re up to date</DialogTitle>
+          ) : (
+            <DialogTitle>Update available</DialogTitle>
+          )}
           {date && (
             <DialogDescription>{date}</DialogDescription>
           )}
@@ -63,7 +67,7 @@ export default function UpdateDialog({
           <div className="mono text-[11px] text-muted-foreground">
             Version {version}
           </div>
-          {notes && (
+          {notes && kind !== "up-to-date" && (
             <div className="mono text-[10px] text-foreground leading-relaxed">
               {notes}
             </div>
@@ -93,10 +97,14 @@ export default function UpdateDialog({
             >
               Installing…
             </Button>
+          ) : kind === "up-to-date" ? (
+            <Button onClick={onRemindMeLater}>
+              OK
+            </Button>
           ) : (
             <>
-              <Button variant="outline" onClick={onRestartLater}>
-                Later
+              <Button variant="outline" onClick={onRemindMeLater}>
+                Remind me later
               </Button>
               <Button
                 onClick={
