@@ -4,7 +4,7 @@
 
 **Goal:** When a mapped program becomes foreground, apply its preset to the monitor holding that window; revert to identity when no mapped program for that preset remains foreground.
 
-**Architecture:** A resident 1-second Win32 foreground poll feeds a pure state machine. The state machine decides apply/revert/skip; the runtime executes through the existing colour pipeline (`apply_color`, which already skips ICC) and `reset_monitor`, then emits `auto-apply://outcome` for UI markers and toasts. State is in-memory only; the master switch and preset→program mappings are persisted.
+**Architecture:** A resident 500 ms Win32 foreground poll feeds a pure state machine. The state machine decides apply/revert/skip; the runtime executes through the existing colour pipeline (`apply_color`, which already skips ICC) and `reset_monitor`, then emits `auto-apply://outcome` for UI markers and toasts. State is in-memory only; the master switch and preset→program mappings are persisted.
 
 **Tech Stack:** Rust (Tauri v2, `windows` crate 0.62), React 19 + TypeScript, Vitest.
 

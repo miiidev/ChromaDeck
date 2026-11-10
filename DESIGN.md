@@ -235,7 +235,9 @@ The section heading is `PRESETS (n)` (mono 10px, uppercase, 0.14em tracking).
 
 ## Auto-apply
 
-A foreground watcher (1s poll) maps an executable base name to a preset and applies it to the monitor showing that window. Mappings are edited in the preset editor's **Programs** row (removable mono chips + name input + `Browse…` `.exe` picker). One program maps to exactly one preset; a conflict shows inline, naming the owning preset. The master switch lives in the footer and the tray, defaults off, and persists in `settings.json`; auto-applied state itself is in-memory only, skips ICC, and never writes `applied.json`. A pin always beats auto-apply. Reverting (program closes, moves, or the switch goes off) returns the monitor to identity. ChromaDeck's own foreground window is ignored so opening the app never reverts.
+A foreground watcher (500 ms poll) maps an executable base name to a preset and applies it to the monitor showing that window. Mappings are edited in the preset editor's **Programs** row (removable mono chips + name input + `Browse…` `.exe` picker). One program maps to exactly one preset; a conflict shows inline, naming the owning preset. The master switch lives in the footer and the tray, defaults off, and persists in `settings.json`; auto-applied state itself is in-memory only, skips ICC, and never writes `applied.json`. A pin always beats auto-apply. Reverting (program closes, moves, minimizes, or the switch goes off) returns the monitor to identity. ChromaDeck's own foreground window is ignored so opening the app never reverts.
+
+Diagnostics: switch changes, foreground/device/EDID changes, and apply/revert/skip results are appended to `<data_dir>/auto-apply.log` (epoch-ms lines, capped at 256 KiB).
 
 ## Flat Card Architecture
 

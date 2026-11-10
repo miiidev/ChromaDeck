@@ -43,12 +43,14 @@ Add a `attached_programs: Vec<String>` (process base names, lowercased
 compare) to presets; editable in PresetEditor as a chip row (reuse the
 existing tag-chip interaction).
 
-- **Detection:** background poll (~1s) reads the foreground window's process
+- **Detection:** background poll (500 ms) reads the foreground window's process
   base name via `GetForegroundWindow` + `QueryFullProcessImageNameW`. Match
   against mappings; on a *new* match (program switch, not already-applied),
   apply the preset to the monitor the window currently sits on
   (`MonitorFromWindow` → adapter path → `edid_id`). Moving a window between
-  screens re-derives the target.
+  screens re-derives the target. Device-name matching is case-insensitive.
+- **Immediate apply on switch-on:** turning the master switch on evaluates the
+  current foreground on the next tick — no seed-and-wait delay.
 - **Pipe:** auto fires go through the standard apply pipeline (same
   outcome/adjustment contract as manual apply, no user action needed) for
   gamma/vibrance/hue; per-backend outcomes report to a
@@ -56,11 +58,13 @@ existing tag-chip interaction).
   `<monitor>`" toast. Color changes must never be mysterious.
 - **Conflicts:** a pinned monitor is never auto-touched; skip + info toast.
   Pin (user intent) beats rule (automation).
-- **Revert on close:** when ALL mapped programs for that preset stop being
-  foreground and that monitor is currently colored by auto-apply (tracked
-  in-memory, not persisted), reset that monitor to system identity. If no
-  program ever launched while we were watching (cold start mid-run),
-  auto takes no action to avoid stomping existing state.
+- **Revert on close / minimize / switch-off:** when ALL mapped programs for
+  that preset stop being foreground (including minimizing a mapped program)
+  and that monitor is currently colored by auto-apply (tracked in-memory, not
+  persisted), reset that monitor to system identity. Turning the master switch
+  off reverts synchronously. If no program ever launched while we were
+  watching (cold start mid-run), auto takes no action to avoid stomping
+  existing state.
 - **Bookkeeping (decided):** auto state is purely in-memory — never written
   to `applied.json` and never restarted after relaunch (after a restart the
   screen shows plain default until a mapped program opens again). While
@@ -68,6 +72,9 @@ existing tag-chip interaction).
   an obvious **auto** marker; the preset stays visible in the library
   carrying the same marker (hand-applied presets leaving the library
   behavior is unchanged and manual-only). On revert, all markers clear.
+- **Diagnostics:** switch changes, foreground/device/EDID changes, and
+  apply/revert/skip results are appended to `<data_dir>/auto-apply.log`
+  (epoch-ms lines, capped at 256 KiB).
 - **ICC (decided):** the auto-apply arm skips the ICC step entirely, so
   revert-on-close leaves zero system residue.
 - **Master switch (decided):** settings toggle + tray checkbox, persisted,
