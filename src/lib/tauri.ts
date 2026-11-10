@@ -2,6 +2,7 @@
 // Mirror the Rust backend commands defined in src-tauri/src/monitor.rs and store.rs.
 
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { DEMO_APPLIED, DEMO_MONITORS, DEMO_PINS, DEMO_PRESETS } from "./demoData";
 
 /** Browser preview only: no Tauri IPC available. */
@@ -218,4 +219,50 @@ export interface AutoApplyEvent {
   monitor_name: string;
   program: string;
   error: string | null;
+}
+
+// ── Auto-updater ─────────────────────────────────────────────────────────────
+
+export interface UpdateInfo {
+  available: boolean;
+  version: string;
+  notes: string | null;
+  date: string | null;
+}
+
+export interface UpdateProgress {
+  downloaded: number;
+  total: number | null;
+  percent: number | null;
+}
+
+/** Check whether a newer version is available at the update endpoint. */
+export async function checkForUpdate(): Promise<UpdateInfo> {
+  if (isBrowserPreview()) {
+    return {
+      available: false,
+      version: "",
+      notes: null,
+      date: null,
+    };
+  }
+  return invoke<UpdateInfo>("check_for_update_cmd");
+}
+
+/** Download and install the available update. The plugin verifies the
+ *  Ed25519 signature before installing; installation exits the app. */
+export async function downloadAndInstallUpdate(): Promise<void> {
+  if (isBrowserPreview()) return;
+  return invoke<void>("download_and_install_cmd");
+}
+
+/** Subscribe to download progress events (`update://progress`). */
+export function onUpdateProgress(
+  callback: (progress: UpdateProgress) => void,
+): (() => void) {
+  if (isBrowserPreview()) return () => {};
+  const unlisten = listen<UpdateProgress>("update://progress", (event) => {
+    callback(event.payload);
+  });
+  return () => unlisten.then((fn) => fn());
 }
