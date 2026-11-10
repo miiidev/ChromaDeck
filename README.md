@@ -19,6 +19,7 @@ Per-monitor display color profile manager for Windows. Save color presets — br
 - **Import NVCP state** — capture the driver's live color state straight into a new preset.
 - **Preset deck UI** — light neobrutalist theme: paper background, black borders, hard offset shadows, mint accent fills, tap-to-apply deck, in-use highlighting on preset cards, monitor sidebar, support for offline monitors.
 - **Preset editor** — fine-tune gamma, contrast, brightness, RGB gains, vibrance, saturation, hue, tag colour, and tag shape with live before/after swatch preview. Reset, duplicate, and delete presets from any card.
+- **Auto-updater** — checks a hosted update manifest on startup and on demand, downloads a new release, verifies its Ed25519 signature, and prompts you to install — all inside the app. No more downloading a new installer for every release.
 - **Tray-native window** — closing hides to the tray; every re-open (tray Show, tray click, second launch) replays the staged load animation; the window spawns centered on launch.
 
 ## Installation (Windows 10/11 x64)
@@ -31,6 +32,12 @@ Download from the [releases page](https://github.com/miiidev/ChromaDeck/releases
 | `ChromaDeck_*_x64-setup.exe` | NSIS setup wizard |
 | `ChromaDeck_*_x64-portable.zip` | Portable ZIP (exe + license + marker, unzip and run — settings stay in a `data` folder next to the exe, nothing in AppData) |
 | `chromadeck.exe` | Standalone binary, no install needed |
+
+## Auto-updater
+
+ChromaDeck checks for updates automatically on startup and on demand via a "Check for updates" button in the footer. When a newer version is available, a dialog shows the release notes and a "Download & install" button. The MSI is downloaded and its Ed25519 signature is verified before installation — unsigned or tampered updates are never executed.
+
+After a successful install, the app restarts on the new version. Clicking "Remind me later" on the dialog suppresses update notifications for 24 hours; clicking "Check for updates" again always overrides the suppression.
 
 Requirements: Windows 10/11 x64 and the WebView2 runtime (preinstalled on Windows 10 1809+ and Windows 11). NVIDIA displays unlock the NVCP-native engine plus digital vibrance/hue; Intel-driven displays use the Intel IGCL pipeline (saturation, hue, gamma family); any other display falls back to OS-level color controls where supported.
 

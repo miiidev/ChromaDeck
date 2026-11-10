@@ -1,7 +1,7 @@
 # Auto-Updater — Design Spec
 
-**Status:** approved in chat (2026-11-10); wired to a real endpoint supplied separately.
-**Version target:** lands with v0.9.0 (version fields bumped at release).
+**Status:** implemented (v0.9.2); manifest hosted at `https://chromadeck.github.io/update-manifest.json`.
+**Version target:** landed with v0.9.2.
 
 ## Intent and why
 
@@ -62,23 +62,27 @@ Hosted JSON at your update endpoint:
 
 ```json
 {
-  "version": "0.9.0",
-  "date": "2026-11-10",
-  "notes": "...",
-  "url": "https://updates.chromadeck.dev/ChromaDeck_0.9.0.msi",
-  "sha256": "...",
-  "signature": "..."
+  "version": "0.9.2",
+  "notes": "ChromaDeck v0.9.2 — auto-updater...",
+  "pub_date": "2026-11-11T00:00:00Z",
+  "url": "https://github.com/miiidev/ChromaDeck/releases/download/v0.9.2/ChromaDeck_0.9.2_x64_en-US.msi",
+  "signature": "RWQUd31f18or..."
 }
 ```
 
-Signed with your Ed25519 private key; public key embedded in the app.
+Signed with your Ed25519 private key; public key embedded in the app. Tauri v2's updater plugin expects `url` and `signature` at the top level (Dynamic format), not wrapped in a `"data"` object.
 
 ## What's left to the builder
 
-- Pick and provision the update endpoint URL (where the manifest lives).
-- Generate the Ed25519 key pair; embed the public key; keep the private key for signing release manifests.
-- Decide where the "Check for updates" UI lives (settings footer vs. app menu vs. tray).
-- Whether v0.9.0 ships with the updater wired but pointing at a placeholder endpoint (dry-run, no real updates yet).
+Nothing — the auto-updater is complete:
+
+- Endpoint: `https://chromadeck.github.io/update-manifest.json` (GitHub Pages)
+- Public key embedded in `src-tauri/tauri.conf.json` `"plugins.updater.pubkey"`
+- Release signing key held off-tree in `chromadeck-web/scripts/.keys/secret_key.der`
+- Signing script: `chromadeck-web/scripts/sign-file.mjs`
+- Manifest signing: run `node scripts/sign-file.mjs <new-msi>` then update the manifest JSON with the new signature
+
+To ship a new release, bump all three version files (`package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`), build the MSI (`npm run tauri build`), sign it, update the manifest, and create a GitHub release with the MSI as an asset.
 
 ## Testing / gates
 
