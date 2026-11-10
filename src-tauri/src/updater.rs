@@ -5,7 +5,7 @@
 //! installation; unsigned manifests are informational only.
 
 use semver::Version;
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 use tauri_plugin_updater::UpdaterExt;
 
 /// Placeholder update endpoint. Replace with the real manifest host before
@@ -47,8 +47,51 @@ pub async fn check_for_update_cmd(app: AppHandle) -> Result<UpdateInfo, String> 
 }
 
 #[tauri::command]
-pub async fn download_and_install_cmd(_app: AppHandle) -> Result<(), String> {
-    Err("updater not yet implemented".to_string())
+pub async fn download_and_install_cmd(app: AppHandle) -> Result<(), String> {
+    let updater = app.updater().map_err(|e| e.to_string())?;
+    let update = match updater.check().await {
+        Ok(Some(update)) => update,
+        Ok(None) => return Err("no update available".to_string()),
+        Err(e) => return Err(e.to_string()),
+    };
+
+    let mut downloaded: u64 = 0;
+    let mut total: Option<u64> = None;
+    let app_clone = app.clone();
+
+    let bytes = update
+        .download(
+            |chunk_length, content_length| {
+                downloaded += chunk_length as u64;
+                total = total.or(content_length);
+                let percent = content_length.map(|t| {
+                    (downloaded as f64 / t as f64 * 100.0) as u32
+                });
+                let _ = app_clone.emit(
+                    "update://progress",
+                    serde_json::json!({
+                        "downloaded": downloaded,
+                        "total": total,
+                        "percent": percent,
+                    }),
+                );
+            },
+            || {},
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let _ = app.emit(
+        "update://progress",
+        serde_json::json!({
+            "downloaded": downloaded,
+            "total": total,
+            "percent": 100u32,
+        }),
+    );
+
+    update.install(bytes).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[cfg(test)]
