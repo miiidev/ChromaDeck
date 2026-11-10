@@ -10,7 +10,7 @@ import { listMonitors, listPresets, listPins, listApplied, reapplyNow, getAutoAp
 import { version as appVersion } from "../package.json";
 import type { Monitor, Preset, EnforceEvent } from "./lib/types";
 import { applyAutoEvent, type AutoMap } from "./lib/autoApplyState";
-import { updateStateReducer, initialUpdateState, type UpdateState } from "./lib/autoUpdateState";
+import { updateStateReducer, initialUpdateState } from "./lib/autoUpdateState";
 import { mergeMonitors } from "./lib/monitorMerge";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { isTauri } from "@tauri-apps/api/core";
@@ -656,24 +656,9 @@ function App() {
           onRestartLater={() => setUpdateDialogOpen(false)}
           update={{
             available: true,
-            version:
-              updateState.status === "available" ||
-              updateState.status === "downloading" ||
-              updateState.status === "ready-to-install"
-                ? (updateState as Extract<UpdateState, { status: "available" }>).version
-                : "",
-            notes:
-              updateState.status === "available" ||
-              updateState.status === "downloading" ||
-              updateState.status === "ready-to-install"
-                ? (updateState as Extract<UpdateState, { status: "available" }>).notes
-                : null,
-            date:
-              updateState.status === "available" ||
-              updateState.status === "downloading" ||
-              updateState.status === "ready-to-install"
-                ? (updateState as Extract<UpdateState, { status: "available" }>).date
-                : null,
+            version: updateState.version,
+            notes: updateState.notes,
+            date: updateState.date,
           }}
           kind={
             updateState.status === "downloading"
@@ -684,7 +669,7 @@ function App() {
           }
           progress={
             updateState.status === "downloading"
-              ? (updateState as Extract<UpdateState, { status: "downloading" }>).percent
+              ? updateState.percent
               : null
           }
         />

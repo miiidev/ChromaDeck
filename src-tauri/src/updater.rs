@@ -4,7 +4,6 @@
 //! `tauri-plugin-updater`. All updates are Ed25519 signature-verified before
 //! installation; unsigned manifests are informational only.
 
-use semver::Version;
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_updater::UpdaterExt;
 
@@ -19,11 +18,6 @@ pub struct UpdateInfo {
     pub version: String,
     pub notes: Option<String>,
     pub date: Option<String>,
-}
-
-/// Returns `true` when `remote` is a newer version than `current`.
-pub fn is_update_available(current: &Version, remote: &Version) -> bool {
-    remote > current
 }
 
 #[tauri::command]
@@ -92,37 +86,4 @@ pub async fn download_and_install_cmd(app: AppHandle) -> Result<(), String> {
 
     update.install(bytes).map_err(|e| e.to_string())?;
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn update_available_when_remote_newer() {
-        let current = Version::parse("0.8.4").unwrap();
-        let remote = Version::parse("0.9.0").unwrap();
-        assert!(is_update_available(&current, &remote));
-    }
-
-    #[test]
-    fn no_update_when_versions_equal() {
-        let current = Version::parse("0.8.4").unwrap();
-        let remote = Version::parse("0.8.4").unwrap();
-        assert!(!is_update_available(&current, &remote));
-    }
-
-    #[test]
-    fn no_update_when_remote_older() {
-        let current = Version::parse("0.9.0").unwrap();
-        let remote = Version::parse("0.8.4").unwrap();
-        assert!(!is_update_available(&current, &remote));
-    }
-
-    #[test]
-    fn prerelease_is_not_newer_than_release() {
-        let current = Version::parse("0.9.0").unwrap();
-        let remote = Version::parse("0.9.0-rc.1").unwrap();
-        assert!(!is_update_available(&current, &remote));
-    }
 }
