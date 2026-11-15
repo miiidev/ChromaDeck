@@ -343,24 +343,24 @@ export default function PresetCard({
         }}
         onKeyDown={handleKeyDown}
       >
-        <div className="flex min-h-0 flex-1 flex-col gap-3 rounded-[8px] border border-border-hover bg-surface p-4">
+        <div className="flex min-h-0 flex-1 flex-col gap-3 rounded-[8px] border border-transparent bg-surface p-4">
           {/* ═══ Row 1: Badges ═══ */}
           <div className="flex h-6 items-center justify-between gap-2">
             <div className="flex min-w-0 items-center gap-2 overflow-hidden">
               <PresetTag color={tag ?? undefined} shape={preset.tag_shape} />
               {category && (
-                <span className="min-w-0 truncate rounded-[8px] border border-border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground">
+                <span className="min-w-0 truncate rounded-[8px] border border-border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground">
                   {category}
                 </span>
               )}
               {preset.icc_hash && (
-                <span className="pop-in inline-flex shrink-0 items-center whitespace-nowrap rounded-[8px] border border-border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground">
+                <span className="pop-in inline-flex shrink-0 items-center whitespace-nowrap rounded-[8px] border border-border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground">
                   ICC
                 </span>
               )}
               {isActive && (
                 <span
-                  className="pop-in inline-flex shrink-0 items-center whitespace-nowrap rounded-[8px] border border-primary bg-primary-subtle px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.1em] text-primary"
+                  className="pop-in inline-flex shrink-0 items-center whitespace-nowrap rounded-[8px] border border-primary bg-primary-subtle px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em] text-primary"
                   title="Currently applied to a connected monitor"
                 >
                   IN USE
@@ -368,7 +368,7 @@ export default function PresetCard({
               )}
               {autoApplied && (
                 <span
-                  className="pop-in inline-flex shrink-0 items-center whitespace-nowrap rounded-[8px] border border-border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground"
+                  className="pop-in inline-flex shrink-0 items-center whitespace-nowrap rounded-[8px] border border-border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground"
                   title="Auto-applied for a mapped program"
                 >
                   AUTO
@@ -415,19 +415,19 @@ export default function PresetCard({
 
           {/* ═══ Row 3: Mono summary — always visible; failures replace it ═══ */}
           {actionError ? (
-            <div role="alert" className="flex h-3 items-center overflow-hidden">
-              <span className="truncate font-mono text-[9px] leading-[1.3] text-destructive">
+            <div role="alert" className="flex h-3 min-w-0 items-center">
+              <span className="truncate font-mono text-[12px] leading-[1.3] text-destructive">
                 {actionError}
               </span>
             </div>
           ) : (
-            <div className="flex h-3 items-center justify-between gap-2 overflow-hidden">
-              <span className="truncate font-mono text-[9px] leading-[1.3] text-muted-foreground">
+            <div className="flex h-3 min-w-0 items-center justify-between gap-2">
+              <span className="truncate font-mono text-[12px] leading-[1.3] text-muted-foreground">
                 {summary}
               </span>
               {isPinned && pinnedMonitorNames.length > 0 && (
                 <span
-                  className="truncate font-mono text-[9px] leading-[1.3] text-muted-foreground"
+                  className="truncate font-mono text-[12px] leading-[1.3] text-muted-foreground"
                   title={`Pinned to ${pinnedMonitorNames.join(", ")}`}
                 >
                   → {pinnedMonitorNames.join(", ")}
@@ -440,7 +440,7 @@ export default function PresetCard({
           <div className="mt-auto flex h-[22px] items-center justify-between gap-2">
             <button
               type="button"
-              className="inline-flex h-[22px] items-center gap-1.5 rounded-[8px] border border-border bg-transparent px-2 font-mono text-[10px] text-foreground opacity-60 transition-opacity hover:bg-surface-hover focus-visible:opacity-100 group-hover/card:opacity-100 group-focus-within/card:opacity-100"
+              className="inline-flex h-[22px] items-center gap-1.5 rounded-[8px] border border-border bg-transparent px-2 font-body text-[12px] text-foreground opacity-60 transition-opacity hover:bg-surface-hover focus-visible:opacity-100 group-hover/card:opacity-100 group-focus-within/card:opacity-100"
               onClick={(e) => {
                 e.stopPropagation();
                 onApply(preset);

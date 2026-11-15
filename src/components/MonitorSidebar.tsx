@@ -40,7 +40,7 @@ function UtilityButton({
       )}
     >
       <span className="shrink-0 transition-transform duration-[var(--motion-fast)] ease-[var(--ease-standard)] group-hover/util-icon:scale-[1.05]">{icon}</span>
-      <span className="font-sans text-[12px] leading-[1.4] whitespace-nowrap">{label}</span>
+      <span className="font-body text-[12px] leading-[1.4] whitespace-nowrap">{label}</span>
     </button>
   );
 }
@@ -483,7 +483,7 @@ function MonitorCard({ monitor, pinnedPreset, appliedMap, autoMap, setAppliedMap
         <div className="relative flex min-w-0 items-start justify-between gap-2">
           <div className="flex min-w-0 flex-col gap-[3px]">
             <MonitorNameEditor monitor={monitor} onRefreshParent={onRefresh} />
-            <span className="truncate font-mono text-[11px] leading-[1.4] text-muted-foreground">
+            <span className="truncate font-mono text-[12px] leading-[1.4] text-muted-foreground">
               {monitor.serial || monitor.edid_id}
             </span>
           </div>
@@ -552,7 +552,7 @@ function MonitorCard({ monitor, pinnedPreset, appliedMap, autoMap, setAppliedMap
               <span className="validation-slide truncate font-display text-[13px] leading-tight text-destructive">
                 Apply failed
               </span>
-              <span className="truncate font-mono text-[11px] leading-snug text-destructive/80">
+              <span className="truncate font-mono text-[12px] leading-snug text-destructive/80">
                 {status.error}
               </span>
             </span>
@@ -569,13 +569,13 @@ function MonitorCard({ monitor, pinnedPreset, appliedMap, autoMap, setAppliedMap
                   {slotTitle.title}
                 </span>
                 {slotTitle.category && (
-                  <span className="truncate font-mono text-[11px] leading-snug text-muted-foreground">
+                  <span className="truncate font-mono text-[12px] leading-snug text-muted-foreground">
                     {slotTitle.category}
                   </span>
                 )}
                 {status?.phase === "error" && status.error && (
                   <span
-                    className="validation-slide truncate font-mono text-[11px] leading-snug text-destructive"
+                    className="validation-slide truncate font-mono text-[12px] leading-snug text-destructive"
                     title={status.error}
                   >
                     {status.error}
@@ -797,7 +797,7 @@ function ResetAllButton({ monitors, pins, setAppliedMap, onRefresh, onPinChange 
         className="inline-flex items-center gap-1.5 rounded-[8px] px-1.5 py-1 text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-none disabled:opacity-50"
       >
         <ResetGlyph className="size-3.5 transition-transform duration-[var(--motion-fast)] ease-[var(--ease-standard)] hover:scale-110" />
-        <span className="font-mono text-[10px] leading-[1.4]">Reset all</span>
+        <span className="font-body text-[12px] leading-[1.4]">Reset all</span>
       </button>
       {confirmOpen && (
         <ResetAllConfirmDialog
@@ -861,7 +861,7 @@ export default function MonitorSidebar({ monitors, presets, pins, appliedMap, au
     >
       {/* Panel heading */}
       <div className="flex h-10 shrink-0 items-center justify-between border-b border-border pb-2">
-        <span className="mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+        <span className="mono text-[12px] uppercase tracking-[0.14em] text-muted-foreground">
           Monitors ({monitors.length})
         </span>
         <div className="flex items-center gap-1">
@@ -880,7 +880,7 @@ export default function MonitorSidebar({ monitors, presets, pins, appliedMap, au
             className="inline-flex items-center gap-1.5 rounded-[8px] px-1.5 py-1 text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-none disabled:opacity-50"
           >
             <IdentifyGlyph className="size-3.5 transition-transform duration-[var(--motion-fast)] ease-[var(--ease-standard)] hover:scale-110" />
-            <span className="font-mono text-[10px] leading-[1.4]">
+            <span className="font-body text-[12px] leading-[1.4]">
               {identifying ? "Identifying…" : "Identify"}
             </span>
           </button>

@@ -28,7 +28,7 @@ export default function DragGhost() {
       style={{ left: x + 14, top: y + 14, width }}
     >
       <div className="flex flex-col gap-2 rounded-[8px] border border-primary-border bg-surface-raised p-2 shadow-[0_16px_40px_rgba(0,0,0,0.55)]">
-        <div className="flex flex-col gap-2 rounded-[8px] border border-border-hover bg-surface-raised px-3 py-2.5">
+        <div className="flex flex-col gap-2 rounded-[8px] border border-transparent bg-surface-raised px-3 py-2.5">
           {/* Row 1: colour tag + category */}
           <div className="flex items-center gap-2">
             <PresetTag color={tag ?? undefined} shape={preset.tag_shape} />

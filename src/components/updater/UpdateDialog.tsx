@@ -66,7 +66,7 @@ export default function UpdateDialog({
         <div className="flex flex-col gap-3">
           {kind === "error" && <p role="alert" className="text-sm text-foreground">{error}</p>}
           {kind === "installing" && <p role="status" className="text-sm text-muted-foreground">Installing update… The app will close when the installer starts.</p>}
-          <div className="mono text-[11px] text-muted-foreground">
+          <div className="mono text-[12px] text-muted-foreground">
             Version {version}
           </div>
           {notes && kind !== "up-to-date" && (
