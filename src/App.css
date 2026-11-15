@@ -588,6 +588,44 @@ h6,
   animation: apply-sweep 500ms var(--ease-out) both;
 }
 
+/* ── Screen tint (silhouette monitor) ────────────────────────────
+   Accent wash inside the screen bezel. Fades in and re-tints softly
+   when the accent changes; .reset-drain plays the fade-out once. */
+
+.screen-tint {
+  transition:
+    opacity var(--motion-fast) var(--ease-out),
+    background-color var(--motion-fast) var(--ease-out);
+}
+
+@keyframes applying-wash {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(200%); }
+}
+
+/* While an apply is in flight the screen shows a slow moving wash —
+   deliberately not a progress bar: the backend reports no percentage. */
+.applying-wash {
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--tag, var(--color-primary)) 18%, transparent),
+    transparent
+  );
+  animation: applying-wash 1.4s linear infinite;
+}
+
+@keyframes reset-drain {
+  from { opacity: var(--tint-from, 0.08); }
+  to   { opacity: 0; }
+}
+
+.reset-drain {
+  pointer-events: none;
+  animation: reset-drain var(--motion-standard) var(--ease-out) both;
+}
+
 /* ── Drop-target state ───────────────────────────────────────────
    Valid drop lights the card and slot in the dragged preset's tag
    colour (falls back to primary for untagged presets). */
@@ -616,6 +654,17 @@ h6,
   .apply-sweep {
     animation: none;
     opacity: 0;
+  }
+
+  .applying-wash {
+    animation: none;
+    opacity: 0.08;
+  }
+
+  .screen-tint,
+  .reset-drain {
+    transition: none;
+    animation: none;
   }
 
   .drop-shake {
