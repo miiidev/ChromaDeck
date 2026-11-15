@@ -30,24 +30,39 @@
 ### Task 1: Discover current rendering and Figma assets
 **Files:** Read `src/App.tsx`, `src/App.css`, `src/components/`, `src/lib/tauri.ts`, existing Playwright fixtures, `DESIGN.md`; no source edits.
 **Interfaces:** Produces viewport, visible state fixtures, source component inventory, measured geometry, and Figma asset map.
-- [ ] Read relevant components, defaults, desktop browser fallback, and existing fixtures.
-- [ ] Load Figma use/generate-design guidance; create/reuse task session; search design system first and inspect available libraries, current screens, variables, and styles.
-- [ ] Render app using existing tooling without altering source. Use existing browser fixtures only when necessary and identify mocked states.
-- [ ] Capture source screenshot and geometry at the actual desktop viewport; inventory main view, editor, apply and confirmation dialogs, and updater.
+- [x] Read relevant components, defaults, desktop browser fallback, and existing fixtures.
+- [x] Load Figma use/generate-design guidance; create/reuse task session; search design system first and inspect available libraries, current screens, variables, and styles.
+- [x] Render app using existing tooling without altering source. Use existing browser fixtures only when necessary and identify mocked states.
+- [x] Capture source screenshot and geometry at the actual desktop viewport; inventory main view, editor, apply and confirmation dialogs, and updater.
 
 ### Task 2: Transfer faithful baseline
 **Files:** Figma new baseline page/frames only.
 **Interfaces:** Consumes Task 1 inventory; produces baseline node IDs and verification screenshot.
-- [ ] Build editable current UI using applicable component instances and bound tokens, with source SVG assets. Use required live capture as visual reference alongside semantic construction.
+- [x] Build editable current UI using applicable component instances and bound tokens, with source SVG assets. Use required live capture as visual reference alongside semantic construction.
 - [ ] Verify exact viewport, major section/card/control coordinates, visible labels, font families, and long-name behavior against source.
-- [ ] Inspect layer types and image fills; reject complete-screen raster deliverables. Remove temporary capture after comparison and asset transfer.
+- [x] Inspect layer types and image fills; reject complete-screen raster deliverables. Remove temporary capture after comparison and asset transfer.
 
 ### Task 3: Create restrained reskin and verify
 **Files:** Figma separate reskin page and independent reusable components only.
 **Interfaces:** Consumes baseline node IDs; produces reskin links and before/after verification.
-- [ ] Duplicate baseline without allowing shared main-component changes to affect it.
-- [ ] Remove inner decorative card border; preserve outer border and meaningful slot/input outlines. Keep tag-coloured applied/pinned states.
-- [ ] Enlarge small reading text toward 12–13px while measuring fit; retain large titles. Apply restrained visual refinements to remaining controls without geometry changes.
-- [ ] Compare baseline/reskin bounds and control inventory; inspect footer fit, long names, card actions, badges, and dialog label/value collisions. Report any text that cannot be enlarged under frozen geometry.
-- [ ] Validate editability, font families, and state treatments; inspect full-view screenshots and correct concrete defects.
-- [ ] Deliver Figma links and exact scope/limitations. No application build/test claims: application source is unchanged; visual verification is the relevant gate.
+- [x] Duplicate baseline without allowing shared main-component changes to affect it.
+- [x] Remove inner decorative card border; preserve outer border and meaningful slot/input outlines. Keep tag-coloured applied/pinned states.
+- [x] Enlarge small reading text toward 12–13px while measuring fit; retain large titles. Apply restrained visual refinements to remaining controls without geometry changes.
+- [x] Compare baseline/reskin bounds and control inventory; inspect footer fit, long names, card actions, badges, and dialog label/value collisions. Report any text that cannot be enlarged under frozen geometry.
+- [x] Validate editability, font families, and state treatments; inspect full-view screenshots and correct concrete defects.
+- [x] Deliver Figma links and exact scope/limitations. No application build/test claims: application source is unchanged; visual verification is the relevant gate.
+
+## Status — 2026-11-16
+
+Delivered on page `2026-11 Component Reskin` (`84:185`) in `vfF5g0hTALNbScBM4Nz1Y1`:
+baseline frames `84:186` (main), `91:185`–`91:188` (editor, apply, reset, update) and reskin frames `86:185`, `91:512`, `91:734`, `91:795`, `91:820`. All are editable layers with no image fills.
+
+- The baseline and reskin monitor rows were updated to the shipped silhouette cards from a fresh capture at 1440×900 (demo data). The pre-silhouette rows are kept hidden in both frames.
+- The search icon that was missing from both main frames was added (baseline field; `Reskin/Input/Search` component).
+- Editor reskin fixes: "Preset editor / New" and "Optional · .icc or .icm · / No file selected" no longer collide after enlargement; "Gamma" now matches the other slider labels (Geist 12).
+
+Open items:
+- Long-name truncation is not verified: the demo fixtures have no long names (step left unchecked).
+- Baseline utility labels (Reset/Probe) use Segoe UI. That matches the app, whose `font-sans` falls back to the system font because `@theme` has no `--font-sans`, but Segoe UI is unavailable in Figma, so these labels show as missing fonts. The reskin uses Geist.
+- The new updater `installing` and `error` dialog states are not drawn.
+- Some 9–10px meta labels (e.g. "10 SWATCHES", "0 mapped", status chips) remain at their original size.
