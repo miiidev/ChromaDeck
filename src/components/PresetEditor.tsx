@@ -3,7 +3,7 @@ import { useState, useEffect, type FormEvent } from "react";
 import type { Preset, PresetInput } from "../lib/types";
 import { createPreset, updatePreset, importIcc } from "../lib/tauri";
 import { validatePresetForm, type ValidationErrors } from "../lib/validation";
-import { DEFAULT_PRESET_INPUT, presetToFormValues } from "../lib/presetForm";
+import { DEFAULT_PRESET_INPUT, presetToFormValues, withSelectedIcc } from "../lib/presetForm";
 import { addProgram } from "../lib/programMapping";
 import { joinCategory, splitCategory } from "../lib/presetCard";
 import { applyPreviewPixel, type RgbColor } from "../lib/preview";
@@ -193,6 +193,7 @@ export default function PresetEditor({ presets, editPreset, onClose, onClosed, o
       const hash = await importIcc(selected);
       const parts = selected.replace(/\\/g, "/").split("/");
       setIccStatus({ hash, filename: parts[parts.length - 1] });
+      setForm((current) => withSelectedIcc(current, selected));
       setErrors((prev) => {
         const { icc_path: _, ...rest } = prev;
         return rest;
@@ -647,7 +648,7 @@ export default function PresetEditor({ presets, editPreset, onClose, onClosed, o
             <Button variant="ghost" type="button" onClick={() => requestClose()}>
               Cancel
             </Button>
-            <Button variant="default" type="submit" disabled={saving} trailingIcon={<Check className="size-4 text-primary-foreground" />}>
+            <Button variant="default" type="submit" disabled={saving || iccImporting} trailingIcon={<Check className="size-4 text-primary-foreground" />}>
               {saving ? "Saving…" : "Save"}
             </Button>
           </DialogFooter>

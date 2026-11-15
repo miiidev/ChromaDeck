@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { DEFAULT_PRESET_INPUT, presetToFormValues, resetSliderValues } from "./presetForm";
+import { DEFAULT_PRESET_INPUT, presetToFormValues, resetSliderValues, withSelectedIcc } from "./presetForm";
 import type { Preset } from "./types";
 
 const PRESET: Preset = {
@@ -17,6 +17,17 @@ const PRESET: Preset = {
   color_tag: "#ff5533",
   tag_shape: "square",
 };
+
+describe("ICC selection", () => {
+  it("includes the selected profile in new and edited preset payloads", () => {
+    for (const form of [DEFAULT_PRESET_INPUT, presetToFormValues(PRESET)]) {
+      const selected = withSelectedIcc(form, "C:\\profiles\\new.icc");
+      expect(selected.icc_path).toBe("C:\\profiles\\new.icc");
+      expect(selected.name).toBe(form.name);
+      expect(form.icc_path).toBeUndefined();
+    }
+  });
+});
 
 describe("preset editor saturation round-trip", () => {
   it("defaults a new preset to neutral saturation", () => {

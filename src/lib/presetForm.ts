@@ -23,6 +23,10 @@ export const DEFAULT_PRESET_INPUT: PresetInput = {
   attached_programs: [],
 };
 
+export function withSelectedIcc(form: PresetInput, path: string): PresetInput {
+  return { ...form, icc_path: path };
+}
+
 /** Populate the editor form from a stored preset (edit mode). */
 export function presetToFormValues(preset: Preset): PresetInput {
   return {
