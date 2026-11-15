@@ -12,13 +12,14 @@ import {
 } from "@/components/ui/dialog";
 import type { UpdateInfo } from "@/lib/tauri";
 
-type DialogKind = "available" | "downloading" | "ready" | "up-to-date";
+type DialogKind = "available" | "downloading" | "installing" | "error" | "up-to-date";
 
 interface Props {
   open: boolean;
   onClose: () => void;
   onDownloadAndInstall: () => void;
-  onRestart: () => void;
+  onRetry: () => void;
+  error: string | null;
   onRemindMeLater: () => void;
   update: UpdateInfo | null;
   kind: DialogKind;
@@ -30,7 +31,8 @@ export default function UpdateDialog({
   open,
   onClose,
   onDownloadAndInstall,
-  onRestart,
+  onRetry,
+  error,
   onRemindMeLater,
   update,
   kind,
@@ -40,9 +42,7 @@ export default function UpdateDialog({
     onDownloadAndInstall();
   }, [onDownloadAndInstall]);
 
-  const handleRestart = useCallback(() => {
-    onRestart();
-  }, [onRestart]);
+  const busy = kind === "downloading" || kind === "installing";
 
   const version = update?.version ?? "";
   const notes = update?.notes ?? null;
@@ -50,20 +50,22 @@ export default function UpdateDialog({
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => {
-      if (!isOpen) onClose();
+      if (!isOpen && !busy) onClose();
     }}>
-      <DialogContent>
+      <DialogContent showCloseButton={!busy}>
         <DialogHeader>
           {kind === "up-to-date" ? (
             <DialogTitle>You&rsquo;re up to date</DialogTitle>
           ) : (
-            <DialogTitle>Update available</DialogTitle>
+            <DialogTitle>{kind === "error" ? "Update failed" : "Update available"}</DialogTitle>
           )}
           {date && (
             <DialogDescription>{date}</DialogDescription>
           )}
         </DialogHeader>
         <div className="flex flex-col gap-3">
+          {kind === "error" && <p role="alert" className="text-sm text-foreground">{error}</p>}
+          {kind === "installing" && <p role="status" className="text-sm text-muted-foreground">Installing update… The app will close when the installer starts.</p>}
           <div className="mono text-[11px] text-muted-foreground">
             Version {version}
           </div>
@@ -88,7 +90,7 @@ export default function UpdateDialog({
           )}
         </div>
         <DialogFooter>
-          {kind === "downloading" ? (
+          {busy ? (
             <Button
               variant="outline"
               onClick={onClose}
@@ -107,11 +109,9 @@ export default function UpdateDialog({
                 Remind me later
               </Button>
               <Button
-                onClick={
-                  kind === "ready" ? handleRestart : handleDownloadAndInstall
-                }
+                onClick={kind === "error" ? onRetry : handleDownloadAndInstall}
               >
-                {kind === "ready" ? "Restart now" : "Download & install"}
+                {kind === "error" ? "Check again" : "Download & install"}
               </Button>
             </>
           )}

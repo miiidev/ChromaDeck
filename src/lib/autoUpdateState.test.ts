@@ -44,7 +44,7 @@ describe("updateStateReducer", () => {
     if (state.status === "error") expect(state.message).toBe("network error");
   });
 
-  it("transitions available -> downloading -> ready-to-install", () => {
+  it("transitions available -> downloading -> installing", () => {
     let state: UpdateState = {
       status: "available",
       version: "0.9.0",
@@ -65,7 +65,7 @@ describe("updateStateReducer", () => {
     }
 
     state = updateStateReducer(state, { type: "DOWNLOAD_SUCCESS" });
-    expect(state.status).toBe("ready-to-install");
+    expect(state.status).toBe("installing");
   });
 
   it("stays downloading on progress updates", () => {
@@ -105,6 +105,15 @@ describe("updateStateReducer", () => {
     });
     expect(state.status).toBe("error");
     if (state.status === "error") expect(state.message).toBe("signature verification failed");
+  });
+
+  it("does not claim installation at 100% download progress", () => {
+    let state: UpdateState = { status: "available", version: "1.0.0", notes: null, date: null };
+    state = updateStateReducer(state, { type: "DOWNLOAD_START" });
+    state = updateStateReducer(state, { type: "DOWNLOAD_PROGRESS", payload: { downloaded: 100, total: 100, percent: 100 } });
+    expect(state.status).toBe("downloading");
+    state = updateStateReducer(state, { type: "DOWNLOAD_START" });
+    expect(state.status).toBe("downloading");
   });
 
   it("ignores unrelated actions", () => {
