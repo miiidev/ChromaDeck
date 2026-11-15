@@ -8,10 +8,18 @@ use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
 
-fn default_vibrance() -> f64 { 50.0 }
-fn default_saturation() -> f64 { 50.0 }
-fn default_hue() -> f64 { 0.0 }
-fn legacy_model() -> String { "gain-v1".into() }
+fn default_vibrance() -> f64 {
+    50.0
+}
+fn default_saturation() -> f64 {
+    50.0
+}
+fn default_hue() -> f64 {
+    0.0
+}
+fn legacy_model() -> String {
+    "gain-v1".into()
+}
 
 /// Validate a color_tag value: must be empty or #rrggbb hex.
 fn is_valid_color_tag(tag: &str) -> bool {
@@ -22,7 +30,7 @@ fn is_valid_color_tag(tag: &str) -> bool {
         return false;
     }
     for c in tag[1..].chars() {
-        if !matches!(c, '0'..='9' | 'a'..='f' | 'A'..='F') {
+        if !c.is_ascii_hexdigit() {
             return false;
         }
     }
@@ -31,14 +39,7 @@ fn is_valid_color_tag(tag: &str) -> bool {
 
 /// Tag marker shapes accepted by the store. An empty value means "pill".
 const TAG_SHAPES: [&str; 8] = [
-    "pill",
-    "round",
-    "square",
-    "bar",
-    "diamond",
-    "hexagon",
-    "triangle",
-    "ring",
+    "pill", "round", "square", "bar", "diamond", "hexagon", "triangle", "ring",
 ];
 
 /// Validate a tag_shape value: must be empty or one of TAG_SHAPES.
@@ -77,7 +78,20 @@ fn local_timestamp() -> String {
         rem -= diy;
         y += 1;
     }
-    let mon_lengths = [31, if is_leap(y) { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let mon_lengths = [
+        31,
+        if is_leap(y) { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
     let mut mo = 1u32;
     for &ml in &mon_lengths {
         if rem < ml as i64 {
@@ -553,24 +567,21 @@ impl Store {
             saturation: input.saturation,
             hue_deg: input.hue_deg,
             color_model: "nvcp-v1".into(),
-            color_tag: if let Some(tag) = input.color_tag {
-                if tag.is_empty() { None } else { Some(tag.into()) }
-            } else { None },
+            color_tag: input.color_tag.filter(|tag| !tag.is_empty()),
             tag_shape: normalise_tag_shape(input.tag_shape),
             attached_programs,
         };
 
         self.presets.push(preset.clone());
-        self.flush()?;
+        if let Err(error) = self.flush() {
+            self.presets.pop();
+            return Err(error);
+        }
         Ok(preset)
     }
 
     /// Update an existing preset identified by `id`.
-    pub fn update_preset(
-        &mut self,
-        id: &str,
-        input: PresetInput,
-    ) -> Result<Preset, StoreError> {
+    pub fn update_preset(&mut self, id: &str, input: PresetInput) -> Result<Preset, StoreError> {
         self.ensure_writable()?;
         let idx = self
             .presets
@@ -612,8 +623,7 @@ impl Store {
             ));
         }
 
-        let attached_programs =
-            self.normalize_program_list(&input.attached_programs, Some(id))?;
+        let attached_programs = self.normalize_program_list(&input.attached_programs, Some(id))?;
 
         // Validate color_tag
         if let Some(ref tag) = input.color_tag {
@@ -657,15 +667,16 @@ impl Store {
             saturation: input.saturation,
             hue_deg: input.hue_deg,
             color_model: self.presets[idx].color_model.clone(),
-            color_tag: if let Some(tag) = input.color_tag {
-                if tag.is_empty() { None } else { Some(tag.into()) }
-            } else { None },
+            color_tag: input.color_tag.filter(|tag| !tag.is_empty()),
             tag_shape: normalise_tag_shape(input.tag_shape),
             attached_programs,
         };
 
-        self.presets[idx] = updated.clone();
-        self.flush()?;
+        let previous = std::mem::replace(&mut self.presets[idx], updated.clone());
+        if let Err(error) = self.flush() {
+            self.presets[idx] = previous;
+            return Err(error);
+        }
         Ok(updated)
     }
 
@@ -678,6 +689,9 @@ impl Store {
             .position(|p| p.id == id)
             .ok_or_else(|| StoreError::NotFound(id.into()))?;
 
+        let previous_presets = self.presets.clone();
+        let previous_pins = self.pinned.clone();
+        let previous_applied = self.applied.clone();
         let removed = self.presets.remove(idx);
         let pinned_gone = self.pinned.values().any(|v| v == id);
         if pinned_gone {
@@ -687,12 +701,29 @@ impl Store {
         if applied_gone {
             self.applied.retain(|_, v| v != id);
         }
-        self.flush()?;
-        if pinned_gone {
-            self.flush_pins()?;
-        }
-        if applied_gone {
-            self.flush_applied()?;
+        let persisted = (|| {
+            if pinned_gone {
+                self.flush_pins()?;
+            }
+            if applied_gone {
+                self.flush_applied()?;
+            }
+            self.flush()
+        })();
+        if let Err(error) = persisted {
+            self.presets = previous_presets;
+            self.pinned = previous_pins;
+            self.applied = previous_applied;
+            let rollback = self
+                .flush_pins()
+                .and_then(|_| self.flush_applied())
+                .and_then(|_| self.flush());
+            if let Err(rollback_error) = rollback {
+                return Err(StoreError::InvalidInput(format!(
+                    "delete failed: {error}; rollback failed: {rollback_error}"
+                )));
+            }
+            return Err(error);
         }
         Ok(removed)
     }
@@ -748,18 +779,25 @@ impl Store {
             .iter()
             .find(|p| p.id == preset_id)
             .ok_or_else(|| StoreError::NotFound(preset_id.into()))?;
+        let previous = self.pinned.clone();
         self.pinned.insert(edid_id.into(), preset_id.into());
-        self.flush_pins()
+        if let Err(error) = self.flush_pins() {
+            self.pinned = previous;
+            return Err(error);
+        }
+        Ok(())
     }
 
     /// Remove the pin for a monitor (no-op when absent).
-    pub fn unpin_monitor(&mut self, edid_id: &str) {
-        if self.ensure_writable().is_err() {
-            return;
+    pub fn unpin_monitor(&mut self, edid_id: &str) -> Result<(), StoreError> {
+        self.ensure_writable()?;
+        if let Some(previous) = self.pinned.remove(edid_id) {
+            if let Err(error) = self.flush_pins() {
+                self.pinned.insert(edid_id.into(), previous);
+                return Err(error);
+            }
         }
-        if self.pinned.remove(edid_id).is_some() {
-            let _ = self.flush_pins();
-        }
+        Ok(())
     }
 
     /// Return a copy of the current pin map (edid_id -> preset_id).
@@ -777,14 +815,17 @@ impl Store {
                 "monitor name must be 64 characters or fewer".into(),
             ));
         }
+        let previous = self.monitor_names.clone();
         if trimmed.is_empty() {
-            if self.monitor_names.remove(edid_id).is_some() {
-                let _ = self.flush_names();
-            }
-            return Ok(());
+            self.monitor_names.remove(edid_id);
+        } else {
+            self.monitor_names.insert(edid_id.into(), trimmed.into());
         }
-        self.monitor_names.insert(edid_id.into(), trimmed.into());
-        self.flush_names()
+        if let Err(error) = self.flush_names() {
+            self.monitor_names = previous;
+            return Err(error);
+        }
+        Ok(())
     }
 
     /// Return a copy of the monitor alias map (edid_id -> alias).
@@ -799,32 +840,43 @@ impl Store {
     }
 
     /// Lift every pin. Returns the number removed and flushes once.
-    pub fn clear_all_pins(&mut self) -> usize {
-        let removed = self.pinned.len();
-        self.pinned.clear();
+    pub fn clear_all_pins(&mut self) -> Result<usize, StoreError> {
+        self.ensure_writable()?;
+        let previous = std::mem::take(&mut self.pinned);
+        let removed = previous.len();
         if removed > 0 {
-            let _ = self.flush_pins();
+            if let Err(error) = self.flush_pins() {
+                self.pinned = previous;
+                return Err(error);
+            }
         }
-        removed
+        Ok(removed)
     }
 
     /// Record a manual preset application for a monitor.
     /// Flushes to applied.json atomically.
     pub fn record_applied(&mut self, edid_id: &str, preset_id: &str) -> Result<(), StoreError> {
         self.ensure_writable()?;
+        let previous = self.applied.clone();
         self.applied.insert(edid_id.into(), preset_id.into());
-        self.flush_applied()
+        if let Err(error) = self.flush_applied() {
+            self.applied = previous;
+            return Err(error);
+        }
+        Ok(())
     }
 
     /// Clear the applied record for a monitor (e.g. after reset).
     /// No-op when no record exists. Flushes only on change.
-    pub fn clear_applied(&mut self, edid_id: &str) {
-        if self.ensure_writable().is_err() {
-            return;
+    pub fn clear_applied(&mut self, edid_id: &str) -> Result<(), StoreError> {
+        self.ensure_writable()?;
+        if let Some(previous) = self.applied.remove(edid_id) {
+            if let Err(error) = self.flush_applied() {
+                self.applied.insert(edid_id.into(), previous);
+                return Err(error);
+            }
         }
-        if self.applied.remove(edid_id).is_some() {
-            let _ = self.flush_applied();
-        }
+        Ok(())
     }
 
     /// Return a copy of the applied map (edid_id -> preset_id).
@@ -843,8 +895,13 @@ impl Store {
         if self.auto_apply_enabled == enabled {
             return Ok(());
         }
+        let previous = self.auto_apply_enabled;
         self.auto_apply_enabled = enabled;
-        self.flush_settings()
+        if let Err(error) = self.flush_settings() {
+            self.auto_apply_enabled = previous;
+            return Err(error);
+        }
+        Ok(())
     }
 
     /// Every monitor that currently references `preset_id`, as the union of
@@ -988,9 +1045,13 @@ pub fn update_preset_cmd(
 
 #[tauri::command]
 pub fn delete_preset_cmd(
+    app: tauri::AppHandle,
     state: tauri::State<'_, AppStore>,
     id: String,
 ) -> Result<Preset, String> {
+    let _operation = crate::auto_apply_runtime::DISPLAY_OPERATION
+        .lock()
+        .map_err(|e| e.to_string())?;
     // Capture affected displays before the delete cascades pins/applied.
     let (removed, affected) = {
         let mut store = state.0.lock().map_err(|e| e.to_string())?;
@@ -1003,6 +1064,9 @@ pub fn delete_preset_cmd(
     // same backend path as `reset_monitor` (parity with explicit Reset).
     // Restore is best-effort: the delete itself already succeeded, and a
     // disconnected display simply returns an offline result.
+    for edid in &affected {
+        crate::auto_apply_runtime::relinquish_manual(&app, edid);
+    }
     if !affected.is_empty() {
         let api = crate::color::RealColorApi;
         let nv = crate::nvapi::RealNvapi;
@@ -1029,25 +1093,34 @@ pub fn import_icc_cmd(
 
 #[tauri::command]
 pub fn pin_preset_cmd(
+    app: tauri::AppHandle,
     state: tauri::State<'_, AppStore>,
     edid_id: String,
     preset_id: String,
 ) -> Result<(), String> {
+    let _operation = crate::auto_apply_runtime::DISPLAY_OPERATION
+        .lock()
+        .map_err(|e| e.to_string())?;
     let mut store = state.0.lock().map_err(|e| e.to_string())?;
-    store.pin_preset(&edid_id, &preset_id).map_err(|e| e.to_string())
+    store
+        .pin_preset(&edid_id, &preset_id)
+        .map_err(|e| e.to_string())?;
+    drop(store);
+    crate::auto_apply_runtime::relinquish_manual(&app, &edid_id);
+    Ok(())
 }
 
 #[tauri::command]
-pub fn unpin_monitor_cmd(state: tauri::State<'_, AppStore>, edid_id: String) {
-    if let Ok(mut store) = state.0.lock() {
-        store.unpin_monitor(&edid_id);
-    }
+pub fn unpin_monitor_cmd(state: tauri::State<'_, AppStore>, edid_id: String) -> Result<(), String> {
+    let _operation = crate::auto_apply_runtime::DISPLAY_OPERATION
+        .lock()
+        .map_err(|e| e.to_string())?;
+    let mut store = state.0.lock().map_err(|e| e.to_string())?;
+    store.unpin_monitor(&edid_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn list_pins_cmd(
-    state: tauri::State<'_, AppStore>,
-) -> Result<HashMap<String, String>, String> {
+pub fn list_pins_cmd(state: tauri::State<'_, AppStore>) -> Result<HashMap<String, String>, String> {
     let store = state.0.lock().map_err(|e| e.to_string())?;
     Ok(store.list_pins())
 }
@@ -1078,7 +1151,9 @@ pub fn set_monitor_name_cmd(
     alias: String,
 ) -> Result<(), String> {
     let mut store = state.0.lock().map_err(|e| e.to_string())?;
-    store.set_monitor_name(&edid_id, &alias).map_err(|e| e.to_string())
+    store
+        .set_monitor_name(&edid_id, &alias)
+        .map_err(|e| e.to_string())
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────
@@ -1132,8 +1207,7 @@ mod tests {
     /// Uniqueness is a process-wide atomic counter, not the wall clock:
     /// Windows clock granularity is coarse, so two tests starting in the
     /// same tick would otherwise share a directory and race.
-    static TEST_DIR_COUNTER: std::sync::atomic::AtomicU64 =
-        std::sync::atomic::AtomicU64::new(0);
+    static TEST_DIR_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
     fn test_store_dir_unique() -> PathBuf {
         let n = TEST_DIR_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -1146,6 +1220,67 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ))
+    }
+
+    #[test]
+    fn failed_preset_writes_preserve_existing_library() {
+        let dir = test_store_dir_unique();
+        let mut store = Store::new(dir.clone()).unwrap();
+        let preset = store.create_preset(minimal_input()).unwrap();
+        store.pin_preset("E", &preset.id).unwrap();
+        std::fs::create_dir(dir.join("presets.json.tmp")).unwrap();
+        assert!(store.create_preset(minimal_input()).is_err());
+        assert!(store.update_preset(&preset.id, minimal_input()).is_err());
+        assert!(store.delete_preset(&preset.id).is_err());
+        assert_eq!(store.list_presets().len(), 1);
+        assert_eq!(store.list_pins().get("E"), Some(&preset.id));
+        let reopened = Store::new(dir).unwrap();
+        assert_eq!(reopened.list_presets().len(), 1);
+        assert_eq!(reopened.list_pins().get("E"), Some(&preset.id));
+    }
+
+    #[test]
+    fn failed_settings_alias_and_applied_writes_preserve_state() {
+        let dir = test_store_dir_unique();
+        let mut store = Store::new(dir.clone()).unwrap();
+        store.set_monitor_name("E", "Display").unwrap();
+        store.record_applied("E", "p1").unwrap();
+        for name in [
+            "settings.json.tmp",
+            "monitor_names.json.tmp",
+            "applied.json.tmp",
+        ] {
+            std::fs::create_dir(dir.join(name)).unwrap();
+        }
+        assert!(store.set_auto_apply_enabled(true).is_err());
+        assert!(!store.auto_apply_enabled());
+        assert!(store.set_monitor_name("E", "").is_err());
+        assert_eq!(
+            store.list_monitor_names().get("E").map(String::as_str),
+            Some("Display")
+        );
+        assert!(store.clear_applied("E").is_err());
+        assert_eq!(
+            store.list_applied().get("E").map(String::as_str),
+            Some("p1")
+        );
+    }
+
+    #[test]
+    fn failed_pin_removal_preserves_memory_and_disk() {
+        let dir = test_store_dir_unique();
+        let mut store = Store::new(dir.clone()).unwrap();
+        let preset = store.create_preset(minimal_input()).unwrap();
+        store.pin_preset("E", &preset.id).unwrap();
+        std::fs::create_dir(dir.join("pins.json.tmp")).unwrap();
+        assert!(store.unpin_monitor("E").is_err());
+        assert_eq!(store.list_pins().get("E"), Some(&preset.id));
+        assert!(store.clear_all_pins().is_err());
+        assert_eq!(store.list_pins().get("E"), Some(&preset.id));
+        assert_eq!(
+            Store::new(dir).unwrap().list_pins().get("E"),
+            Some(&preset.id)
+        );
     }
 
     // ── portable data resolution ─────────────────────────────────────────
@@ -1341,9 +1476,7 @@ mod tests {
     #[test]
     fn import_icc_rejects_nonexistent() {
         let mut store = test_store();
-        let err = store
-            .import_icc("C:\\nonexistent\\file.icc")
-            .unwrap_err();
+        let err = store.import_icc("C:\\nonexistent\\file.icc").unwrap_err();
         assert!(matches!(err, StoreError::InvalidInput(_)));
     }
 
@@ -1352,9 +1485,7 @@ mod tests {
         let mut store = test_store();
         let empty_path = store.data_dir.join("empty.icc");
         std::fs::write(&empty_path, b"").unwrap();
-        let err = store
-            .import_icc(empty_path.to_str().unwrap())
-            .unwrap_err();
+        let err = store.import_icc(empty_path.to_str().unwrap()).unwrap_err();
         assert!(matches!(err, StoreError::InvalidInput(_)));
     }
 
@@ -1514,7 +1645,10 @@ mod tests {
     fn color_tag_defaults_to_none() {
         let mut store = test_store();
         let preset = store.create_preset(minimal_input()).unwrap();
-        assert!(preset.color_tag.is_none(), "untagged preset has no color_tag");
+        assert!(
+            preset.color_tag.is_none(),
+            "untagged preset has no color_tag"
+        );
     }
 
     #[test]
@@ -1532,7 +1666,10 @@ mod tests {
         let mut input = minimal_input();
         input.color_tag = Some("".into());
         let preset = store.create_preset(input).unwrap();
-        assert!(preset.color_tag.is_none(), "empty string color_tag becomes None");
+        assert!(
+            preset.color_tag.is_none(),
+            "empty string color_tag becomes None"
+        );
     }
 
     #[test]
@@ -1541,7 +1678,10 @@ mod tests {
         let mut input = minimal_input();
         input.color_tag = Some("not-a-color".into());
         let err = store.create_preset(input).unwrap_err();
-        assert!(err.to_string().contains("color_tag"), "error mentions color_tag");
+        assert!(
+            err.to_string().contains("color_tag"),
+            "error mentions color_tag"
+        );
     }
 
     #[test]
@@ -1557,8 +1697,14 @@ mod tests {
     fn color_tag_loaded_from_old_json_without_field() {
         let json = r#"{"id":"x","name":"Old","icc_hash":"","icc_filename":"","brightness":55.0,"contrast":60.0,"rgb_gains":[1.0,1.0,1.0],"gamma":2.2,"vibrance":50.0,"hue_deg":0.0,"color_model":"nvcp-v1"}"#;
         let preset: Preset = serde_json::from_str(json).unwrap();
-        assert!(preset.color_tag.is_none(), "old JSON without color_tag loads as None");
-        assert!(preset.tag_shape.is_none(), "old JSON without tag_shape loads as None");
+        assert!(
+            preset.color_tag.is_none(),
+            "old JSON without color_tag loads as None"
+        );
+        assert!(
+            preset.tag_shape.is_none(),
+            "old JSON without tag_shape loads as None"
+        );
     }
 
     // ── tag_shape ──────────────────────────────────────────────────────────
@@ -1567,7 +1713,10 @@ mod tests {
     fn tag_shape_defaults_to_none() {
         let mut store = test_store();
         let preset = store.create_preset(minimal_input()).unwrap();
-        assert!(preset.tag_shape.is_none(), "default marker shape is pill (None)");
+        assert!(
+            preset.tag_shape.is_none(),
+            "default marker shape is pill (None)"
+        );
     }
 
     #[test]
@@ -1603,7 +1752,9 @@ mod tests {
     #[test]
     fn tag_shape_accepts_every_supported_value() {
         let mut store = test_store();
-        for shape in ["pill", "round", "square", "bar", "diamond", "hexagon", "triangle", "ring"] {
+        for shape in [
+            "pill", "round", "square", "bar", "diamond", "hexagon", "triangle", "ring",
+        ] {
             let mut input = minimal_input();
             input.tag_shape = Some(shape.into());
             assert!(
@@ -1683,7 +1834,10 @@ mod tests {
                 },
             )
             .unwrap();
-        assert!(updated.color_tag.is_none(), "clearing color_tag produces None");
+        assert!(
+            updated.color_tag.is_none(),
+            "clearing color_tag produces None"
+        );
     }
 
     #[test]
@@ -1760,7 +1914,7 @@ mod tests {
         let preset = store.create_preset(minimal_input()).unwrap();
         store.pin_preset("EDID-001", &preset.id).unwrap();
         assert_eq!(store.list_pins().get("EDID-001"), Some(&preset.id));
-        store.unpin_monitor("EDID-001");
+        store.unpin_monitor("EDID-001").unwrap();
         assert!(store.list_pins().is_empty());
     }
 
@@ -1775,7 +1929,7 @@ mod tests {
     fn pin_allows_cross_monitor() {
         let mut store = test_store();
         let preset = store.create_preset(minimal_input()).unwrap(); // global preset
-        // Cross-monitor pin is now allowed since presets are global
+                                                                    // Cross-monitor pin is now allowed since presets are global
         store.pin_preset("EDID-999", &preset.id).unwrap();
         assert_eq!(store.list_pins().get("EDID-999"), Some(&preset.id));
     }
@@ -1807,10 +1961,10 @@ mod tests {
         store.pin_preset("EDID-001", &preset.id).unwrap();
         store.pin_preset("EDID-002", &preset.id).unwrap();
         store.pin_preset("EDID-003", &preset.id).unwrap();
-        let removed = store.clear_all_pins();
+        let removed = store.clear_all_pins().unwrap();
         assert_eq!(removed, 3);
         assert!(store.list_pins().is_empty());
-        assert_eq!(store.clear_all_pins(), 0);
+        assert_eq!(store.clear_all_pins().unwrap(), 0);
     }
 
     #[test]
@@ -1819,7 +1973,7 @@ mod tests {
         let mut store = Store::new(dir.clone()).unwrap();
         let preset = store.create_preset(minimal_input()).unwrap();
         store.pin_preset("EDID-001", &preset.id).unwrap();
-        store.clear_all_pins();
+        store.clear_all_pins().unwrap();
         drop(store);
         let reopened = Store::new(dir).unwrap();
         assert!(reopened.list_pins().is_empty());
@@ -1832,10 +1986,7 @@ mod tests {
         let mut store = test_store();
         let preset = store.create_preset(minimal_input()).unwrap();
         store.record_applied("EDID-001", &preset.id).unwrap();
-        assert_eq!(
-            store.list_applied().get("EDID-001"),
-            Some(&preset.id),
-        );
+        assert_eq!(store.list_applied().get("EDID-001"), Some(&preset.id),);
         let list = store.list_applied();
         assert_eq!(list.len(), 1);
     }
@@ -1846,7 +1997,7 @@ mod tests {
         let preset = store.create_preset(minimal_input()).unwrap();
         store.record_applied("EDID-001", &preset.id).unwrap();
         assert!(!store.list_applied().is_empty());
-        store.clear_applied("EDID-001");
+        store.clear_applied("EDID-001").unwrap();
         assert!(store.list_applied().is_empty());
     }
 
@@ -1860,10 +2011,7 @@ mod tests {
         store.record_applied("EDID-001", &preset.id).unwrap();
         drop(store);
         let reopened = Store::new(dir).unwrap();
-        assert_eq!(
-            reopened.list_applied().get("EDID-001"),
-            Some(&preset.id),
-        );
+        assert_eq!(reopened.list_applied().get("EDID-001"), Some(&preset.id),);
     }
 
     #[test]
@@ -1895,9 +2043,7 @@ mod tests {
         assert_eq!(std::fs::read(dir.join(&backups[0])).unwrap(), corrupt);
 
         // Every write is refused, so the unreadable file is never replaced.
-        let err = store
-            .record_applied("EDID-001", "preset-1")
-            .unwrap_err();
+        let err = store.record_applied("EDID-001", "preset-1").unwrap_err();
         assert!(matches!(err, StoreError::LoadFault(_)), "{err}");
         assert_eq!(std::fs::read(dir.join("applied.json")).unwrap(), corrupt);
         let _ = std::fs::remove_dir_all(&dir);
@@ -2091,7 +2237,7 @@ mod tests {
         assert_eq!(list.len(), 1, "pristine Standard is deleted");
         assert_eq!(list[0].name, "Custom");
         assert!(
-            store.list_pins().get("EDID-A").is_none(),
+            !store.list_pins().contains_key("EDID-A"),
             "Standard pin is purged"
         );
         assert_eq!(
@@ -2100,7 +2246,7 @@ mod tests {
             "unrelated pin is untouched"
         );
         assert!(
-            store.list_applied().get("EDID-A").is_none(),
+            !store.list_applied().contains_key("EDID-A"),
             "Standard applied record is purged"
         );
         assert_eq!(
@@ -2142,10 +2288,8 @@ mod tests {
         let dir = test_store_dir_unique();
         // Saturation defaults to 50 on legacy JSON; an explicit non-neutral
         // value means the user tuned it, so the Standard must survive.
-        let tweaked = NEUTRAL_STANDARD_JSON.replace(
-            "\"vibrance\":50.0",
-            "\"vibrance\":50.0,\"saturation\":60.0",
-        );
+        let tweaked = NEUTRAL_STANDARD_JSON
+            .replace("\"vibrance\":50.0", "\"vibrance\":50.0,\"saturation\":60.0");
         write_standard_purge_fixture(&dir, &tweaked);
         let store = Store::new(dir).unwrap();
         assert_eq!(
@@ -2179,7 +2323,11 @@ mod tests {
 
         assert_eq!(
             store.monitors_using(&preset.id),
-            vec!["EDID-A".to_string(), "EDID-B".to_string(), "EDID-C".to_string()]
+            vec![
+                "EDID-A".to_string(),
+                "EDID-B".to_string(),
+                "EDID-C".to_string()
+            ]
         );
         assert!(store.monitors_using("does-not-exist").is_empty());
     }
@@ -2226,7 +2374,8 @@ mod tests {
         let err = store.create_preset(second).unwrap_err();
         assert!(matches!(err, StoreError::InvalidInput(_)), "{err}");
         assert!(
-            err.to_string().contains("already mapped to \"Test Preset\""),
+            err.to_string()
+                .contains("already mapped to \"Test Preset\""),
             "{err}"
         );
     }

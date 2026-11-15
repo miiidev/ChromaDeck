@@ -55,10 +55,7 @@ pub struct DisplayCapabilities {
 /// `vibrance_supported` is the live NVAPI DVC probe result for the display;
 /// it is only consulted by the "nvapi" arm. Passing `false` for a display
 /// whose DVC probe cannot run correctly reports vibrance/hue Unsupported.
-pub fn capabilities_for_backend(
-    backend_id: &str,
-    vibrance_supported: bool,
-) -> DisplayCapabilities {
+pub fn capabilities_for_backend(backend_id: &str, vibrance_supported: bool) -> DisplayCapabilities {
     let (backend_label, table) = match backend_id {
         "nvapi" => ("NVIDIA (NVAPI)", nvapi_table(vibrance_supported)),
         "gdi" => ("Basic (GDI)", gdi_table()),
@@ -82,9 +79,7 @@ fn nvapi_table(vibrance_supported: bool) -> Vec<AdjustmentCapability> {
         .probe("")
         .into_iter()
         .map(|mut c| {
-            if !vibrance_supported
-                && matches!(c.adjustment, ADJUSTMENT_VIBRANCE | ADJUSTMENT_HUE)
-            {
+            if !vibrance_supported && matches!(c.adjustment, ADJUSTMENT_VIBRANCE | ADJUSTMENT_HUE) {
                 c.cap = AdjustmentCap::Unsupported(
                     "NVAPI reports no vibrance/hue control for this display",
                 );
@@ -193,7 +188,11 @@ mod tests {
             ADJUSTMENT_VIBRANCE,
             ADJUSTMENT_HUE,
         ] {
-            assert_eq!(cap(&caps, name).status, CapabilityStatus::Supported, "{name}");
+            assert_eq!(
+                cap(&caps, name).status,
+                CapabilityStatus::Supported,
+                "{name}"
+            );
         }
     }
 
@@ -239,7 +238,11 @@ mod tests {
             ADJUSTMENT_CONTRAST,
             ADJUSTMENT_RGB_GAINS,
         ] {
-            assert_eq!(cap(&caps, name).status, CapabilityStatus::Supported, "{name}");
+            assert_eq!(
+                cap(&caps, name).status,
+                CapabilityStatus::Supported,
+                "{name}"
+            );
         }
         for name in [ADJUSTMENT_SATURATION, ADJUSTMENT_VIBRANCE, ADJUSTMENT_HUE] {
             let c = cap(&caps, name);
@@ -264,7 +267,11 @@ mod tests {
             ADJUSTMENT_SATURATION,
             ADJUSTMENT_HUE,
         ] {
-            assert_eq!(cap(&caps, name).status, CapabilityStatus::Supported, "{name}");
+            assert_eq!(
+                cap(&caps, name).status,
+                CapabilityStatus::Supported,
+                "{name}"
+            );
         }
         let vib = cap(&caps, ADJUSTMENT_VIBRANCE);
         assert_eq!(vib.status, CapabilityStatus::Unsupported);

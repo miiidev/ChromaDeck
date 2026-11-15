@@ -16,7 +16,7 @@
 
 use crate::color::{gdi_identity_purge, identity_ramp, ApplyResult, ColorApi, GammaEngine};
 use crate::nvapi::{
-    display_id_for_device, fns, resolve_device_name, HUE_NEUTRAL, NvColorApi, VIBRANCE_NEUTRAL,
+    display_id_for_device, fns, resolve_device_name, NvColorApi, HUE_NEUTRAL, VIBRANCE_NEUTRAL,
 };
 use crate::nvgamma::{display_luid, nvcp_ramp, persist_nvcp, set_target_gamma, ui_to_internal};
 use crate::store::Preset;
@@ -81,6 +81,10 @@ pub trait ColorBackend {
 
 /// Append an error message to an accumulated `Option<String>`, joining
 /// multiple messages with "; " (matches the pre-refactor error format).
+pub fn gdi_ui_gain(value: f64) -> f64 {
+    0.8 + 0.004 * value
+}
+
 fn append_error(error: &mut Option<String>, msg: String) {
     *error = Some(match error.take() {
         Some(prev) => format!("{prev}; {msg}"),
@@ -171,18 +175,36 @@ impl ColorBackend for NvapiBackend {
     fn probe(&self, _edid_id: &str) -> Vec<AdjustmentCapability> {
         // Phase C replaces the vibrance/hue entries with a live DVC probe.
         vec![
-            AdjustmentCapability { adjustment: ADJUSTMENT_GAMMA, cap: AdjustmentCap::Supported },
-            AdjustmentCapability { adjustment: ADJUSTMENT_BRIGHTNESS, cap: AdjustmentCap::Supported },
-            AdjustmentCapability { adjustment: ADJUSTMENT_CONTRAST, cap: AdjustmentCap::Supported },
-            AdjustmentCapability { adjustment: ADJUSTMENT_RGB_GAINS, cap: AdjustmentCap::Supported },
+            AdjustmentCapability {
+                adjustment: ADJUSTMENT_GAMMA,
+                cap: AdjustmentCap::Supported,
+            },
+            AdjustmentCapability {
+                adjustment: ADJUSTMENT_BRIGHTNESS,
+                cap: AdjustmentCap::Supported,
+            },
+            AdjustmentCapability {
+                adjustment: ADJUSTMENT_CONTRAST,
+                cap: AdjustmentCap::Supported,
+            },
+            AdjustmentCapability {
+                adjustment: ADJUSTMENT_RGB_GAINS,
+                cap: AdjustmentCap::Supported,
+            },
             AdjustmentCapability {
                 adjustment: ADJUSTMENT_SATURATION,
                 cap: AdjustmentCap::Unsupported(
                     "NVAPI has no desktop saturation control (vibrance is the closest analogue)",
                 ),
             },
-            AdjustmentCapability { adjustment: ADJUSTMENT_VIBRANCE, cap: AdjustmentCap::Supported },
-            AdjustmentCapability { adjustment: ADJUSTMENT_HUE, cap: AdjustmentCap::Supported },
+            AdjustmentCapability {
+                adjustment: ADJUSTMENT_VIBRANCE,
+                cap: AdjustmentCap::Supported,
+            },
+            AdjustmentCapability {
+                adjustment: ADJUSTMENT_HUE,
+                cap: AdjustmentCap::Supported,
+            },
         ]
     }
 
@@ -347,10 +369,22 @@ impl ColorBackend for GdiBackend {
 
     fn probe(&self, _edid_id: &str) -> Vec<AdjustmentCapability> {
         vec![
-            AdjustmentCapability { adjustment: ADJUSTMENT_GAMMA, cap: AdjustmentCap::Supported },
-            AdjustmentCapability { adjustment: ADJUSTMENT_BRIGHTNESS, cap: AdjustmentCap::Supported },
-            AdjustmentCapability { adjustment: ADJUSTMENT_CONTRAST, cap: AdjustmentCap::Supported },
-            AdjustmentCapability { adjustment: ADJUSTMENT_RGB_GAINS, cap: AdjustmentCap::Supported },
+            AdjustmentCapability {
+                adjustment: ADJUSTMENT_GAMMA,
+                cap: AdjustmentCap::Supported,
+            },
+            AdjustmentCapability {
+                adjustment: ADJUSTMENT_BRIGHTNESS,
+                cap: AdjustmentCap::Supported,
+            },
+            AdjustmentCapability {
+                adjustment: ADJUSTMENT_CONTRAST,
+                cap: AdjustmentCap::Supported,
+            },
+            AdjustmentCapability {
+                adjustment: ADJUSTMENT_RGB_GAINS,
+                cap: AdjustmentCap::Supported,
+            },
             AdjustmentCapability {
                 adjustment: ADJUSTMENT_SATURATION,
                 cap: AdjustmentCap::Unsupported("GDI ramp has no saturation control"),
@@ -379,15 +413,9 @@ impl ColorBackend for GdiBackend {
 
         // GDI fallback with mapped gains: gain = 0.8 + 0.004 × ui_val
         // (neutral 50 → gain 1.0, matching the old gain-model neutral)
-        let b_gain = 0.8 + 0.004 * preset.brightness;
-        let c_gain = 0.8 + 0.004 * preset.contrast;
-        match api.set_gamma_ramp(
-            target_edid,
-            b_gain,
-            c_gain,
-            preset.rgb_gains,
-            preset.gamma,
-        ) {
+        let b_gain = gdi_ui_gain(preset.brightness);
+        let c_gain = gdi_ui_gain(preset.contrast);
+        match api.set_gamma_ramp(target_edid, b_gain, c_gain, preset.rgb_gains, preset.gamma) {
             Ok(()) => gamma_applied = true,
             Err(e) => append_error(&mut error, format!("gamma: {e}")),
         }
@@ -493,6 +521,7 @@ impl BackendRegistry {
     ///   2. Intel — only when the display correlates to a unique active Intel
     ///      output (`correlates_to_intel`). Ambiguous/absent → not Intel.
     ///   3. GDI — universal fallback.
+    ///
     /// Computed per call (no cache): not on a hot path; caching would go
     /// stale on hot-plug / MUX changes.
     pub fn select(&self, edid_id: &str) -> &dyn ColorBackend {
@@ -519,9 +548,7 @@ impl BackendRegistry {
 
         // NVAPI: only classify when it is already initialised. Calling
         // `gamma_engine` would otherwise load nvapi64.dll.
-        if crate::nvapi::loaded()
-            && crate::color::gamma_engine(edid_id) == GammaEngine::Nvapi
-        {
+        if crate::nvapi::loaded() && crate::color::gamma_engine(edid_id) == GammaEngine::Nvapi {
             return "nvapi";
         }
         if intel_live && (self.intel_correlates)(edid_id) {
@@ -734,7 +761,10 @@ mod tests {
         let caps = GdiBackend.probe("EDID-001");
         for name in [ADJUSTMENT_SATURATION, ADJUSTMENT_VIBRANCE, ADJUSTMENT_HUE] {
             let c = caps.iter().find(|c| c.adjustment == name).unwrap();
-            assert!(matches!(c.cap, AdjustmentCap::Unsupported(_)), "{name} unsupported");
+            assert!(
+                matches!(c.cap, AdjustmentCap::Unsupported(_)),
+                "{name} unsupported"
+            );
         }
         let gamma = caps
             .iter()

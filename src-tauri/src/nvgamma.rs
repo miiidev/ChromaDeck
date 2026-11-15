@@ -91,10 +91,7 @@ pub(crate) struct NvGammaRampEx {
 /// Resolve the LUID for a given display ID via `GetLUIDFromDisplayID`.
 ///
 /// LUID = little-endian u32 from GUID bytes 4..8, XOR'd with 0xF0000000.
-pub(crate) fn display_luid(
-    fns: &nvapi::NvapiFns,
-    display_id: u32,
-) -> Result<u32, String> {
+pub(crate) fn display_luid(fns: &nvapi::NvapiFns, display_id: u32) -> Result<u32, String> {
     let mut guid = windows::core::GUID::default();
     // SAFETY: GetLUIDFromDisplayID writes one GUID on success.
     let status = unsafe { (fns.get_luid)(display_id, 1, &mut guid) };
@@ -171,23 +168,17 @@ fn persist_nvcp_at(
 }
 
 /// Persist NVCP B/C/G for a given display LUID.
-pub(crate) fn persist_nvcp(
-    luid: u32,
-    b: [f64; 3],
-    c: [f64; 3],
-    g: [f64; 3],
-) -> Result<(), String> {
+pub(crate) fn persist_nvcp(luid: u32, b: [f64; 3], c: [f64; 3], g: [f64; 3]) -> Result<(), String> {
     persist_nvcp_at(&nvtweak_color_key(luid), b, c, g)
 }
 
 /// Internal: read B/C/G channel means (missing keys default to 100.0).
 fn read_nvcp_at(base_color_key: &str) -> (f64, f64, f64) {
-    let key = match RegKey::predef(HKEY_CURRENT_USER)
-        .open_subkey_with_flags(base_color_key, KEY_READ)
-    {
-        Ok(k) => k,
-        Err(_) => return (100.0, 100.0, 100.0),
-    };
+    let key =
+        match RegKey::predef(HKEY_CURRENT_USER).open_subkey_with_flags(base_color_key, KEY_READ) {
+            Ok(k) => k,
+            Err(_) => return (100.0, 100.0, 100.0),
+        };
 
     let mut totals = [0.0f64; 3]; // b_total, c_total, g_total
     let mut counts = [0u32; 3];
@@ -195,12 +186,9 @@ fn read_nvcp_at(base_color_key: &str) -> (f64, f64, f64) {
     for attr_idx in 0..3 {
         for chan_idx in 0..3 {
             let reg_name = (REG_BASE_VALUE + (attr_idx * 3 + chan_idx) as u32).to_string();
-            match key.get_value::<u32, _>(&reg_name) {
-                Ok(v) => {
-                    totals[attr_idx] += v as f64;
-                    counts[attr_idx] += 1;
-                }
-                Err(_) => {} // skip missing
+            if let Ok(v) = key.get_value::<u32, _>(&reg_name) {
+                totals[attr_idx] += v as f64;
+                counts[attr_idx] += 1;
             }
         }
     }
@@ -289,10 +277,7 @@ mod tests {
         for i in 0..1024 {
             let expected = i as f32 / 1023.0;
             for c in 0..3 {
-                assert!(
-                    (ramp[i * 3 + c] - expected).abs() < 1e-6,
-                    "index {i}"
-                );
+                assert!((ramp[i * 3 + c] - expected).abs() < 1e-6, "index {i}");
             }
         }
     }
@@ -345,12 +330,7 @@ mod tests {
         format!("{}\\{}-0\\Color", TEST_KEY_PREFIX, luid)
     }
 
-    fn persist_nvcp_test(
-        b: [f64; 3],
-        c: [f64; 3],
-        g: [f64; 3],
-        luid: u32,
-    ) -> Result<(), String> {
+    fn persist_nvcp_test(b: [f64; 3], c: [f64; 3], g: [f64; 3], luid: u32) -> Result<(), String> {
         persist_nvcp_at(&test_color_key(luid), b, c, g)
     }
 
@@ -359,8 +339,7 @@ mod tests {
     }
 
     fn delete_test_tree() {
-        let _ = RegKey::predef(HKEY_CURRENT_USER)
-            .delete_subkey_all(TEST_KEY_PREFIX);
+        let _ = RegKey::predef(HKEY_CURRENT_USER).delete_subkey_all(TEST_KEY_PREFIX);
     }
 
     #[test]

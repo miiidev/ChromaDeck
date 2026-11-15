@@ -1,6 +1,6 @@
-mod backend;
 mod auto_apply;
 mod auto_apply_runtime;
+mod backend;
 mod capabilities;
 mod color;
 mod diagnostics;
@@ -22,9 +22,8 @@ use nvapi::vibrance_supported_cmd;
 use nvgamma::capture_nvcp_cmd;
 use store::{
     create_preset_cmd, delete_preset_cmd, get_auto_apply_enabled_cmd, import_icc_cmd,
-    list_applied_cmd, list_pins_cmd, list_presets_cmd, pin_preset_cmd,
-    set_auto_apply_enabled_cmd, set_monitor_name_cmd, unpin_monitor_cmd, update_preset_cmd,
-    AppStore,
+    list_applied_cmd, list_pins_cmd, list_presets_cmd, pin_preset_cmd, set_auto_apply_enabled_cmd,
+    set_monitor_name_cmd, unpin_monitor_cmd, update_preset_cmd, AppStore,
 };
 use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
@@ -70,62 +69,58 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
     // Reuse the app/window icon for the tray so the title bar, taskbar and
     // tray stay consistent. The icon comes from `bundle.icon` in
     // tauri.conf.json via `app.default_window_icon()`.
-    let mut tray = TrayIconBuilder::new()
-        .menu(&menu)
-        .tooltip("ChromaDeck");
+    let mut tray = TrayIconBuilder::new().menu(&menu).tooltip("ChromaDeck");
     if let Some(icon) = app.default_window_icon().cloned() {
         tray = tray.icon(icon);
     }
     tray.on_menu_event(|app, event| match event.id.as_ref() {
-            "tray-quit" => {
-                // Defined exit semantics (see enforce.rs): applied colour is
-                // intentionally kept — quitting never wipes displays. The sweep
-                // only classifies/logs per-backend outcomes and is safe when a
-                // display disconnected during shutdown.
-                crate::enforce::shutdown_sweep(app);
-                app.exit(0);
-            }
-            "tray-show" => {
-                show_main_window(app);
-            }
-            auto_apply_runtime::TRAY_CHECK_ID => {
-                // The check item has already toggled visually; persist the
-                // inverse of the last known value and sync the checkbox.
-                let current = app
-                    .try_state::<AppStore>()
-                    .and_then(|s| s.0.lock().ok().map(|s| s.auto_apply_enabled()))
-                    .unwrap_or(false);
-                let _ = auto_apply_runtime::set_auto_apply(app, !current);
-            }
-            "tray-reapply" => {
-                use tauri::Manager;
-                if let Some(store) = app.try_state::<AppStore>() {
-                    if let Ok(s) = store.0.lock() {
-                        let (pins, presets) = (s.list_pins(), s.list_presets());
-                        drop(s);
-                        let api = crate::color::RealColorApi;
-                        let nv = crate::nvapi::RealNvapi;
-                        let reader = crate::enforce::RealStateReader;
-                        let _ = crate::enforce::check_once(
-                            &api, &nv, &reader, &pins, &presets, true,
-                        );
-                    }
+        "tray-quit" => {
+            // Defined exit semantics (see enforce.rs): applied colour is
+            // intentionally kept — quitting never wipes displays. The sweep
+            // only classifies/logs per-backend outcomes and is safe when a
+            // display disconnected during shutdown.
+            crate::enforce::shutdown_sweep(app);
+            app.exit(0);
+        }
+        "tray-show" => {
+            show_main_window(app);
+        }
+        auto_apply_runtime::TRAY_CHECK_ID => {
+            // The check item has already toggled visually; persist the
+            // inverse of the last known value and sync the checkbox.
+            let current = app
+                .try_state::<AppStore>()
+                .and_then(|s| s.0.lock().ok().map(|s| s.auto_apply_enabled()))
+                .unwrap_or(false);
+            let _ = auto_apply_runtime::set_auto_apply(app, !current);
+        }
+        "tray-reapply" => {
+            use tauri::Manager;
+            if let Some(store) = app.try_state::<AppStore>() {
+                if let Ok(s) = store.0.lock() {
+                    let (pins, presets) = (s.list_pins(), s.list_presets());
+                    drop(s);
+                    let api = crate::color::RealColorApi;
+                    let nv = crate::nvapi::RealNvapi;
+                    let reader = crate::enforce::RealStateReader;
+                    let _ = crate::enforce::check_once(&api, &nv, &reader, &pins, &presets, true);
                 }
             }
-            _ => {}
-        })
-        .on_tray_icon_event(|tray, event| {
-            if let TrayIconEvent::Click {
-                button: MouseButton::Left,
-                button_state: MouseButtonState::Up,
-                ..
-            } = event
-            {
-                let app = tray.app_handle();
-                show_main_window(app);
-            }
-        })
-        .build(app)?;
+        }
+        _ => {}
+    })
+    .on_tray_icon_event(|tray, event| {
+        if let TrayIconEvent::Click {
+            button: MouseButton::Left,
+            button_state: MouseButtonState::Up,
+            ..
+        } = event
+        {
+            let app = tray.app_handle();
+            show_main_window(app);
+        }
+    })
+    .build(app)?;
     Ok(())
 }
 

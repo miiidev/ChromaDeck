@@ -221,12 +221,8 @@ impl ColorApi for RealColorApi {
 
         // Install the ICC profile into the system colour store.
         // SAFETY: InstallColorProfileW is a straightforward Mscms call.
-        let _ = unsafe {
-            InstallColorProfileW(
-                PCWSTR::null(),
-                PCWSTR::from_raw(wide_path.as_ptr()),
-            )
-        };
+        let _ =
+            unsafe { InstallColorProfileW(PCWSTR::null(), PCWSTR::from_raw(wide_path.as_ptr())) };
 
         // Associate the profile with the device.
         // SAFETY: AssociateColorProfileWithDeviceW links profile → device.
@@ -270,7 +266,9 @@ impl ColorApi for RealColorApi {
         // Fail fast on blank ramps (see blank_channel_error) before touching
         // the driver, so the user gets an actionable message.
         if let Some(msg) = Self::blank_channel_error(&ramp) {
-            unsafe { let _ = DeleteDC(hdc); };
+            unsafe {
+                let _ = DeleteDC(hdc);
+            };
             return Err(msg);
         }
 
@@ -281,7 +279,9 @@ impl ColorApi for RealColorApi {
 
         // Cleanup DC.
         // SAFETY: DeleteDC is safe after a successful CreateDCW.
-        unsafe { let _ = DeleteDC(hdc); };
+        unsafe {
+            let _ = DeleteDC(hdc);
+        };
 
         if !ok {
             Err(format!(
@@ -355,9 +355,9 @@ pub(crate) fn build_gamma_ramp(
         let base = (v * 65535.0) as u16;
 
         // Per-channel gain
-        ramp[i] = ((base as f64 * rgb_gains[0]).round() as u16).min(65535);
-        ramp[256 + i] = ((base as f64 * rgb_gains[1]).round() as u16).min(65535);
-        ramp[512 + i] = ((base as f64 * rgb_gains[2]).round() as u16).min(65535);
+        ramp[i] = (base as f64 * rgb_gains[0]).round() as u16;
+        ramp[256 + i] = (base as f64 * rgb_gains[1]).round() as u16;
+        ramp[512 + i] = (base as f64 * rgb_gains[2]).round() as u16;
     }
 
     // Enforce the driver-accepted peak floor per channel (see above).
@@ -366,8 +366,7 @@ pub(crate) fn build_gamma_ramp(
         if peak > 0 && peak < MIN_CHANNEL_PEAK {
             let scale = MIN_CHANNEL_PEAK as f64 / peak as f64;
             for i in 0..256 {
-                ramp[ch * 256 + i] =
-                    ((ramp[ch * 256 + i] as f64 * scale).round() as u16).min(65535);
+                ramp[ch * 256 + i] = (ramp[ch * 256 + i] as f64 * scale).round() as u16;
             }
         }
     }
@@ -376,7 +375,6 @@ pub(crate) fn build_gamma_ramp(
 }
 
 // ── Shared DC / read helpers (enforcer) ─────────────────────────────────
-
 
 /// Open a device context for a display device. Shared by set/read paths.
 fn open_display_dc(device_name: &str) -> Result<HDC, String> {
@@ -407,7 +405,9 @@ pub(crate) fn read_gamma_ramp(device_name: &str) -> Result<[u16; 256 * 3], Strin
     // SAFETY: GetDeviceGammaRamp fills 768 WORDs on success.
     let ok: bool = unsafe { GetDeviceGammaRamp(hdc, &mut ramp as *mut _ as _).as_bool() };
     // SAFETY: DeleteDC is safe after a successful CreateDCW.
-    unsafe { let _ = DeleteDC(hdc); };
+    unsafe {
+        let _ = DeleteDC(hdc);
+    };
     if !ok {
         return Err(format!("GetDeviceGammaRamp failed for {device_name}"));
     }
@@ -459,10 +459,7 @@ fn apply_color_with_backend(
     // (NVAPI, Intel, or GDI) owns the full driver-level pipeline for the display.
     let registry = BackendRegistry::new();
     let backend = registry.select(target_edid);
-    (
-        backend.apply(api, nv, preset, target_edid),
-        backend.id(),
-    )
+    (backend.apply(api, nv, preset, target_edid), backend.id())
 }
 
 // ── Per-adjustment reporting ────────────────────────────────────────────────
@@ -610,12 +607,7 @@ pub fn adjustment_outcomes(
         out.push(if result.vibrance_applied {
             applied(ADJUSTMENT_VIBRANCE)
         } else {
-            optional_write_outcome(
-                backend_id,
-                ADJUSTMENT_VIBRANCE,
-                &vibrance_error,
-                result,
-            )
+            optional_write_outcome(backend_id, ADJUSTMENT_VIBRANCE, &vibrance_error, result)
         });
     }
 
@@ -741,7 +733,7 @@ pub fn restore_monitors(
         .collect()
 }
 
-/// ── Reset-all (command + pure aggregation) ──────────────────────────────
+// ── Reset-all (command + pure aggregation) ──────────────────────────────
 
 /// Aggregate per-connected-monitor resets. Offline monitors are skipped
 /// without calling; failed resets still return their outcome so the UI can
@@ -783,41 +775,42 @@ pub struct ResetAllOutcome {
 
 #[tauri::command]
 pub fn reset_all_monitors_cmd(
+    app: tauri::AppHandle,
     state: tauri::State<'_, crate::store::AppStore>,
-) -> ResetAllOutcome {
+) -> Result<ResetAllOutcome, String> {
+    let _operation = crate::auto_apply_runtime::DISPLAY_OPERATION
+        .lock()
+        .map_err(|e| e.to_string())?;
     let api = RealColorApi;
     let nv = crate::nvapi::RealNvapi;
     let monitors = crate::monitor::list_monitors();
-    let results =
-        reset_all_connected(&mut |edid: &str| -> ApplyResult { reset_monitor(&api, &nv, edid) },
-            &monitors,);
+    for monitor in &monitors {
+        crate::auto_apply_runtime::relinquish_manual(&app, &monitor.edid_id);
+    }
+    let results = reset_all_connected(
+        &mut |edid: &str| -> ApplyResult { reset_monitor(&api, &nv, edid) },
+        &monitors,
+    );
     // Clear each successful monitor's applied record, matching
     // reset_monitor_cmd's semantics.
     if let Ok(mut store) = state.0.lock() {
         for (edid, r) in &results {
             if r.error.is_none() {
-                store.clear_applied(edid);
+                store.clear_applied(edid).map_err(|e| e.to_string())?;
             }
         }
         // Unconditional: reset-all is a full tear-down of enforcement
         // intent; otherwise the enforcer would repaint within one tick.
-        let pins_removed = store.clear_all_pins();
-        ResetAllOutcome {
+        let pins_removed = store.clear_all_pins().map_err(|e| e.to_string())?;
+        Ok(ResetAllOutcome {
             results: results
                 .into_iter()
                 .map(|(edid, result)| NamedApplyResult::new(edid, result))
                 .collect(),
             pins_removed,
-        }
+        })
     } else {
-        // Store lock poison: report resets that ran, 0 pins as unknown-none.
-        ResetAllOutcome {
-            results: results
-                .into_iter()
-                .map(|(edid, result)| NamedApplyResult::new(edid, result))
-                .collect(),
-            pins_removed: 0,
-        }
+        Err("monitors reset, but the store lock is unavailable; pins could not be cleared".into())
     }
 }
 
@@ -848,9 +841,12 @@ pub fn reset_monitor(
 // ── Recorder / mock for testing ─────────────────────────────────────────────
 
 #[cfg(test)]
+type GammaParams = (f64, f64, [f64; 3], f64);
+
+#[cfg(test)]
 pub struct TestRecorder {
     pub calls: std::sync::Mutex<Vec<String>>,
-    pub last_gamma_params: std::sync::Mutex<Option<(f64, f64, [f64; 3], f64)>>,
+    pub last_gamma_params: std::sync::Mutex<Option<GammaParams>>,
     pub connected: bool,
     pub icc_should_fail: bool,
     pub gamma_should_fail: bool,
@@ -869,9 +865,7 @@ impl TestRecorder {
             connected,
             icc_should_fail: false,
             gamma_should_fail: false,
-            ramp_to_return: std::sync::Mutex::new(build_gamma_ramp(
-                1.0, 1.0, [1.0, 1.0, 1.0], 1.0,
-            )),
+            ramp_to_return: std::sync::Mutex::new(build_gamma_ramp(1.0, 1.0, [1.0, 1.0, 1.0], 1.0)),
         }
     }
 }
@@ -902,8 +896,7 @@ impl ColorApi for TestRecorder {
     ) -> Result<(), String> {
         let mut calls = self.calls.lock().unwrap();
         calls.push("gamma".into());
-        *self.last_gamma_params.lock().unwrap() =
-            Some((brightness, contrast, rgb_gains, gamma));
+        *self.last_gamma_params.lock().unwrap() = Some((brightness, contrast, rgb_gains, gamma));
         if self.gamma_should_fail {
             Err("mock gamma failure".into())
         } else {
@@ -920,10 +913,22 @@ impl ColorApi for TestRecorder {
 
 #[tauri::command]
 pub fn apply_preset_cmd(
+    app: tauri::AppHandle,
     state: tauri::State<'_, crate::store::AppStore>,
     id: String,
     target_edid: String,
 ) -> ApplyOutcome {
+    let _operation = match crate::auto_apply_runtime::DISPLAY_OPERATION.lock() {
+        Ok(guard) => guard,
+        Err(e) => {
+            return ApplyOutcome::legacy(ApplyResult {
+                icc_applied: false,
+                gamma_applied: false,
+                vibrance_applied: false,
+                error: Some(e.to_string()),
+            })
+        }
+    };
     // Read the preset from the store
     let store = match state.0.lock() {
         Ok(s) => s,
@@ -958,13 +963,18 @@ pub fn apply_preset_cmd(
 
     let api = RealColorApi;
     let nv = crate::nvapi::RealNvapi;
-    let outcome = apply_preset_detailed(&api, &nv, &preset, &target_edid, &profiles_dir_str);
+    crate::auto_apply_runtime::relinquish_manual(&app, &target_edid);
+    let mut outcome = apply_preset_detailed(&api, &nv, &preset, &target_edid, &profiles_dir_str);
 
     // Record applied state on success (reacquire store lock)
     if outcome.result.error.is_none() {
-        if let Ok(mut store) = state.0.lock() {
-            let _ = store.record_applied(&target_edid, &id);
-        }
+        outcome.result.error = match state.0.lock() {
+            Ok(mut store) => store
+                .record_applied(&target_edid, &id)
+                .err()
+                .map(|e| format!("applied, but saving state failed: {e}")),
+            Err(e) => Some(format!("applied, but store lock failed: {e}")),
+        };
     }
 
     outcome
@@ -1042,18 +1052,34 @@ pub fn probe_monitor_cmd(edid_id: String) -> Result<MonitorProbe, String> {
 
 #[tauri::command]
 pub fn reset_monitor_cmd(
+    app: tauri::AppHandle,
     state: tauri::State<'_, crate::store::AppStore>,
     edid_id: String,
 ) -> ApplyResult {
+    let _operation = match crate::auto_apply_runtime::DISPLAY_OPERATION.lock() {
+        Ok(guard) => guard,
+        Err(e) => {
+            return ApplyResult {
+                icc_applied: false,
+                gamma_applied: false,
+                vibrance_applied: false,
+                error: Some(e.to_string()),
+            }
+        }
+    };
+    crate::auto_apply_runtime::relinquish_manual(&app, &edid_id);
     let api = RealColorApi;
     let nv = crate::nvapi::RealNvapi;
-    let result = reset_monitor(&api, &nv, &edid_id);
+    let mut result = reset_monitor(&api, &nv, &edid_id);
 
-    // Clear applied record on success
     if result.error.is_none() {
-        if let Ok(mut store) = state.0.lock() {
-            store.clear_applied(&edid_id);
-        }
+        result.error = match state.0.lock() {
+            Ok(mut store) => store
+                .clear_applied(&edid_id)
+                .err()
+                .map(|e| format!("reset succeeded, but saving state failed: {e}")),
+            Err(e) => Some(format!("reset succeeded, but store lock failed: {e}")),
+        };
     }
 
     result
@@ -1203,7 +1229,10 @@ mod tests {
     #[test]
     fn gamma_ramp_max_brightness_gives_max_value() {
         let ramp = build_gamma_ramp(1.0, 1.0, [1.0, 1.0, 1.0], 1.0);
-        assert_eq!(ramp[255], 65535, "max index should be 65535 at full brightness gamma=1");
+        assert_eq!(
+            ramp[255], 65535,
+            "max index should be 65535 at full brightness gamma=1"
+        );
     }
 
     #[test]
@@ -1258,8 +1287,11 @@ mod tests {
         assert!(raw_peak > 0 && raw_peak < MIN_CHANNEL_PEAK);
         let scale = MIN_CHANNEL_PEAK as f64 / raw_peak as f64;
         for &i in &[0u32, 1, 64, 128, 200, 254, 255] {
-            let expected = ((raw(i) as u16 as f64 * scale).round() as u16).min(65535);
-            assert_eq!(ramp[i as usize], expected, "index {i} must be linearly rescaled");
+            let expected = (raw(i) as u16 as f64 * scale).round() as u16;
+            assert_eq!(
+                ramp[i as usize], expected,
+                "index {i} must be linearly rescaled"
+            );
         }
         for ch in 0..3 {
             let base = ch * 256;
@@ -1507,8 +1539,7 @@ mod tests {
     #[test]
     fn zero_peak_ramp_flagged_with_actionable_error() {
         let ramp = build_gamma_ramp(0.0, 0.5, [1.0, 1.0, 1.0], 1.25);
-        let msg = RealColorApi::blank_channel_error(&ramp)
-            .expect("zero ramp must be flagged");
+        let msg = RealColorApi::blank_channel_error(&ramp).expect("zero ramp must be flagged");
         assert!(
             msg.contains("Brightness"),
             "message must tell the user what to change, got: {msg}"
@@ -1633,8 +1664,8 @@ mod tests {
         let legacy = r#"{"icc_applied":true,"gamma_applied":false,"vibrance_applied":false,"error":"gamma: nope"}"#;
         let outcome: ApplyOutcome = serde_json::from_str(legacy).unwrap();
         assert!(outcome.adjustments.is_empty());
-        assert_eq!(outcome.result.icc_applied, true);
-        assert_eq!(outcome.result.gamma_applied, false);
+        assert!(outcome.result.icc_applied);
+        assert!(!outcome.result.gamma_applied);
         assert_eq!(outcome.result.error.as_deref(), Some("gamma: nope"));
     }
 
@@ -1694,7 +1725,10 @@ mod tests {
         let names: Vec<&str> = outs.iter().map(|o| o.adjustment.as_str()).collect();
         assert_eq!(names, vec!["gamma", "brightness", "contrast", "rgb_gains"]);
         assert!(outs.iter().all(|o| o.status == AdjustmentStatus::Applied));
-        assert!(outs.iter().all(|o| !o.verified), "apply is not read-back verified");
+        assert!(
+            outs.iter().all(|o| !o.verified),
+            "apply is not read-back verified"
+        );
     }
 
     #[test]
@@ -1753,7 +1787,12 @@ mod tests {
         assert_eq!(sat.status, AdjustmentStatus::Applied);
         let vib = outs.iter().find(|o| o.adjustment == "vibrance").unwrap();
         assert_eq!(vib.status, AdjustmentStatus::Skipped);
-        assert!(vib.reason.as_deref().unwrap_or("").to_lowercase().contains("vibrance"));
+        assert!(vib
+            .reason
+            .as_deref()
+            .unwrap_or("")
+            .to_lowercase()
+            .contains("vibrance"));
     }
 
     #[test]
@@ -1790,8 +1829,7 @@ mod tests {
         let color = TestRecorder::new(true);
         let nv = MockNvapi::new(true);
         let preset = fake_preset(); // has ICC
-        let outcome =
-            apply_preset_detailed(&color, &nv, &preset, "EDID-001", "profiles");
+        let outcome = apply_preset_detailed(&color, &nv, &preset, "EDID-001", "profiles");
 
         assert!(outcome.result.icc_applied);
         assert!(outcome.result.gamma_applied);
@@ -1820,7 +1858,16 @@ mod tests {
             *color.last_gamma_params.lock().unwrap(),
             Some((1.0, 1.0, [1.0, 1.0, 1.0], 1.0))
         );
-        assert_eq!(color.calls.lock().unwrap().iter().filter(|c| *c == "gamma").count(), 2);
+        assert_eq!(
+            color
+                .calls
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|c| *c == "gamma")
+                .count(),
+            2
+        );
     }
 }
 

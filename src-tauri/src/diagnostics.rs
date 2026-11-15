@@ -163,11 +163,7 @@ fn timestamp_now_utc() -> String {
 fn timestamp_from_epoch(secs: i64) -> String {
     let days = secs.div_euclid(86_400);
     let sod = secs.rem_euclid(86_400);
-    let (h, m, s) = (
-        sod / 3600,
-        (sod % 3600) / 60,
-        sod % 60,
-    );
+    let (h, m, s) = (sod / 3600, (sod % 3600) / 60, sod % 60);
     let z = days + 719_468;
     let era = z.div_euclid(146_097);
     let doe = z.rem_euclid(146_097);
@@ -178,10 +174,7 @@ fn timestamp_from_epoch(secs: i64) -> String {
     let d = doy - (153 * mp + 2) / 5 + 1;
     let mo = if mp < 10 { mp + 3 } else { mp - 9 };
     let year = if mo <= 2 { y + 1 } else { y };
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
-        year, mo, d, h, m, s
-    )
+    format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", year, mo, d, h, m, s)
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────
@@ -228,7 +221,7 @@ mod tests {
             edid_present: true,
             edid_len: 256,
         };
-        let snapshot = format_snapshot(&[monitor.clone()]);
+        let snapshot = format_snapshot(std::slice::from_ref(&monitor));
         assert!(snapshot.lines().count() >= 2); // header + 1 monitor
         assert!(
             snapshot.contains(r"\\.\DISPLAY1")
