@@ -2,7 +2,7 @@
 
 ## Theme
 
-Flat Dark Minimal: near-black canvas with a four-step elevation ladder — no glassmorphism, no radial glow orbs, no drop shadows (the only exception is the drag ghost). Single mint-teal accent (`#5eead4`) for primary actions and active state; each preset can carry its own tag colour as its identity. Wide geometric Grotesk typography (Geist). A horizontal, snap-scrolling preset carousel.
+Flat Dark Minimal: near-black canvas with a four-step elevation ladder — no glassmorphism, no radial glow orbs, no drop shadows (exceptions: drag ghost, undo toast, and the "All monitors" drop pill). Single mint-teal accent (`#5eead4`) for primary actions and active state; each preset can carry its own tag colour as its identity. Wide geometric Grotesk typography (Geist). Preset library with a grid/carousel view toggle (grid is the default and is persisted).
 
 | Token (--color-*) | Value | Role |
 |---|---|---|
@@ -61,15 +61,15 @@ Mint fill on dark is legible; mint text is reserved for active/`IN USE` labels. 
 ## Components
 
 UI components in `src/components/ui/` follow shadcn `base-nova` conventions (data-slot API, cva variants) built on Base UI React primitives:
-- Button, Badge, Card, Dialog, Input, Label, Select, Checkbox, Radio Group, Skeleton (Base UI); Slider (Radix); WindowDots (custom three-dot motif for panel headers)
+- Button, Badge, Card, Dialog, Input, Label, Select, Checkbox, Radio Group, Skeleton (Base UI); Slider (Radix); WindowDots (custom three-dot motif; no longer used by panel headings, retained)
 - Figma-drawn glyphs live in `src/components/ui/icons.tsx` (monitor, reset, probe, identify, apply arrow, trailing plus)
 - Icon library: Lucide for generic actions (pencil, duplicate, trash, pin)
 
-Badges are mono 9px, `px-2 py-[3px]`, rounded-[8px] (`border-hover` hairline + muted text; mint subtle + mint text for `pinned` / `in-use`).
+Badges are mono 9px uppercase with `0.1em` tracking, `px-1.5 py-0.5`, `rounded-[8px]` (`border-hover` hairline + muted text; mint subtle + mint text for in-use; the ApplyDialog PINNED chip uses `px-2 py-[3px]`).
 StatTile is a bare label/value stack — no well, no border.
 Dialogs use `rounded-[8px]`, border `border-border`, bg `surface-raised`; controls use `rounded-[8px]`; every border is a 1px hairline (`border`). No shadows, no blur.
 
-Drag-and-drop (pointer-based, portal ghost): preset cards are draggable; monitor cards are drop targets, and a **filled monitor slot is also a drag source** so an applied preset can be copied to another display without duplicating it (the library no longer holds applied presets). The source slot dims to 40% and switches to a grabbing cursor while dragging, with a `title` explaining the copy. Drag ghost renders a miniature preset card (`scale(0.98)`, `rotate(-0.5deg)`, `opacity 0.9`, raised surface) in a portal on `document.body`. Source card dims to 40% opacity / scale 0.97 while dragging. "All monitors" drop target appears as a mint pill at the top of the monitors panel only during a drag; drop on library background cancels. Apply-in-progress shows a spinner in the slot; applied state shows the badge plus a one-shot tag-coloured sweep; error shows destructive text.
+Drag-and-drop (pointer-based, portal ghost): preset cards are draggable; monitor cards are drop targets, and a **filled monitor slot is also a drag source** so an applied preset can be copied to another display without duplicating it (the library no longer holds applied presets). The source slot dims to 40% and switches to a grabbing cursor while dragging, with a `title` explaining the copy. Drag ghost renders a miniature preset card (`scale(0.98)`, `rotate(-0.5deg)`, `opacity 0.9`, raised surface) in a portal on `document.body`. Source card dims to 40% opacity / scale 0.97 while dragging. The "All monitors" drop target appears only during a drag: a full-round `h-8` pill (mono 10px uppercase, `0.12em` tracking, ChevronDown glyph) at the top of the monitors panel — mint border, subtle mint fill and mint text with an inset ring when monitors are connected, muted border/surface/text when none are; it carries a drop shadow (a shadow exception). Drop on library background cancels. Apply-in-progress shows a spinner in the slot; applied state shows the badge plus a one-shot tag-coloured sweep; error shows destructive text.
 
 ## Color Roles
 
@@ -99,14 +99,14 @@ The app is dark-only. No light-mode sections. The Identify overlay is a transien
 ## Header Layout
 
 ```
-[22px seven-tile mark]  ChromaDeck  |  v{package.json}
+[24px seven-tile mark]  ChromaDeck  |  v{package.json}
 ```
 
-Flat strip (`h-12`, `border-b border-border`, `bg-background`, `px-6`): left cluster (mark + wordmark 18px Geist SemiBold, tracking -0.54px, then a 1px × 16px divider and the mono 10px version). Right cluster intentionally empty — actions live in the footer status bar. No theme toggle — dark-only. The version badge renders `v{version}` imported from `package.json` (never hardcoded); the mark is `src/assets/chromadeck-brand.svg` at 22px (`.logo-lockup`).
+Flat strip (`h-12`, `border-b border-border`, `bg-background`, `px-6`): left cluster (mark + wordmark 15px Geist SemiBold, tracking -0.02em, then a 1px × 16px divider and the mono 10px version). Right cluster intentionally empty — actions live in the footer status bar. No theme toggle — dark-only. The version badge renders `v{version}` imported from `package.json` (never hardcoded); the mark is `src/assets/chromadeck-icon.svg` at 24px (`.logo-lockup`), with the wordmark inside a staged `enter-reveal` mask.
 
 ## Monitor dashboard
 
-`MONITORS (n)` section heading (28px): WindowDots (26 × 6) + mono 11px label on the left, an `Identify` glyph + mono 10px muted action on the right. Below, a grid of monitor cards (breakpoints: <760px 1 col, ≥760px 2 cols, ≥1000px 3 cols). Density adapts: 160px-tall cards with a `gap-4` up to four monitors, then 146px-tall cards with a `gap-3` (inner padding `p-3`, slot/action gap `mt-2`) from five monitors on. The sidebar always stacks vertically and scrolls; it never becomes a horizontal carousel.
+`MONITORS (n)` section eyebrow (mono 10px uppercase, `0.14em` tracking) in a flat `h-10` header row with a bottom hairline. On the right, two ghost actions: `Reset all` (14px reset glyph + mono 10px label, hover-brightened with a scale-110 glyph nudge; opens a confirm dialog — a 12px destructive glyph well, 32px title `Reset all monitors?`, mono 12px description, mono 10px footnote, `Cancel` ghost + destructive `Reset all` that reads `Resetting…` while running) and `Identify` (14px glyph + mono 10px label, `Identifying…` while active). Below, a grid of monitor cards (breakpoints: <760px 1 col, ≥760px 2 cols, ≥1000px 3 cols). Density adapts: 160px-tall cards with a `gap-4` up to four monitors, then 146px-tall cards with a `gap-3` (inner padding `p-3`, slot/action gap `mt-2`) from five monitors on. The sidebar always stacks vertically and scrolls; it never becomes a horizontal carousel.
 
 ```
 Outer: h-[160px] rounded-[8px] p-2 border border-border bg-surface
@@ -120,18 +120,18 @@ While a preset is dragged over a valid monitor the pad scales to 1.01 and its bo
 
 ## Footer status bar
 
-Flat strip (`h-14`, `border-t border-border`, `bg-background`, `pl-6 pr-4`): health light + `N PRESETS · M MONITORS CONNECTED · K PINNED` (mono 10px), a transient reapply message, a 1px × 20px divider, the **Auto-apply** checkbox (14px mint-checked box + mono 10px label; mirrors the tray `Auto-apply` menu checkbox), the **Autostart** checkbox (14px mint-checked box + mono 10px label), and the **Reapply** ghost button (rounded-[8px], mono 10px uppercase).
+Flat strip (`h-14`, `border-t border-border`, `bg-background`, `pl-6 pr-4`): health light + `N PRESETS · M MONITORS CONNECTED · K PINNED` (mono 10px), transient result messages (reapply, auto-apply, update check — 5s fades separated by `1px × 16px` dividers), a `1px × 16px` divider, the **Auto-apply** checkbox (14px mint-checked box + mono 10px label; mirrors the tray `Auto-apply` menu checkbox), the **Autostart** checkbox (14px mint-checked box + mono 10px label), the **Reapply** ghost button (rounded-[8px], mono 10px uppercase, `0.12em` tracking), and the **Check for updates** ghost button (same family: `rounded-[8px]`, mono 10px uppercase, `0.12em` tracking, 10px refresh glyph at 1.5 stroke; while checking it shows a 16px border spinner + `Checking…` and is disabled).
 
 The health light is 6px: mint when at least one monitor is connected and the last Reapply had no errors, red with a continuous pulse after a Reapply error, muted while loading or with no monitors. It plays one expanding ring whenever its state changes.
 
 ## Logo system
 
-Seven-tile "C" mark: graphite flat surface with one mint accent (Figma `Brand/Logo`, transparent background).
+Seven-tile deck-pad mark: graphite flat surface with one mint accent (Figma `Brand/Logo`, transparent background).
 
 | Asset | Used for |
 |---|---|
-| `src/assets/chromadeck-brand.svg` | header lockup (22px) — exported from Figma |
-| `src/assets/chromadeck-icon.svg` | legacy deck-pad mark (32px) |
+| `src/assets/chromadeck-icon.svg` | header lockup (24px, `.logo-lockup`) and the deck-pad mark itself |
+| `src/assets/chromadeck-brand.svg` | earlier seven-tile "C" variant — no longer imported (kept as source material) |
 | `src/assets/chromadeck-icon-1024.png` | source for `npx tauri icon` regeneration |
 | `src/assets/chromadeck-icon-small.svg`, `chromadeck.ico` | source material |
 | `public/logo.svg` | favicon (clean drawing, no provenance metadata) |
@@ -141,10 +141,10 @@ Regenerate with `npx tauri icon src/assets/chromadeck-icon-1024.png`. `src-tauri
 
 ## Typography
 
-- Display: `Geist` (400/600/700 via `@fontsource/geist`) for the wordmark, library title, card titles, monitor names, button labels
+- Display: `Geist` (400/600/700 via `@fontsource/geist`) for the wordmark, dialog titles, card titles, monitor names, button labels
 - Mono: `JetBrains Mono` (500/700) for IDs, status, parameter labels/values, readouts, meta data
 - Body: `Geist`, then system sans fallback — no remote fonts, fully offline
-- Mono labels: `text-[9px]` … `text-[11px]`, no added tracking
+- Mono labels: `text-[9px]` … `text-[11px]`, with the micro-label tracking tiers below
 - Body: `text-sm` / `text-xs` defaults in dialogs
 
 ## Type scale
@@ -154,12 +154,12 @@ Body text uses the Tailwind scale only. Exceptions, each with a fixed role:
 | Size | Role | Where |
 |---|---|---|
 | `text-[9px]` | Micro: badges, stat labels, serials, pinned row | Badges, StatTile, monitor identity |
-| `text-[10px]` | Meta: version, footer counts, utility labels, apply action | Header, footer, monitor actions, PresetCard action strip |
-| `text-[11px]` | Section eyebrow | `MONITORS (n)` |
+| `text-[10px]` | Meta: version, footer counts, section eyebrows, utility labels, apply action | Header, footer, monitor actions, PresetCard action strip |
+| `text-[11px]` | Library header controls | Category dropdown, search field |
 | `text-[13px]` | Button labels | Every Button |
 | `text-[17px]` | Card stat values, monitor names | StatTile, MonitorCard |
-| `text-[18px]` | Wordmark | Header |
-| `text-2xl` (24px) | Section title | `Your library`, selection count |
+| `text-[15px]` | Wordmark, drag-ghost title | Header, DragGhost |
+| `text-2xl` (24px) | Dialog title (component default) | shared Dialog base; ApplyDialog pins its title to 24px (`-0.48px`) |
 | `text-[32px]` | Fixed: PresetCard title (overflow via truncation + hover marquee + tooltip) | PresetCard title |
 | `text-[128px]` | One-off: Identify overlay number | IdentifyOverlay |
 
@@ -169,10 +169,10 @@ Display type is rule-driven, not arbitrary. No other sizes are allowed; a new si
 
 | Tier | Tracking | Where |
 |---|---|---|
-| Display title (18px+) | `-3%` … `-4%` | `CHROMADECK` (-0.54px @18), `Your library` (-0.72px @24), card titles (-1.28px @32) |
-| Mono micro-label (9-11px, uppercase) | `0` | Badges, section eyebrows, stat labels, footer counts |
+| Display title (15px+) | `-2%` … `-4%` | Wordmark (-0.02em @15), dialog titles (-0.02em @24 base, fixed `-0.48px` @24 in ApplyDialog, `-0.96px` @32 in confirm/editor dialogs), card titles (-1.28px @32) |
+| Mono micro-label (9-11px, uppercase) | `0.1em` / `0.12em` / `0.14em` | 9px badges and chips (`0.1em`), 10px labels, footer counts and ghost buttons (`0.12em`), section eyebrows (`0.14em`) |
 
-Uppercase mono labels carry no artificial tracking — the typeface supplies the rhythm.
+Uppercase mono micro-labels carry a small fixed tracking that steps up with prominence: `0.1em` → `0.12em` → `0.14em`.
 
 ### Numerals
 
@@ -201,7 +201,8 @@ Signature interaction — **a 1px press**: buttons translate 1px down on `:activ
 | What plays | Rule |
 |---|---|
 | Shell entrance (mount + every window re-show) | 350ms glide, staged 0/60/120/180ms — Header → MonitorDashboard → PresetLibrary → Footer |
-| Preset cascade | 350ms glide, stagger capped at 5 × 60ms (≤300ms total, no stagger-spam) |
+| Carousel cascade | 350ms glide, stagger capped at 5 × 60ms (≤300ms total, no stagger-spam) |
+| Grid cascade | 350ms glide, stagger capped at 3 × 40ms (≤120ms total) |
 | Monitor dashboard cards | 3 × 60ms = 180ms total |
 | Dialog reveal | Title (0ms) → Body (80ms) → Actions (160ms) |
 | Dialog exit | The dialog keeps its local `open` state false until Base UI's `onOpenChangeComplete` fires, so the close animation plays before the parent unmounts it |
@@ -221,14 +222,17 @@ Signature interaction — **a 1px press**: buttons translate 1px down on `:activ
 | Footer health | one expanding ring (`health-pulse`) whenever the state changes; the error-state dot keeps its continuous pulse |
 | Editor tag morph | the selected colour/shape scales to 1.1 and the selected shape preview snaps in (`motion-scale-in`); no shape tween |
 
-## Preset Library (horizontal carousel)
+## Preset Library (grid / carousel)
 
-The library is a single-row, snap-scrolling carousel of preset cards (`min-w-[288px]`, 16px gap), not a grid. Cards keep their natural height (~177px) and vertically centre in the available space; when the panel is shorter than that, it scrolls vertically rather than squashing the cards.
+The library renders preset cards (`min-w-[288px]`, 16px gap) in one of two views, toggled from the header row: **grid** (default, persisted in localStorage as `chromadeck:library-view`) and **carousel**. Both views render the identical cards; cards keep their natural height (~177px).
 
-- Header row (`h-10`): `PRESETS (n)` (or `n of m` while filtering) on the left; category dropdown, search field (`/` or Ctrl/Cmd+F to focus, Esc to clear) and `+ Create preset` on the right.
+- **Grid:** `gap-4` with 1 / 2 / 3 / 4 columns below 760px / ≥760px / ≥1000px / ≥1450px.
+- **Carousel:** a single-row, snap-scrolling deck; cards vertically centre in the available space, and when the panel is shorter than that it scrolls vertically rather than squashing the cards.
+
+- Header row (`h-10`, bottom hairline): `Presets (n)` (or `n of m` while filtering) on the left; category dropdown, search field (`/` or Ctrl/Cmd+F to focus, Esc to clear), `+ Create preset`, and a view-toggle icon button (28px ghost square, 16px glyph: 4-square grid ↔ 3-line list) on the right.
 - The carousel has 48px inline padding. A horizontal mask fades the first and last 48px so cards dissolve into the panel instead of clipping at the viewport edge.
 - Arrows sit vertically centred on the visible panel, outside the mask; they step exactly one card and disable at each end.
-- Loading state mirrors the carousel with a row of card skeletons.
+- Loading state shows a row of card skeletons (view-independent).
 - Applied presets leave the library. A preset applied to a **connected** monitor is removed from the carousel and lives only on that monitor's card until the monitor is reset or the apply is undone. Presets applied to a disconnected monitor stay in the library so they can't be stranded. Duplicate a preset to reuse it on another display.
 
 The section heading is `PRESETS (n)` (mono 10px, uppercase, 0.14em tracking).
@@ -238,6 +242,25 @@ The section heading is `PRESETS (n)` (mono 10px, uppercase, 0.14em tracking).
 A foreground watcher (500 ms poll) maps an executable base name to a preset and applies it to the monitor showing that window. Mappings are edited in the preset editor's **Programs** row (removable mono chips + name input + `Browse…` `.exe` picker). One program maps to exactly one preset; a conflict shows inline, naming the owning preset. The master switch lives in the footer and the tray, defaults off, and persists in `settings.json`; auto-applied state itself is in-memory only, skips ICC, and never writes `applied.json`. A pin always beats auto-apply. Reverting (program closes, moves, minimizes, or the switch goes off) returns the monitor to identity. ChromaDeck's own foreground window is ignored so opening the app never reverts.
 
 Diagnostics: switch changes, foreground/device/EDID changes, and apply/revert/skip results are appended to `<data_dir>/auto-apply.log` (epoch-ms lines, capped at 256 KiB).
+
+## Auto-updater
+
+Startup (unless suppressed) and the footer **Check for updates** button poll the release manifest (`https://chromadeck.github.io/update-manifest.json`, Ed25519-signed).
+
+- **Startup check:** if an update is available the `UpdateDialog` opens with `Update available`; if the app is current, a transient footer note (`You're up to date`) plays instead — the dialog only opens on launch for a real update. Check failures surface as a transient footer note (`Update check failed: …`).
+- **Manual check:** the footer button always opens the dialog (either kind) and clears any 24h suppression.
+- **"Remind me later":** closes the dialog and suppresses the startup dialog for 24h (`chromadeck.updateSuppressedUntil` in localStorage); manual checks always override it.
+
+`UpdateDialog` — standard dialog tokens (8px radius, raised surface, hairline borders, no blur) with four kinds:
+
+| Kind | Title | Body | Actions |
+|---|---|---|---|
+| `available` | `Update available` (date as description) | version (mono 11px muted) + release notes (mono 10px) | `Remind me later` (outline) + `Download & install` (primary) |
+| `downloading` | `Update available` | version + notes + progress row: mono 10px `Downloading` / `NN%` (or `…`) over a 6px full-round track (`bg-subtle-fg`) with a mint fill | single disabled outline `Installing…` (`cursor-not-allowed`, 50% opacity) |
+| `ready` | `Update available` | version + notes | primary `Restart now` |
+| `up-to-date` | `You're up to date` | version (current app version), no notes | single primary `OK` |
+
+Progress arrives on `update://progress` events (`downloaded`, `total`, `percent`); at 100% the dialog switches to the `ready` kind. On Windows the installer exits the app after install.
 
 ## Flat Card Architecture
 

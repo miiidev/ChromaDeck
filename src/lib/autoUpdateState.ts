@@ -13,7 +13,7 @@ export type UpdateState =
       total: number | null;
       percent: number | null;
     }
-  | { status: "ready-to-install"; version: string; notes: string | null; date: string | null }
+  | { status: "installing"; version: string; notes: string | null; date: string | null }
   | { status: "error"; message: string };
 
 export type UpdateAction =
@@ -71,7 +71,7 @@ export function updateStateReducer(
     case "DOWNLOAD_SUCCESS":
       if (state.status !== "downloading") return state;
       return {
-        status: "ready-to-install",
+        status: "installing",
         version: state.version,
         notes: state.notes,
         date: state.date,

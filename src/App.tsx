@@ -10,7 +10,7 @@ import { listMonitors, listPresets, listPins, listApplied, reapplyNow, getAutoAp
 import { version as appVersion } from "../package.json";
 import type { Monitor, Preset, EnforceEvent } from "./lib/types";
 import { applyAutoEvent, type AutoMap } from "./lib/autoApplyState";
-import { updateStateReducer, initialUpdateState, type UpdateState } from "./lib/autoUpdateState";
+import { updateStateReducer, initialUpdateState } from "./lib/autoUpdateState";
 import { mergeMonitors } from "./lib/monitorMerge";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { isTauri } from "@tauri-apps/api/core";
@@ -143,7 +143,7 @@ function App() {
   const autoTimerRef = useRef<number | null>(null);
   const [updateState, dispatchUpdate] = useReducer(updateStateReducer, initialUpdateState());
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
-  const [updateDialogKind, setUpdateDialogKind] = useState<"available" | "up-to-date" | "downloading" | "ready">("available");
+  const [updateDialogKind, setUpdateDialogKind] = useState<"available" | "up-to-date" | "downloading" | "installing" | "error">("available");
   const [updateMsg, setUpdateMsg] = useState<string | null>(null);
   const updateTimerRef = useRef<number | null>(null);
 
@@ -348,16 +348,17 @@ function App() {
   }, []);
 
   // ── Auto-updater: check on startup + follow progress events ───────────
-  const updateProgressRef = useRef<{ downloaded: number; total: number | null; percent: number | null } | null>(null);
+  const updateInFlight = useRef(false);
+  const updateCheckGeneration = useRef(0);
 
   useEffect(() => {
     if (!isTauri()) return;
-    if (isUpdateSuppressed()) return;
     let mounted = true;
+    const generation = ++updateCheckGeneration.current;
 
-    void checkForUpdate()
+    if (!isUpdateSuppressed()) void checkForUpdate()
       .then((info) => {
-        if (!mounted) return;
+        if (!mounted || generation !== updateCheckGeneration.current || updateInFlight.current) return;
         dispatchUpdate({
           type: "CHECK_SUCCESS",
           payload: {
@@ -376,7 +377,7 @@ function App() {
         }
       })
       .catch((err) => {
-        if (!mounted) return;
+        if (!mounted || generation !== updateCheckGeneration.current || updateInFlight.current) return;
         dispatchUpdate({ type: "CHECK_FAILURE", payload: { message: String(err) } });
         showUpdateMsg(`Update check failed: ${String(err)}`);
       });
@@ -385,33 +386,38 @@ function App() {
       "update://progress",
       (event) => {
         const payload = event.payload;
-        updateProgressRef.current = payload;
         if (mounted) {
           dispatchUpdate({
             type: "DOWNLOAD_PROGRESS",
             payload,
           });
-          if (payload.percent != null && payload.percent >= 100) {
-            dispatchUpdate({ type: "DOWNLOAD_SUCCESS" });
-            setUpdateDialogKind("ready");
-            setUpdateDialogOpen(true);
-          }
+
         }
       },
     );
 
+    const installing = listen("update://installing", () => {
+      if (!mounted) return;
+      dispatchUpdate({ type: "DOWNLOAD_SUCCESS" });
+      setUpdateDialogKind("installing");
+    });
+
     return () => {
       mounted = false;
       progress.then((unlisten) => unlisten()).catch(() => {});
+      installing.then((unlisten) => unlisten()).catch(() => {});
     };
   }, []);
 
   const handleCheckUpdate = async () => {
+    if (updateInFlight.current) return;
+    const generation = ++updateCheckGeneration.current;
     // Manual check always overrides suppression.
     setUpdateSuppressedUntil(0);
     dispatchUpdate({ type: "CHECK_START" });
     try {
       const info = await checkForUpdate();
+      if (generation !== updateCheckGeneration.current || updateInFlight.current) return;
       dispatchUpdate({
         type: "CHECK_SUCCESS",
         payload: {
@@ -425,19 +431,33 @@ function App() {
       setUpdateDialogOpen(true);
       setUpdateDialogKind(info.available ? "available" : "up-to-date");
     } catch (err) {
+      if (generation !== updateCheckGeneration.current || updateInFlight.current) return;
       dispatchUpdate({ type: "CHECK_FAILURE", payload: { message: String(err) } });
       showUpdateMsg(`Update check failed: ${String(err)}`);
+      setUpdateDialogKind("error");
+      setUpdateDialogOpen(true);
     }
   };
 
   const handleDownloadAndInstall = async () => {
+    if (updateInFlight.current) return;
+    updateInFlight.current = true;
+    updateCheckGeneration.current++;
+    setUpdateDialogKind("downloading");
+    setUpdateDialogOpen(true);
     dispatchUpdate({ type: "DOWNLOAD_START" });
     try {
       await downloadAndInstallUpdate();
-      // On Windows the app exits after install; on other platforms we wait
-      // for the progress event to fire DOWNLOAD_SUCCESS.
+      // Windows hands off to the installer and exits. A returning command
+      // must not offer a restart that would download the update again.
+      setUpdateDialogOpen(false);
+      showUpdateMsg("Update installation completed");
     } catch (err) {
       dispatchUpdate({ type: "DOWNLOAD_FAILURE", payload: { message: String(err) } });
+      setUpdateDialogKind("error");
+      setUpdateDialogOpen(true);
+    } finally {
+      updateInFlight.current = false;
     }
   };
 
@@ -445,10 +465,6 @@ function App() {
     // Suppress the update dialog for 24 hours.
     setUpdateSuppressedUntil(Date.now() + SUPPRESS_MS);
     setUpdateDialogOpen(false);
-  };
-
-  const handleRestartNow = () => {
-    void downloadAndInstallUpdate();
   };
 
   const handleEdit = (preset: Preset) => {
@@ -723,33 +739,19 @@ function App() {
           open={updateDialogOpen}
           onClose={() => setUpdateDialogOpen(false)}
           onDownloadAndInstall={handleDownloadAndInstall}
-          onRestart={handleRestartNow}
+          onRetry={handleCheckUpdate}
+          error={updateState.status === "error" ? updateState.message : null}
           onRemindMeLater={handleRemindMeLater}
           update={{
             available: updateDialogKind === "available",
-            version:
-              updateDialogKind === "available" ||
-              updateDialogKind === "downloading" ||
-              updateDialogKind === "ready"
-                ? (updateState as Extract<UpdateState, { status: "available" }>).version
-                : appVersion,
-            notes:
-              updateDialogKind === "available" ||
-              updateDialogKind === "downloading" ||
-              updateDialogKind === "ready"
-                ? (updateState as Extract<UpdateState, { status: "available" }>).notes
-                : null,
-            date:
-              updateDialogKind === "available" ||
-              updateDialogKind === "downloading" ||
-              updateDialogKind === "ready"
-                ? (updateState as Extract<UpdateState, { status: "available" }>).date
-                : null,
+            version: "version" in updateState ? updateState.version : appVersion,
+            notes: "notes" in updateState ? updateState.notes : null,
+            date: "date" in updateState ? updateState.date : null,
           }}
           kind={updateDialogKind}
           progress={
             updateState.status === "downloading"
-              ? (updateState as Extract<UpdateState, { status: "downloading" }>).percent
+              ? updateState.percent
               : null
           }
         />

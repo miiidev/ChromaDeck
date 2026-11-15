@@ -19,6 +19,22 @@ use crate::foreground::ObservedWindow;
 use crate::monitor::Monitor;
 use crate::store::{AppStore, Preset};
 
+// Lock order: display operation, store snapshot, then runtime. Keep the
+// operation guard through hardware writes so manual intent cannot be reverted
+// by an older foreground/enforcement snapshot.
+pub static DISPLAY_OPERATION: Mutex<()> = Mutex::new(());
+
+pub fn relinquish_manual(app: &AppHandle, edid_id: &str) {
+    if let Some(state) = app.try_state::<AutoState>() {
+        let mut runtime = state
+            .runtime
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        runtime.relinquish(edid_id);
+    }
+    emit_cleared(app, edid_id);
+}
+
 /// Emitted for every applied / reverted / skipped / errored / cleared change.
 pub const OUTCOME_EVENT: &str = "auto-apply://outcome";
 /// Emitted when the master switch changes (footer toggle ↔ tray checkbox).
@@ -59,6 +75,16 @@ pub struct AutoRuntime {
 }
 
 impl AutoRuntime {
+    fn relinquish(&mut self, edid_id: &str) {
+        if self
+            .active
+            .as_ref()
+            .is_some_and(|active| active.edid_id == edid_id)
+        {
+            self.active = None;
+        }
+    }
+
     /// Reset bookkeeping for a master-switch change.
     ///
     /// Enabling marks the runtime seeded and forgets the last key, so the very
@@ -152,6 +178,9 @@ pub async fn auto_apply_loop(app: AppHandle) {
 }
 
 fn tick(app: &AppHandle) {
+    let Ok(_operation) = DISPLAY_OPERATION.lock() else {
+        return;
+    };
     let (enabled, presets, pins) = {
         let store_state = match app.try_state::<AppStore>() {
             Some(s) => s,
@@ -348,10 +377,7 @@ fn tick(app: &AppHandle) {
                     );
                 }
             }
-            AutoAction::Revert {
-                edid_id,
-                preset_id,
-            } => {
+            AutoAction::Revert { edid_id, preset_id } => {
                 let result = crate::color::reset_monitor(
                     &crate::color::RealColorApi,
                     &crate::nvapi::RealNvapi,
@@ -481,6 +507,7 @@ fn monitor_name(monitors: &[Monitor], edid_id: &str) -> String {
 /// before the event is emitted: the panel must not keep an auto preset after
 /// the user turned the feature off.
 pub fn set_auto_apply(app: &AppHandle, enabled: bool) -> Result<(), String> {
+    let _operation = DISPLAY_OPERATION.lock().map_err(|e| e.to_string())?;
     {
         let store_state = app
             .try_state::<AppStore>()
@@ -491,8 +518,7 @@ pub fn set_auto_apply(app: &AppHandle, enabled: bool) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
     }
 
-    // The tick holds the runtime lock for the whole hardware write, so taking
-    // it here cannot interleave with an in-flight apply.
+    // DISPLAY_OPERATION remains held through the synchronous revert.
     let mut reverted: Option<ActiveAuto> = None;
     if let Some(state) = app.try_state::<AutoState>() {
         if let Ok(mut rt) = state.runtime.lock() {
@@ -580,6 +606,18 @@ mod tests {
     }
 
     #[test]
+    fn manual_change_relinquishes_only_the_target_monitor() {
+        let mut rt = AutoRuntime {
+            active: Some(active()),
+            ..Default::default()
+        };
+        rt.relinquish("D2");
+        assert!(rt.active.is_some());
+        rt.relinquish("D1");
+        assert!(rt.active.is_none());
+    }
+
+    #[test]
     fn enabling_seeds_and_forgets_the_last_key() {
         // Regression: enabling used to leave `seeded = false`, so the first
         // tick after the switch only seeded and silently skipped the apply
@@ -592,8 +630,14 @@ mod tests {
         };
         rt.apply_switch(true);
         assert!(rt.seeded, "next tick must evaluate the foreground");
-        assert_eq!(rt.last_key, None, "the stale key must not suppress the apply");
-        assert!(rt.active.is_none(), "a fresh enable starts with no active record");
+        assert_eq!(
+            rt.last_key, None,
+            "the stale key must not suppress the apply"
+        );
+        assert!(
+            rt.active.is_none(),
+            "a fresh enable starts with no active record"
+        );
     }
 
     #[test]

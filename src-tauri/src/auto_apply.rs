@@ -55,11 +55,7 @@ pub fn normalize_program_name(raw: &str) -> Option<String> {
     if trimmed.is_empty() {
         return None;
     }
-    let base = trimmed
-        .rsplit(['/', '\\'])
-        .next()
-        .unwrap_or(trimmed)
-        .trim();
+    let base = trimmed.rsplit(['/', '\\']).next().unwrap_or(trimmed).trim();
     if base.is_empty() || base.chars().any(char::is_whitespace) {
         return None;
     }
@@ -112,8 +108,8 @@ pub fn transition(
         return actions;
     };
 
-    let program = normalize_program_name(&foreground.program)
-        .unwrap_or_else(|| foreground.program.clone());
+    let program =
+        normalize_program_name(&foreground.program).unwrap_or_else(|| foreground.program.clone());
 
     if pins.contains_key(&foreground.edid_id) {
         push_revert(&mut actions, active);
@@ -187,7 +183,10 @@ mod tests {
             normalize_program_name(r"C:\Program Files\Google\Chrome\chrome.EXE"),
             Some("chrome.exe".into())
         );
-        assert_eq!(normalize_program_name("  chrome.exe "), Some("chrome.exe".into()));
+        assert_eq!(
+            normalize_program_name("  chrome.exe "),
+            Some("chrome.exe".into())
+        );
         assert_eq!(normalize_program_name(""), None);
         assert_eq!(normalize_program_name("   "), None);
         assert_eq!(normalize_program_name("chrome setup.exe"), None);

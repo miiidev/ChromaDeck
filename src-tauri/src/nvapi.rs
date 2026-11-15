@@ -78,18 +78,30 @@ pub(crate) struct NvapiFns {
     pub(crate) initialize: unsafe extern "system" fn() -> NvStatus,
     pub(crate) get_error_message: unsafe extern "system" fn(NvStatus, *mut NvAPI_ShortString),
     pub(crate) get_display_id: unsafe extern "system" fn(*const c_char, *mut u32) -> NvStatus,
-    pub(crate) get_dvc_info_ex:
-        unsafe extern "system" fn(display_handle: *mut c_void, output_id: u32, info: *mut DvcInfoEx) -> NvStatus,
-    pub(crate) set_dvc_level_ex:
-        unsafe extern "system" fn(display_handle: *mut c_void, output_id: u32, info: *const DvcInfoEx) -> NvStatus,
-    pub(crate) get_hue_info:
-        unsafe extern "system" fn(display_handle: *mut c_void, output_id: u32, info: *mut HueInfo) -> NvStatus,
-    pub(crate) set_hue_angle: unsafe extern "system" fn(display_handle: *mut c_void, output_id: u32, angle: i32) -> NvStatus,
+    pub(crate) get_dvc_info_ex: unsafe extern "system" fn(
+        display_handle: *mut c_void,
+        output_id: u32,
+        info: *mut DvcInfoEx,
+    ) -> NvStatus,
+    pub(crate) set_dvc_level_ex: unsafe extern "system" fn(
+        display_handle: *mut c_void,
+        output_id: u32,
+        info: *const DvcInfoEx,
+    ) -> NvStatus,
+    pub(crate) get_hue_info: unsafe extern "system" fn(
+        display_handle: *mut c_void,
+        output_id: u32,
+        info: *mut HueInfo,
+    ) -> NvStatus,
+    pub(crate) set_hue_angle: unsafe extern "system" fn(
+        display_handle: *mut c_void,
+        output_id: u32,
+        angle: i32,
+    ) -> NvStatus,
     // ── New entries for Task 2 ─────────────────────────────
     pub(crate) set_gamma:
         unsafe extern "system" fn(u32, *const crate::nvgamma::NvGammaRampEx) -> NvStatus,
-    pub(crate) get_luid:
-        unsafe extern "system" fn(u32, u32, *mut windows::core::GUID) -> NvStatus,
+    pub(crate) get_luid: unsafe extern "system" fn(u32, u32, *mut windows::core::GUID) -> NvStatus,
 }
 
 // SAFETY: resolved once at startup; function pointers stay valid for the
@@ -120,13 +132,16 @@ pub(crate) fn load_nvapi(library_name: &str) -> Option<NvapiFns> {
 
     // SAFETY: GetProcAddress retrieves the exported address.
     let query_interface_ptr = unsafe {
-        GetProcAddress(lib, PCSTR::from_raw(
-            "nvapi_QueryInterface\0".as_ptr(),
-        ))
+        GetProcAddress(
+            lib,
+            PCSTR::from_raw(c"nvapi_QueryInterface".as_ptr().cast()),
+        )
     };
     if query_interface_ptr.is_none() {
         // SAFETY: FreeLibrary is safe here.
-        unsafe { let _ = FreeLibrary(lib); };
+        unsafe {
+            let _ = FreeLibrary(lib);
+        };
         return None;
     }
     let query_interface_fn = query_interface_ptr.unwrap();
@@ -149,7 +164,9 @@ pub(crate) fn load_nvapi(library_name: &str) -> Option<NvapiFns> {
         _lib: lib,
         initialize: unsafe { std::mem::transmute(resolve!(NVAPI_INITIALIZE)) },
         get_error_message: unsafe { std::mem::transmute(resolve!(NVAPI_GET_ERROR_MESSAGE)) },
-        get_display_id: unsafe { std::mem::transmute(resolve!(NVAPI_DISP_GET_DISPLAY_ID_BY_DISPLAY_NAME)) },
+        get_display_id: unsafe {
+            std::mem::transmute(resolve!(NVAPI_DISP_GET_DISPLAY_ID_BY_DISPLAY_NAME))
+        },
         get_dvc_info_ex: unsafe { std::mem::transmute(resolve!(NVAPI_GET_DVC_INFO_EX)) },
         set_dvc_level_ex: unsafe { std::mem::transmute(resolve!(NVAPI_SET_DVC_LEVEL_EX)) },
         get_hue_info: unsafe { std::mem::transmute(resolve!(NVAPI_GET_HUE_INFO)) },
@@ -162,7 +179,9 @@ pub(crate) fn load_nvapi(library_name: &str) -> Option<NvapiFns> {
     let init_status = unsafe { (fns.initialize)() };
     if init_status != NVAPI_OK {
         // SAFETY: FreeLibrary is safe.
-        unsafe { let _ = FreeLibrary(lib); };
+        unsafe {
+            let _ = FreeLibrary(lib);
+        };
         return None;
     }
 
@@ -202,7 +221,8 @@ pub(crate) fn resolve_device_name(edid_id: &str) -> Option<String> {
 }
 
 pub(crate) fn display_id_for_device(fns: &NvapiFns, device_name: &str) -> Result<u32, String> {
-    let name = CString::new(device_name).map_err(|_| "display name contains nul byte".to_string())?;
+    let name =
+        CString::new(device_name).map_err(|_| "display name contains nul byte".to_string())?;
     let mut id: u32 = 0;
     // SAFETY: GetDisplayIdByDisplayName writes one u32 on success.
     let status = unsafe { (fns.get_display_id)(name.as_ptr(), &mut id) };
@@ -254,7 +274,11 @@ pub(crate) fn status_to_string(fns: &NvapiFns, status: NvStatus) -> String {
     let mut buf: NvAPI_ShortString = [0 as c_char; 64];
     // SAFETY: GetErrorMessage writes up to 63 chars + null into buf.
     unsafe { (fns.get_error_message)(status, &mut buf) };
-    let bytes: Vec<u8> = buf.iter().take_while(|&&c| c != 0).map(|&c| c as u8).collect();
+    let bytes: Vec<u8> = buf
+        .iter()
+        .take_while(|&&c| c != 0)
+        .map(|&c| c as u8)
+        .collect();
     let text = String::from_utf8_lossy(&bytes).to_string();
     format!("NVAPI call failed (nvapi 0x{status:X}): {text}")
 }
@@ -311,14 +335,16 @@ impl NvColorApi for RealNvapi {
             default_level: 50,
         };
         // SAFETY: set_dvc_level_ex reads info.
-        let dvc_status = unsafe { (fns.set_dvc_level_ex)(std::ptr::null_mut(), display_id, &dvc_info) };
+        let dvc_status =
+            unsafe { (fns.set_dvc_level_ex)(std::ptr::null_mut(), display_id, &dvc_info) };
         if dvc_status != NVAPI_OK {
             return Err(status_to_string(fns, dvc_status));
         }
 
         // Set HUE angle
         // SAFETY: set_hue_angle reads the angle value.
-        let hue_status = unsafe { (fns.set_hue_angle)(std::ptr::null_mut(), display_id, hue_deg as i32) };
+        let hue_status =
+            unsafe { (fns.set_hue_angle)(std::ptr::null_mut(), display_id, hue_deg as i32) };
         if hue_status != NVAPI_OK {
             return Err(status_to_string(fns, hue_status));
         }
@@ -452,5 +478,4 @@ mod tests {
     fn resolve_unknown_edid_returns_none() {
         assert!(resolve_device_name("NO_SUCH_EDID").is_none());
     }
-
-    }
+}

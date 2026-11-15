@@ -9,12 +9,12 @@ use std::ffi::OsString;
 use std::io;
 use std::os::windows::ffi::OsStrExt;
 use std::os::windows::ffi::OsStringExt;
-use winreg::enums::*;
-use winreg::RegKey;
-use winreg::types::FromRegValue;
-use winreg::RegValue;
 use windows::core::PCWSTR;
 use windows::Win32::Graphics::Gdi::*;
+use winreg::enums::*;
+use winreg::types::FromRegValue;
+use winreg::RegKey;
+use winreg::RegValue;
 
 /// A monitor identified by its stable EDID serial / product string.
 #[derive(Debug, Clone, Serialize)]
@@ -100,8 +100,10 @@ pub fn list_monitors() -> Vec<Monitor> {
 fn enum_gdi_monitors() -> Vec<Monitor> {
     let mut monitors = Vec::new();
     for adapter_index in 0.. {
-        let mut adapter = DISPLAY_DEVICEW::default();
-        adapter.cb = std::mem::size_of::<DISPLAY_DEVICEW>() as u32;
+        let mut adapter = DISPLAY_DEVICEW {
+            cb: std::mem::size_of::<DISPLAY_DEVICEW>() as u32,
+            ..Default::default()
+        };
         // SAFETY: EnumDisplayDevicesW with NULL enumerates adapters.
         let ok = unsafe { EnumDisplayDevicesW(None, adapter_index, &mut adapter, 0) };
         if !ok.as_bool() {
@@ -124,8 +126,10 @@ fn enum_gdi_monitors() -> Vec<Monitor> {
             .collect();
         let mut child_index = 0;
         loop {
-            let mut child = DISPLAY_DEVICEW::default();
-            child.cb = std::mem::size_of::<DISPLAY_DEVICEW>() as u32;
+            let mut child = DISPLAY_DEVICEW {
+                cb: std::mem::size_of::<DISPLAY_DEVICEW>() as u32,
+                ..Default::default()
+            };
             // SAFETY: child enumeration for a valid adapter name string.
             let ok = unsafe {
                 EnumDisplayDevicesW(
@@ -396,8 +400,7 @@ mod tests {
     fn fake_edid_blob(serial: &str) -> Box<[u8; 128]> {
         let mut buf = Box::new([0u8; 128]);
         // EDID header (magic)
-        buf[0..8]
-            .copy_from_slice(&[0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00]);
+        buf[0..8].copy_from_slice(&[0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00]);
 
         // Place a serial descriptor at offset 0x48 (18‑byte block 2).
         let off = 0x48;
@@ -419,8 +422,7 @@ mod tests {
     /// Builds a minimal EDID with a monitor-name descriptor at offset 0x36.
     fn fake_edid_blob_with_model(name: &str) -> Box<[u8; 128]> {
         let mut buf = Box::new([0u8; 128]);
-        buf[0..8]
-            .copy_from_slice(&[0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00]);
+        buf[0..8].copy_from_slice(&[0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00]);
 
         let off = 0x36;
         buf[off] = 0x00;
@@ -456,8 +458,7 @@ mod tests {
     #[test]
     fn handles_empty_serial_descriptor() {
         let mut buf = Box::new([0u8; 128]);
-        buf[0..8]
-            .copy_from_slice(&[0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00]);
+        buf[0..8].copy_from_slice(&[0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00]);
 
         let off = 0x36;
         buf[off] = 0x00;
@@ -466,7 +467,7 @@ mod tests {
         buf[off + 3] = 0xFF;
         buf[off + 4] = 0x0A; // empty string
 
-        let edid: &[u8; 128] = &*buf;
+        let edid: &[u8; 128] = &buf;
         let got = parse_edid_serial(edid);
         assert!(got.is_none(), "empty serial yields None");
     }
@@ -512,8 +513,7 @@ mod tests {
         buf[0x36 + 3] = 0xFC;
         buf[0x36 + 4..0x36 + 4 + 7].copy_from_slice(b"MyPanel");
         buf[0x36 + 4 + 7] = 0x0A;
-        let (id, model, serial) =
-            identify_monitor(Some(&*buf), "MONITOR\\X\\0", "GDI Name");
+        let (id, model, serial) = identify_monitor(Some(&*buf), "MONITOR\\X\\0", "GDI Name");
         assert_eq!(id, "ABC123");
         assert_eq!(model, "MyPanel");
         assert_eq!(serial, "ABC123");
@@ -531,8 +531,7 @@ mod tests {
         buf[13] = 0x56;
         buf[14] = 0x34;
         buf[15] = 0x12; // serial LE 0x12345678
-        let (id, model, serial) =
-            identify_monitor(Some(&*buf), "MONITOR\\X\\0", "GDI Name");
+        let (id, model, serial) = identify_monitor(Some(&*buf), "MONITOR\\X\\0", "GDI Name");
         assert_eq!(id, "EDID:0441-1234-12345678");
         assert_eq!(model, "ABA 1234");
         assert_eq!(serial, "");
@@ -540,8 +539,7 @@ mod tests {
 
     #[test]
     fn identify_without_edid_uses_instance_path() {
-        let (id, model, serial) =
-            identify_monitor(None, "MONITOR\\FOO\\1&2&3", "Generic Monitor");
+        let (id, model, serial) = identify_monitor(None, "MONITOR\\FOO\\1&2&3", "Generic Monitor");
         assert_eq!(id, "MONITOR\\FOO\\1&2&3");
         assert_eq!(model, "Generic Monitor");
         assert_eq!(serial, "");

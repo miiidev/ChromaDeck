@@ -1,14 +1,12 @@
 // ── Identify Monitors: overlay windows showing monitor numbers ────────────
 // Windows-only. Creates a temporary overlay on each connected monitor.
 
+use crate::monitor::Monitor;
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
-use windows::Win32::Graphics::Gdi::{
-    EnumDisplaySettingsW, ENUM_CURRENT_SETTINGS, DEVMODEW,
-};
-use windows::Win32::Foundation::{POINTL, RECT};
 use tauri::Manager;
-use crate::monitor::Monitor;
+use windows::Win32::Foundation::{POINTL, RECT};
+use windows::Win32::Graphics::Gdi::{EnumDisplaySettingsW, DEVMODEW, ENUM_CURRENT_SETTINGS};
 
 // ── Pure helpers (testable) ─────────────────────────────────────────────
 
@@ -37,8 +35,10 @@ pub fn overlay_bounds(r: &RECT) -> (i32, i32, u32, u32) {
 /// Query the current display settings for an exact Win32 device name
 /// (e.g. `\\.\DISPLAY1`).  Returns the DEVMODEW on success.
 fn devmode_for_device(device_name: &str) -> Option<DEVMODEW> {
-    let mut dm = DEVMODEW::default();
-    dm.dmSize = std::mem::size_of::<DEVMODEW>() as u16;
+    let mut dm = DEVMODEW {
+        dmSize: std::mem::size_of::<DEVMODEW>() as u16,
+        ..Default::default()
+    };
     let wide: Vec<u16> = OsStr::new(device_name)
         .encode_wide()
         .chain(std::iter::once(0))
@@ -131,18 +131,18 @@ pub fn identify_info_cmd(
             }
         }
     }
-    identify_info_for(&monitors, n)
-        .ok_or_else(|| format!("no connected monitor number {n}"))
+    identify_info_for(&monitors, n).ok_or_else(|| format!("no connected monitor number {n}"))
 }
 
 // ── Tauri command ───────────────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn identify_monitors_cmd(
-    app: tauri::AppHandle,
-) -> Vec<u32> {
+pub async fn identify_monitors_cmd(app: tauri::AppHandle) -> Vec<u32> {
     let monitors = crate::monitor::list_monitors();
-    let connected = monitors.into_iter().filter(|m| m.connected).collect::<Vec<_>>();
+    let connected = monitors
+        .into_iter()
+        .filter(|m| m.connected)
+        .collect::<Vec<_>>();
     let mut shown: Vec<u32> = Vec::new();
     let mut created: Vec<String> = Vec::new();
 
@@ -153,8 +153,7 @@ pub async fn identify_monitors_cmd(
             // unmatched – report and skip
             eprintln!(
                 "identify: no Win32 monitor found for device {} ({})",
-                m.device_name,
-                m.edid_id,
+                m.device_name, m.edid_id,
             );
             continue;
         }
@@ -206,8 +205,7 @@ pub async fn identify_monitors_cmd(
             Err(e) => {
                 eprintln!(
                     "identify: failed to create overlay {label} for device {} ({}): {e}",
-                    m.device_name,
-                    m.edid_id,
+                    m.device_name, m.edid_id,
                 );
             }
         }
@@ -248,26 +246,51 @@ mod tests {
 
     #[test]
     fn bounds_cover_normal_monitor_at_origin() {
-        let r = RECT { left: 0, top: 0, right: 1920, bottom: 1080 };
+        let r = RECT {
+            left: 0,
+            top: 0,
+            right: 1920,
+            bottom: 1080,
+        };
         assert_eq!(overlay_bounds(&r), (0, 0, 1920, 1080));
     }
 
     #[test]
     fn bounds_cover_monitor_with_negative_origin() {
         // Secondary monitor to the left of the primary (e.g. -1920, 0).
-        let r = RECT { left: -1920, top: 0, right: 0, bottom: 1080 };
+        let r = RECT {
+            left: -1920,
+            top: 0,
+            right: 0,
+            bottom: 1080,
+        };
         assert_eq!(overlay_bounds(&r), (-1920, 0, 1920, 1080));
         // ...and one above it.
-        let r = RECT { left: 0, top: -2560, right: 1440, bottom: 0 };
+        let r = RECT {
+            left: 0,
+            top: -2560,
+            right: 1440,
+            bottom: 0,
+        };
         assert_eq!(overlay_bounds(&r), (0, -2560, 1440, 2560));
     }
 
     #[test]
     fn bounds_clamp_degenerate_rect_to_one_pixel() {
-        let r = RECT { left: 100, top: 200, right: 100, bottom: 200 };
+        let r = RECT {
+            left: 100,
+            top: 200,
+            right: 100,
+            bottom: 200,
+        };
         assert_eq!(overlay_bounds(&r), (100, 200, 1, 1));
         // Inverted rect (right < left) must not underflow into a huge u32.
-        let r = RECT { left: 100, top: 200, right: 50, bottom: 150 };
+        let r = RECT {
+            left: 100,
+            top: 200,
+            right: 50,
+            bottom: 150,
+        };
         assert_eq!(overlay_bounds(&r), (100, 200, 1, 1));
     }
 

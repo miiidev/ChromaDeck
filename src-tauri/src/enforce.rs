@@ -1,7 +1,7 @@
 // ── Preset enforcer: resident drift-check + reapply ──────────────────────────
 
-use std::collections::HashMap;
 use serde::Serialize;
+use std::collections::HashMap;
 
 /// Outcome of one enforced (or skipped) pin.
 #[derive(Debug, Clone, Serialize)]
@@ -73,7 +73,7 @@ pub fn check_once(
 ) -> Vec<EnforceEvent> {
     let mut events = Vec::new();
     for (edid_id, preset_id) in pins {
-let preset = match presets.iter().find(|p| &p.id == preset_id) {
+        let preset = match presets.iter().find(|p| &p.id == preset_id) {
             Some(p) => p,
             None => continue, // stale pin (preset gone without cascade): skip
         };
@@ -144,8 +144,8 @@ fn lut_drifted(preset: &crate::store::Preset, reader: &dyn StateReader, edid_id:
     match reader.read_lut(edid_id) {
         Ok(live) => {
             live != crate::color::build_gamma_ramp(
-                preset.brightness,
-                preset.contrast,
+                crate::backend::gdi_ui_gain(preset.brightness),
+                crate::backend::gdi_ui_gain(preset.contrast),
                 preset.rgb_gains,
                 preset.gamma,
             )
@@ -227,6 +227,9 @@ pub async fn enforce_loop(app: tauri::AppHandle) {
 }
 
 fn check_and_enforce(app: &tauri::AppHandle) {
+    let Ok(_operation) = crate::auto_apply_runtime::DISPLAY_OPERATION.lock() else {
+        return;
+    };
     use tauri::Manager;
     let (pins, presets) = match app.try_state::<crate::store::AppStore>() {
         Some(s) => match s.0.lock() {
@@ -246,6 +249,9 @@ fn check_and_enforce(app: &tauri::AppHandle) {
 
 #[tauri::command]
 pub fn reapply_now_cmd(state: tauri::State<'_, crate::store::AppStore>) -> Vec<EnforceEvent> {
+    let Ok(_operation) = crate::auto_apply_runtime::DISPLAY_OPERATION.lock() else {
+        return Vec::new();
+    };
     let (pins, presets) = match state.0.lock() {
         Ok(store) => (store.list_pins(), store.list_presets()),
         Err(e) => {
@@ -454,6 +460,9 @@ pub fn run_startup(
 /// Startup entry point: reassert pins/applied presets, restore stale records,
 /// then clear those stale records. Runs off the main thread (spawned in setup).
 pub fn startup_reapply(app: &tauri::AppHandle) {
+    let Ok(_operation) = crate::auto_apply_runtime::DISPLAY_OPERATION.lock() else {
+        return;
+    };
     use tauri::Manager;
     let state = match app.try_state::<crate::store::AppStore>() {
         Some(s) => s,
@@ -472,13 +481,9 @@ pub fn startup_reapply(app: &tauri::AppHandle) {
 
     let api = crate::color::RealColorApi;
     let nv = crate::nvapi::RealNvapi;
-    let events = run_startup(
-        &api,
-        &nv,
-        &targets,
-        &presets,
-        &|edid_id| crate::backend::intel::correlates_to_intel(edid_id),
-    );
+    let events = run_startup(&api, &nv, &targets, &presets, &|edid_id| {
+        crate::backend::intel::correlates_to_intel(edid_id)
+    });
 
     let stale: Vec<String> = events
         .iter()
@@ -501,8 +506,12 @@ pub fn startup_reapply(app: &tauri::AppHandle) {
     if !stale.is_empty() {
         if let Ok(mut store) = state.0.lock() {
             for edid_id in stale {
-                store.clear_applied(&edid_id);
-                store.unpin_monitor(&edid_id);
+                if let Err(error) = store
+                    .clear_applied(&edid_id)
+                    .and_then(|_| store.unpin_monitor(&edid_id))
+                {
+                    eprintln!("ChromaDeck: clearing stale records for {edid_id} failed: {error}");
+                }
             }
         }
     }
@@ -555,13 +564,9 @@ impl BackendSelector for crate::backend::BackendRegistry {
 
 fn keep_detail(backend_id: &str) -> &'static str {
     match backend_id {
-        "nvapi" => {
-            "kept: NVCP driver-registry persistence (only an explicit Reset clears it)"
-        }
+        "nvapi" => "kept: NVCP driver-registry persistence (only an explicit Reset clears it)",
         "gdi" => "kept: OS gamma ramp is session state, cleared by Windows at logoff/reboot",
-        "intel" => {
-            "kept: Intel pixtx state is driver-level; unattended reset is best-effort only"
-        }
+        "intel" => "kept: Intel pixtx state is driver-level; unattended reset is best-effort only",
         _ => "kept: applied colour persists by design",
     }
 }
@@ -589,8 +594,7 @@ pub fn run_exit(
                 edid_id: edid_id.clone(),
                 backend: "n/a".into(),
                 restored: false,
-                detail: "skipped: display disconnected during shutdown (no write attempted)"
-                    .into(),
+                detail: "skipped: display disconnected during shutdown (no write attempted)".into(),
             });
             continue;
         }
@@ -726,7 +730,7 @@ mod tests {
     }
 
     /// Build a minimal preset for tests.
-fn p(id: &str, _edid: &str, brightness: f64, vibrance: f64, hue: f64) -> crate::store::Preset {
+    fn p(id: &str, _edid: &str, brightness: f64, vibrance: f64, hue: f64) -> crate::store::Preset {
         crate::store::Preset {
             id: id.into(),
             name: "test".into(),
@@ -739,11 +743,25 @@ fn p(id: &str, _edid: &str, brightness: f64, vibrance: f64, hue: f64) -> crate::
             vibrance,
             saturation: 50.0,
             hue_deg: hue,
-color_model: "nvcp-v1".into(),
+            color_model: "nvcp-v1".into(),
             color_tag: None,
             tag_shape: None,
             attached_programs: Vec::new(),
         }
+    }
+
+    #[test]
+    fn gdi_applied_ui_values_do_not_drift() {
+        let mut preset = p("a", "E", 65.0, 50.0, 0.0);
+        preset.contrast = 42.0;
+        let mut reader = MockStateReader::clean();
+        reader.lut = build_gamma_ramp(
+            0.8 + 0.004 * 65.0,
+            0.8 + 0.004 * 42.0,
+            preset.rgb_gains,
+            preset.gamma,
+        );
+        assert!(!lut_drifted(&preset, &reader, "E"));
     }
 
     // ── Test 1: no_pins_no_calls ──────────────────────────────────────────
@@ -781,8 +799,8 @@ color_model: "nvcp-v1".into(),
         // Reader returns matching values
         let reader = MockStateReader {
             lut: build_gamma_ramp(
-                preset.brightness,
-                preset.contrast,
+                crate::backend::gdi_ui_gain(preset.brightness),
+                crate::backend::gdi_ui_gain(preset.contrast),
                 preset.rgb_gains,
                 preset.gamma,
             ),
@@ -969,7 +987,7 @@ color_model: "nvcp-v1".into(),
 
         let reader = MockStateReader {
             lut: build_gamma_ramp(1.0, 1.0, [1.0, 1.0, 1.0], 1.0), // identity GDI LUT
-            color: (50.0, 0.0), // matches neutral v/h
+            color: (50.0, 0.0),                                    // matches neutral v/h
             fail: false,
             nvcp_registry: Some((100.0, 100.0, 100.0)), // matches ui_to_internal(50)
             engine: crate::color::GammaEngine::Nvapi,
@@ -978,7 +996,10 @@ color_model: "nvcp-v1".into(),
 
         let events = check_once(&color, &nv, &reader, &pins, &[preset], false);
         assert_eq!(events.len(), 1);
-        assert!(!events[0].applied, "registry match + identity LUT → no apply");
+        assert!(
+            !events[0].applied,
+            "registry match + identity LUT → no apply"
+        );
         assert!(events[0].error.is_none());
         assert!(
             color.calls.lock().unwrap().is_empty(),
@@ -1022,7 +1043,10 @@ color_model: "nvcp-v1".into(),
 
         // apply_color is called (with GDI fallback in test context)
         let calls = color.calls.lock().unwrap();
-        assert!(!calls.is_empty(), "gamma should be called on registry mismatch");
+        assert!(
+            !calls.is_empty(),
+            "gamma should be called on registry mismatch"
+        );
     }
 
     // ── Test 10: gdi_branch_unchanged ─────────────────────────────
@@ -1042,8 +1066,8 @@ color_model: "nvcp-v1".into(),
         // Matching LUT (same as preset's expected ramp) + GDI engine
         let reader = MockStateReader {
             lut: build_gamma_ramp(
-                preset.brightness,
-                preset.contrast,
+                crate::backend::gdi_ui_gain(preset.brightness),
+                crate::backend::gdi_ui_gain(preset.contrast),
                 preset.rgb_gains,
                 preset.gamma,
             ),
@@ -1090,7 +1114,10 @@ color_model: "nvcp-v1".into(),
 
         let events = check_once(&color, &nv, &reader, &pins, &[preset], false);
         assert_eq!(events.len(), 1);
-        assert!(events[0].applied, "dirty LUT → must reapply despite clean registry");
+        assert!(
+            events[0].applied,
+            "dirty LUT → must reapply despite clean registry"
+        );
         assert!(events[0].error.is_none());
 
         // apply_color is called (GDI fallback in test context)
@@ -1177,7 +1204,10 @@ color_model: "nvcp-v1".into(),
 
         let events = check_once(&color, &nv, &reader, &pins, &[preset], false);
         assert_eq!(events.len(), 1);
-        assert!(!events[0].applied, "Intel display must NOT be re-applied by the drift loop");
+        assert!(
+            !events[0].applied,
+            "Intel display must NOT be re-applied by the drift loop"
+        );
         assert!(events[0].error.is_none());
         assert!(
             color.calls.lock().unwrap().is_empty(),
@@ -1271,7 +1301,11 @@ color_model: "nvcp-v1".into(),
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].action, "skip", "Intel must skip startup reapply");
         assert!(!events[0].applied);
-        assert!(events[0].error.as_ref().unwrap().contains("Intel"), "got: {:?}", events[0].error);
+        assert!(
+            events[0].error.as_ref().unwrap().contains("Intel"),
+            "got: {:?}",
+            events[0].error
+        );
         assert!(
             color.calls.lock().unwrap().is_empty(),
             "no driver write for Intel at startup"
@@ -1287,7 +1321,10 @@ color_model: "nvcp-v1".into(),
         let events = run_startup(&color, &nv, &targets, &[], &|_| false);
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].action, "restore");
-        assert!(events[0].applied, "reset should report the identity ramp write");
+        assert!(
+            events[0].applied,
+            "reset should report the identity ramp write"
+        );
         assert!(events[0].error.is_none());
         assert_eq!(
             *color.last_gamma_params.lock().unwrap(),
@@ -1359,7 +1396,10 @@ color_model: "nvcp-v1".into(),
             _nv: &dyn crate::nvapi::NvColorApi,
             _edid_id: &str,
         ) -> crate::color::ApplyResult {
-            self.calls.lock().unwrap().push(format!("restore:{}", self.id));
+            self.calls
+                .lock()
+                .unwrap()
+                .push(format!("restore:{}", self.id));
             self.restore_result.clone()
         }
     }
@@ -1397,7 +1437,10 @@ color_model: "nvcp-v1".into(),
             &connected_true,
         );
         assert_eq!(outcomes.len(), 1);
-        assert!(!outcomes[0].restored, "keep policy must not claim a restore");
+        assert!(
+            !outcomes[0].restored,
+            "keep policy must not claim a restore"
+        );
         assert!(outcomes[0].detail.contains("kept"));
         assert!(calls.lock().unwrap().is_empty(), "no backend write on quit");
     }
@@ -1489,7 +1532,10 @@ color_model: "nvcp-v1".into(),
         assert_eq!(outcomes.len(), 1);
         assert!(!outcomes[0].restored);
         assert!(outcomes[0].detail.contains("disconnected"));
-        assert!(calls.lock().unwrap().is_empty(), "no write to a vanished display");
+        assert!(
+            calls.lock().unwrap().is_empty(),
+            "no write to a vanished display"
+        );
     }
 
     #[test]

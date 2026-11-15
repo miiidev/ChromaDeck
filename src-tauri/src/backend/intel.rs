@@ -358,20 +358,35 @@ struct ctl_pixtx_pipe_set_config_t {
 
 // ── Function pointer types (x64: "system" == "C" calling convention) ────────
 
-type FnCtlInit = unsafe extern "system" fn(*mut ctl_init_args_t, *mut ctl_api_handle_t) -> ctl_result_t;
+type FnCtlInit =
+    unsafe extern "system" fn(*mut ctl_init_args_t, *mut ctl_api_handle_t) -> ctl_result_t;
 type FnCtlClose = unsafe extern "system" fn(ctl_api_handle_t) -> ctl_result_t;
-type FnCtlEnumerateDevices =
-    unsafe extern "system" fn(ctl_api_handle_t, *mut u32, *mut ctl_device_adapter_handle_t) -> ctl_result_t;
-type FnCtlEnumerateDisplayOutputs =
-    unsafe extern "system" fn(ctl_device_adapter_handle_t, *mut u32, *mut ctl_display_output_handle_t) -> ctl_result_t;
-type FnCtlGetDisplayProperties =
-    unsafe extern "system" fn(ctl_display_output_handle_t, *mut ctl_display_properties_t) -> ctl_result_t;
-type FnCtlPixelTransformationGetConfig =
-    unsafe extern "system" fn(ctl_display_output_handle_t, *mut ctl_pixtx_pipe_get_config_t) -> ctl_result_t;
-type FnCtlPixelTransformationSetConfig =
-    unsafe extern "system" fn(ctl_display_output_handle_t, *mut ctl_pixtx_pipe_set_config_t) -> ctl_result_t;
-type FnCtlPanelDescriptorAccess =
-    unsafe extern "system" fn(ctl_display_output_handle_t, *mut ctl_panel_descriptor_access_args_t) -> ctl_result_t;
+type FnCtlEnumerateDevices = unsafe extern "system" fn(
+    ctl_api_handle_t,
+    *mut u32,
+    *mut ctl_device_adapter_handle_t,
+) -> ctl_result_t;
+type FnCtlEnumerateDisplayOutputs = unsafe extern "system" fn(
+    ctl_device_adapter_handle_t,
+    *mut u32,
+    *mut ctl_display_output_handle_t,
+) -> ctl_result_t;
+type FnCtlGetDisplayProperties = unsafe extern "system" fn(
+    ctl_display_output_handle_t,
+    *mut ctl_display_properties_t,
+) -> ctl_result_t;
+type FnCtlPixelTransformationGetConfig = unsafe extern "system" fn(
+    ctl_display_output_handle_t,
+    *mut ctl_pixtx_pipe_get_config_t,
+) -> ctl_result_t;
+type FnCtlPixelTransformationSetConfig = unsafe extern "system" fn(
+    ctl_display_output_handle_t,
+    *mut ctl_pixtx_pipe_set_config_t,
+) -> ctl_result_t;
+type FnCtlPanelDescriptorAccess = unsafe extern "system" fn(
+    ctl_display_output_handle_t,
+    *mut ctl_panel_descriptor_access_args_t,
+) -> ctl_result_t;
 
 // ── Resolved function-pointer table ─────────────────────────────────────────
 
@@ -649,7 +664,10 @@ unsafe fn enumerate_outputs(
     let mut count: u32 = 0;
     let r = (fns.enumerate_display_outputs)(dev, &mut count, std::ptr::null_mut());
     if r != CTL_RESULT_SUCCESS {
-        return Err(format!("ctlEnumerateDisplayOutputs failed ({})", result_str(r)));
+        return Err(format!(
+            "ctlEnumerateDisplayOutputs failed ({})",
+            result_str(r)
+        ));
     }
     if count == 0 {
         return Ok(Vec::new());
@@ -657,7 +675,10 @@ unsafe fn enumerate_outputs(
     let mut outs = vec![std::ptr::null_mut::<c_void>(); count as usize];
     let r = (fns.enumerate_display_outputs)(dev, &mut count, outs.as_mut_ptr());
     if r != CTL_RESULT_SUCCESS {
-        return Err(format!("ctlEnumerateDisplayOutputs failed ({})", result_str(r)));
+        return Err(format!(
+            "ctlEnumerateDisplayOutputs failed ({})",
+            result_str(r)
+        ));
     }
     outs.truncate(count as usize);
     Ok(outs)
@@ -671,7 +692,10 @@ unsafe fn display_props(
     p.Size = std::mem::size_of::<ctl_display_properties_t>() as u32;
     let r = (fns.get_display_properties)(out, &mut p);
     if r != CTL_RESULT_SUCCESS {
-        return Err(format!("ctlGetDisplayProperties failed ({})", result_str(r)));
+        return Err(format!(
+            "ctlGetDisplayProperties failed ({})",
+            result_str(r)
+        ));
     }
     Ok(p)
 }
@@ -764,7 +788,10 @@ unsafe fn pixtx_capability(
     get.NumBlocks = n as u32;
     let r2 = (fns.pixtx_get_config)(out, &mut get);
     if r2 != CTL_RESULT_SUCCESS {
-        return Err(format!("ctlPixelTransformationGetConfig failed ({})", result_str(r2)));
+        return Err(format!(
+            "ctlPixelTransformationGetConfig failed ({})",
+            result_str(r2)
+        ));
     }
     Ok(blocks
         .iter()
@@ -801,11 +828,13 @@ unsafe fn set_pixtx(
                 bc.Size = std::mem::size_of::<ctl_pixtx_block_config_t>() as u32;
                 bc.BlockId = *block_id;
                 bc.BlockType = CTL_PIXTX_BLOCK_TYPE_1D_LUT;
-                bc.Config.OneDLutConfig.Size = std::mem::size_of::<ctl_pixtx_1dlut_config_t>() as u32;
+                bc.Config.OneDLutConfig.Size =
+                    std::mem::size_of::<ctl_pixtx_1dlut_config_t>() as u32;
                 bc.Config.OneDLutConfig.SamplingType = 0;
                 bc.Config.OneDLutConfig.NumSamplesPerChannel = *samples_per_channel;
                 bc.Config.OneDLutConfig.NumChannels = *channels;
-                bc.Config.OneDLutConfig.pSampleValues = sample_storage.last_mut().unwrap().as_mut_ptr();
+                bc.Config.OneDLutConfig.pSampleValues =
+                    sample_storage.last_mut().unwrap().as_mut_ptr();
                 bc.Config.OneDLutConfig.pSamplePositions = std::ptr::null_mut();
                 ffi_blocks.push(bc);
             }
@@ -818,7 +847,8 @@ unsafe fn set_pixtx(
                 bc.Size = std::mem::size_of::<ctl_pixtx_block_config_t>() as u32;
                 bc.BlockId = *block_id;
                 bc.BlockType = *block_type;
-                bc.Config.MatrixConfig.Size = std::mem::size_of::<ctl_pixtx_matrix_config_t>() as u32;
+                bc.Config.MatrixConfig.Size =
+                    std::mem::size_of::<ctl_pixtx_matrix_config_t>() as u32;
                 bc.Config.MatrixConfig.PreOffsets = [0.0; 3];
                 bc.Config.MatrixConfig.PostOffsets = [0.0; 3];
                 bc.Config.MatrixConfig.Matrix = *matrix;
@@ -835,7 +865,10 @@ unsafe fn set_pixtx(
     set.pBlockConfigs = ffi_blocks.as_mut_ptr();
     let r = (fns.pixtx_set_config)(out, &mut set);
     if r != CTL_RESULT_SUCCESS {
-        return Err(format!("ctlPixelTransformationSetConfig failed ({})", result_str(r)));
+        return Err(format!(
+            "ctlPixelTransformationSetConfig failed ({})",
+            result_str(r)
+        ));
     }
     Ok(())
 }
@@ -851,7 +884,10 @@ unsafe fn restore_pixtx(fns: &IgclFns, out: ctl_display_output_handle_t) -> Resu
     set.pBlockConfigs = std::ptr::null_mut();
     let r = (fns.pixtx_set_config)(out, &mut set);
     if r != CTL_RESULT_SUCCESS {
-        return Err(format!("ctlPixelTransformationSetConfig(RESTORE_DEFAULT) failed ({})", result_str(r)));
+        return Err(format!(
+            "ctlPixelTransformationSetConfig(RESTORE_DEFAULT) failed ({})",
+            result_str(r)
+        ));
     }
     Ok(())
 }
@@ -996,7 +1032,8 @@ static REAL_IGCL: RealIgcl = RealIgcl;
 
 impl IgclApi for RealIgcl {
     fn resolve(&self, edid_id: &str) -> Result<IgclOutput, String> {
-        let s = session().ok_or_else(|| "Intel IGCL unavailable (driver not loaded)".to_string())?;
+        let s =
+            session().ok_or_else(|| "Intel IGCL unavailable (driver not loaded)".to_string())?;
         let outputs = unsafe { active_outputs(&s.fns, &s.devices)? };
         let ids: Vec<Option<String>> = outputs.iter().map(|(_, id)| id.clone()).collect();
         let idx = correlate(&ids, edid_id)?;
@@ -1004,7 +1041,8 @@ impl IgclApi for RealIgcl {
     }
 
     fn probe(&self, output: IgclOutput) -> Result<IgclProbe, String> {
-        let s = session().ok_or_else(|| "Intel IGCL unavailable (driver not loaded)".to_string())?;
+        let s =
+            session().ok_or_else(|| "Intel IGCL unavailable (driver not loaded)".to_string())?;
         let props = unsafe { display_props(&s.fns, output.0)? };
         // HDR is classified from the ENABLED flag, not the SUPPORTED flag
         // (see `hdr_from_props`). A panel that merely *supports* HDR while
@@ -1015,12 +1053,14 @@ impl IgclApi for RealIgcl {
     }
 
     fn set_pipeline(&self, output: IgclOutput, blocks: &[PixtxBlock]) -> Result<(), String> {
-        let s = session().ok_or_else(|| "Intel IGCL unavailable (driver not loaded)".to_string())?;
+        let s =
+            session().ok_or_else(|| "Intel IGCL unavailable (driver not loaded)".to_string())?;
         unsafe { set_pixtx(&s.fns, output.0, blocks) }
     }
 
     fn restore_default(&self, output: IgclOutput) -> Result<(), String> {
-        let s = session().ok_or_else(|| "Intel IGCL unavailable (driver not loaded)".to_string())?;
+        let s =
+            session().ok_or_else(|| "Intel IGCL unavailable (driver not loaded)".to_string())?;
         unsafe { restore_pixtx(&s.fns, output.0) }
     }
 
@@ -1031,7 +1071,8 @@ impl IgclApi for RealIgcl {
         samples_per_channel: u32,
         channels: u32,
     ) -> Result<Vec<f64>, String> {
-        let s = session().ok_or_else(|| "Intel IGCL unavailable (driver not loaded)".to_string())?;
+        let s =
+            session().ok_or_else(|| "Intel IGCL unavailable (driver not loaded)".to_string())?;
         unsafe { read_pixtx_1dlut(&s.fns, output.0, block_id, samples_per_channel, channels) }
     }
 }
@@ -1063,7 +1104,10 @@ fn negative_cache() -> &'static Mutex<HashMap<String, Instant>> {
 /// Pure TTL check (unit-testable without FFI): is `edid_id`'s negative verdict
 /// still active at `now`?
 fn negative_hit(entries: &HashMap<String, Instant>, edid_id: &str, now: Instant) -> bool {
-    entries.get(edid_id).map(|expiry| now < *expiry).unwrap_or(false)
+    entries
+        .get(edid_id)
+        .map(|expiry| now < *expiry)
+        .unwrap_or(false)
 }
 
 /// `correlates_to_intel` with a per-EDID negative-verdict cache. A negative
@@ -1108,12 +1152,8 @@ pub fn current_1dlut_summary(edid_id: &str) -> Result<(f64, bool), String> {
         .copied()
         .ok_or_else(|| "no 1D LUT block in the pixtx pipeline".to_string())?;
 
-    let samples = REAL_IGCL.read_1dlut(
-        output,
-        lut.block_id,
-        lut.samples_per_channel,
-        lut.channels,
-    )?;
+    let samples =
+        REAL_IGCL.read_1dlut(output, lut.block_id, lut.samples_per_channel, lut.channels)?;
 
     let channels = lut.channels.max(1) as usize;
     let per = lut.samples_per_channel as usize;
@@ -1152,10 +1192,9 @@ pub(crate) fn correlate(outputs: &[Option<String>], target: &str) -> Result<usiz
         // port-qualified key still resolves when the live output table
         // is plain EDID (the pre-qualification key shape). Uniqueness is
         // re-checked on the retry, so twins still refuse without a guess.
-        Err(e) if e.contains("no active Intel output") => correlate_unique(
-            outputs,
-            crate::monitor::base_edid_key(target),
-        ),
+        Err(e) if e.contains("no active Intel output") => {
+            correlate_unique(outputs, crate::monitor::base_edid_key(target))
+        }
         other => other,
     }
 }
@@ -1167,8 +1206,12 @@ fn correlate_unique(outputs: &[Option<String>], target: &str) -> Result<usize, S
         .filter(|(_, id)| id.as_deref() == Some(target));
     match (it.next(), it.next()) {
         (Some((idx, _)), None) => Ok(idx),
-        (None, _) => Err(format!("no active Intel output correlates to display {target}")),
-        (Some(_), Some(_)) => Err(format!("ambiguous: multiple Intel outputs share EDID {target}")),
+        (None, _) => Err(format!(
+            "no active Intel output correlates to display {target}"
+        )),
+        (Some(_), Some(_)) => Err(format!(
+            "ambiguous: multiple Intel outputs share EDID {target}"
+        )),
     }
 }
 
@@ -1202,7 +1245,8 @@ fn hdr_from_props(props: &ctl_display_properties_t) -> bool {
 
 const REASON_NO_CORRELATION: &str = "Intel IGCL cannot correlate this display to an Intel output";
 const REASON_NO_PIXTX: &str = "Intel pixtx pipeline lacks the required block for this display";
-const REASON_NO_VIBRANCE: &str = "Intel IGCL has no vibrance control (saturation is the closest analogue)";
+const REASON_NO_VIBRANCE: &str =
+    "Intel IGCL has no vibrance control (saturation is the closest analogue)";
 const REASON_HDR: &str = "display is in HDR mode (Intel pixtx LUTs unsupported in HDR)";
 
 // ── UI-unit → normalized-value mapping (documented) ─────────────────────────
@@ -1385,7 +1429,10 @@ fn matrix_block_of(info: &IgclProbe) -> Option<IgclBlockInfo> {
 /// If the preset requests adjustments the missing block would carry, return
 /// `Err` rather than silently dropping them. `samples_per_channel` must be at
 /// least 2 (a 1-sample LUT would divide by zero in `build_gamma_lut`).
-pub(crate) fn compose_pipeline(preset: &Preset, info: &IgclProbe) -> Result<Vec<PixtxBlock>, String> {
+pub(crate) fn compose_pipeline(
+    preset: &Preset,
+    info: &IgclProbe,
+) -> Result<Vec<PixtxBlock>, String> {
     let lut = info
         .blocks
         .iter()
@@ -1398,9 +1445,8 @@ pub(crate) fn compose_pipeline(preset: &Preset, info: &IgclProbe) -> Result<Vec<
     let matrix = compose_color_matrix(preset.rgb_gains, preset.saturation, preset.hue_deg);
     let matrix_identity = matrix_is_identity(&matrix);
 
-    let gamma_requested = preset.brightness != 50.0
-        || preset.contrast != 50.0
-        || (preset.gamma - 1.0).abs() > 1e-12;
+    let gamma_requested =
+        preset.brightness != 50.0 || preset.contrast != 50.0 || (preset.gamma - 1.0).abs() > 1e-12;
 
     let mut blocks = Vec::with_capacity(2);
 
@@ -1460,7 +1506,9 @@ pub(crate) fn compose_pipeline(preset: &Preset, info: &IgclProbe) -> Result<Vec<
     }
 
     if blocks.is_empty() {
-        return Err("preset is neutral and the pixtx pipeline exposes no writable block".to_string());
+        return Err(
+            "preset is neutral and the pixtx pipeline exposes no writable block".to_string(),
+        );
     }
 
     Ok(blocks)
@@ -1717,16 +1765,34 @@ fn verdicts_for(has_lut: bool, has_matrix: bool, hdr: bool) -> Vec<AdjustmentCap
         AdjustmentCap::Unsupported(REASON_NO_PIXTX)
     };
     vec![
-        AdjustmentCapability { adjustment: ADJUSTMENT_GAMMA, cap: gamma_family },
-        AdjustmentCapability { adjustment: ADJUSTMENT_BRIGHTNESS, cap: gamma_family },
-        AdjustmentCapability { adjustment: ADJUSTMENT_CONTRAST, cap: gamma_family },
-        AdjustmentCapability { adjustment: ADJUSTMENT_RGB_GAINS, cap: matrix_family },
-        AdjustmentCapability { adjustment: ADJUSTMENT_SATURATION, cap: matrix_family },
+        AdjustmentCapability {
+            adjustment: ADJUSTMENT_GAMMA,
+            cap: gamma_family,
+        },
+        AdjustmentCapability {
+            adjustment: ADJUSTMENT_BRIGHTNESS,
+            cap: gamma_family,
+        },
+        AdjustmentCapability {
+            adjustment: ADJUSTMENT_CONTRAST,
+            cap: gamma_family,
+        },
+        AdjustmentCapability {
+            adjustment: ADJUSTMENT_RGB_GAINS,
+            cap: matrix_family,
+        },
+        AdjustmentCapability {
+            adjustment: ADJUSTMENT_SATURATION,
+            cap: matrix_family,
+        },
         AdjustmentCapability {
             adjustment: ADJUSTMENT_VIBRANCE,
             cap: AdjustmentCap::Unsupported(REASON_NO_VIBRANCE),
         },
-        AdjustmentCapability { adjustment: ADJUSTMENT_HUE, cap: matrix_family },
+        AdjustmentCapability {
+            adjustment: ADJUSTMENT_HUE,
+            cap: matrix_family,
+        },
     ]
 }
 
@@ -1805,16 +1871,21 @@ impl ColorBackend for IntelBackend {
                 return Err("display is in HDR mode; Intel pixtx LUTs unsupported in HDR".into());
             }
             let blocks = compose_pipeline(preset, &info)?;
-            wrote_lut = blocks.iter().any(|b| matches!(b, PixtxBlock::OneDLut { .. }));
+            wrote_lut = blocks
+                .iter()
+                .any(|b| matches!(b, PixtxBlock::OneDLut { .. }));
 
             // Find the 1D-LUT block we are about to overwrite, if the composed
             // pipeline has one. A matrix-only pipeline (display has no LUT
             // block, or the preset is LUT-neutral) needs no capture: the
             // matrix is reset by RESTORE_DEFAULT.
             let lut = blocks.iter().find_map(|b| match b {
-                PixtxBlock::OneDLut { block_id, samples_per_channel, channels, .. } => {
-                    Some((*block_id, *samples_per_channel, *channels))
-                }
+                PixtxBlock::OneDLut {
+                    block_id,
+                    samples_per_channel,
+                    channels,
+                    ..
+                } => Some((*block_id, *samples_per_channel, *channels)),
                 _ => None,
             });
 
@@ -1910,7 +1981,10 @@ impl ColorBackend for IntelBackend {
                 // No capture and no matrix-only marker. Still best-effort reset
                 // the matrix via RESTORE_DEFAULT (the one block it genuinely
                 // resets), but the 1D LUT is NOT restored — do not claim success.
-                let reset = self.api.resolve(edid_id).and_then(|o| self.api.restore_default(o));
+                let reset = self
+                    .api
+                    .resolve(edid_id)
+                    .and_then(|o| self.api.restore_default(o));
                 if let Err(e) = reset {
                     append_error(&mut error, format!("intel reset: {e}"));
                 }
@@ -1946,12 +2020,9 @@ impl ColorBackend for IntelBackend {
             if let Some(c) = &captured {
                 // Verify by read-back: only report success when the panel's
                 // live LUT matches the captured pre-apply curve within epsilon.
-                let read_back = self.api.read_1dlut(
-                    output,
-                    c.block_id,
-                    c.samples_per_channel,
-                    c.channels,
-                )?;
+                let read_back =
+                    self.api
+                        .read_1dlut(output, c.block_id, c.samples_per_channel, c.channels)?;
                 if !luts_match(&read_back, &c.samples) {
                     return Err(format!(
                         "restored 1D LUT read-back does not match the captured pre-apply curve (max delta {:.3e})",
@@ -2030,14 +2101,20 @@ mod tests {
         let now = Instant::now();
         assert!(!retry_due(now, now + SESSION_RETRY_BACKOFF));
         assert!(retry_due(now + SESSION_RETRY_BACKOFF, now));
-        assert!(retry_due(now + SESSION_RETRY_BACKOFF + Duration::from_secs(1), now));
+        assert!(retry_due(
+            now + SESSION_RETRY_BACKOFF + Duration::from_secs(1),
+            now
+        ));
     }
 
     // ── Correlation: never guess ─────────────────────────────────────────
 
     #[test]
     fn correlate_matches_unique_output() {
-        let outs = vec![Some("EDID:AAAA-0001-00000000".to_string()), Some("EDID:BBBB-0002-00000000".to_string())];
+        let outs = vec![
+            Some("EDID:AAAA-0001-00000000".to_string()),
+            Some("EDID:BBBB-0002-00000000".to_string()),
+        ];
         assert_eq!(correlate(&outs, "EDID:BBBB-0002-00000000").unwrap(), 1);
     }
 
@@ -2053,7 +2130,10 @@ mod tests {
         // target from a collided enumeration must still resolve when the
         // base identity is unique among intel outputs.
         let outs = vec![Some("EDID:AAAA-0001-00000000".to_string())];
-        assert_eq!(correlate(&outs, r"EDID:AAAA-0001-00000000|MON\1").unwrap(), 0);
+        assert_eq!(
+            correlate(&outs, r"EDID:AAAA-0001-00000000|MON\1").unwrap(),
+            0
+        );
     }
 
     #[test]
@@ -2182,7 +2262,10 @@ mod backend_tests {
         pub fn new() -> Self {
             MockIgcl {
                 resolve_err: None,
-                probe: IgclProbe { hdr: false, blocks: vec![] },
+                probe: IgclProbe {
+                    hdr: false,
+                    blocks: vec![],
+                },
                 fail_set: false,
                 fail_restore: false,
                 fail_read_lut: false,
@@ -2196,7 +2279,10 @@ mod backend_tests {
 
     impl IgclApi for MockIgcl {
         fn resolve(&self, edid_id: &str) -> Result<IgclOutput, String> {
-            self.calls.lock().unwrap().push(format!("resolve:{edid_id}"));
+            self.calls
+                .lock()
+                .unwrap()
+                .push(format!("resolve:{edid_id}"));
             match &self.resolve_err {
                 Some(e) => Err(e.clone()),
                 None => Ok(IgclOutput(std::ptr::null_mut::<c_void>())),
@@ -2224,7 +2310,10 @@ mod backend_tests {
             }
         }
         fn restore_default(&self, _output: IgclOutput) -> Result<(), String> {
-            self.calls.lock().unwrap().push("restore_default".to_string());
+            self.calls
+                .lock()
+                .unwrap()
+                .push("restore_default".to_string());
             if self.fail_restore {
                 Err("mock restore failure".into())
             } else {
@@ -2332,9 +2421,9 @@ mod backend_tests {
     #[test]
     fn hue_rotation_identity_at_zero() {
         let m = hue_rotation_matrix(0.0);
-        for i in 0..3 {
-            for j in 0..3 {
-                assert_close(m[i][j], if i == j { 1.0 } else { 0.0 });
+        for (i, row) in m.iter().enumerate() {
+            for (j, value) in row.iter().enumerate() {
+                assert_close(*value, if i == j { 1.0 } else { 0.0 });
             }
         }
     }
@@ -2343,8 +2432,8 @@ mod backend_tests {
     fn hue_rotation_is_luma_preserving() {
         for deg in [0.0, 30.0, 90.0, 180.0, 359.0] {
             let m = hue_rotation_matrix(deg);
-            for row in 0..3 {
-                let sum: f64 = m[row].iter().sum();
+            for row in &m {
+                let sum: f64 = row.iter().sum();
                 assert_close(sum, 1.0);
             }
         }
@@ -2375,17 +2464,29 @@ mod backend_tests {
 
         // Matrix first (linear position), targeting the AND_OFFSETS block.
         match &blocks[0] {
-            PixtxBlock::Matrix { block_id, block_type, matrix } => {
+            PixtxBlock::Matrix {
+                block_id,
+                block_type,
+                matrix,
+            } => {
                 assert_eq!(*block_id, 327427);
                 assert_eq!(*block_type, CTL_PIXTX_BLOCK_TYPE_3X3_MATRIX_AND_OFFSETS);
-                assert_eq!(*matrix, compose_color_matrix(p.rgb_gains, p.saturation, p.hue_deg));
+                assert_eq!(
+                    *matrix,
+                    compose_color_matrix(p.rgb_gains, p.saturation, p.hue_deg)
+                );
             }
             other => panic!("expected Matrix, got {other:?}"),
         }
 
         // 1D LUT second, 3 channels of 2049 samples (R,G,B identical).
         match &blocks[1] {
-            PixtxBlock::OneDLut { block_id, samples_per_channel, channels, samples } => {
+            PixtxBlock::OneDLut {
+                block_id,
+                samples_per_channel,
+                channels,
+                samples,
+            } => {
                 assert_eq!(*block_id, 327428);
                 assert_eq!(*samples_per_channel, 2049);
                 assert_eq!(*channels, 3);
@@ -2417,7 +2518,9 @@ mod backend_tests {
         let blocks = compose_pipeline(&p, &info).unwrap();
         // The 3ch block (id 327428) must win over the 1ch block (327426).
         match &blocks[1] {
-            PixtxBlock::OneDLut { block_id, channels, .. } => {
+            PixtxBlock::OneDLut {
+                block_id, channels, ..
+            } => {
                 assert_eq!(*block_id, 327428);
                 assert_eq!(*channels, 3);
             }
@@ -2468,10 +2571,17 @@ mod backend_tests {
         let blocks = compose_pipeline(&test_preset(), &healthy_probe()).unwrap();
         assert_eq!(blocks.len(), 2, "identity matrix + 1D LUT");
         match &blocks[0] {
-            PixtxBlock::Matrix { block_id, block_type, matrix } => {
+            PixtxBlock::Matrix {
+                block_id,
+                block_type,
+                matrix,
+            } => {
                 assert_eq!(*block_id, 327427);
                 assert_eq!(*block_type, CTL_PIXTX_BLOCK_TYPE_3X3_MATRIX_AND_OFFSETS);
-                assert_eq!(*matrix, IDENTITY_3X3, "neutral preset writes the identity matrix");
+                assert_eq!(
+                    *matrix, IDENTITY_3X3,
+                    "neutral preset writes the identity matrix"
+                );
             }
             other => panic!("expected Matrix, got {other:?}"),
         }
@@ -2488,7 +2598,10 @@ mod backend_tests {
         assert_eq!(blocks.len(), 1);
         match &blocks[0] {
             PixtxBlock::Matrix { matrix, .. } => {
-                assert_eq!(*matrix, compose_color_matrix(p.rgb_gains, p.saturation, p.hue_deg));
+                assert_eq!(
+                    *matrix,
+                    compose_color_matrix(p.rgb_gains, p.saturation, p.hue_deg)
+                );
             }
             other => panic!("expected Matrix, got {other:?}"),
         }
@@ -2519,7 +2632,10 @@ mod backend_tests {
 
     #[test]
     fn compose_pipeline_no_writable_block_is_err() {
-        let info = IgclProbe { hdr: false, blocks: vec![] };
+        let info = IgclProbe {
+            hdr: false,
+            blocks: vec![],
+        };
         assert!(compose_pipeline(&test_preset(), &info).is_err());
     }
 
@@ -2538,7 +2654,10 @@ mod backend_tests {
         assert_eq!(find(ADJUSTMENT_RGB_GAINS), AdjustmentCap::Supported);
         assert_eq!(find(ADJUSTMENT_SATURATION), AdjustmentCap::Supported);
         assert_eq!(find(ADJUSTMENT_HUE), AdjustmentCap::Supported);
-        assert!(matches!(find(ADJUSTMENT_VIBRANCE), AdjustmentCap::Unsupported(_)));
+        assert!(matches!(
+            find(ADJUSTMENT_VIBRANCE),
+            AdjustmentCap::Unsupported(_)
+        ));
     }
 
     #[test]
@@ -2548,18 +2667,29 @@ mod backend_tests {
         let b = backend(mock);
         let caps = b.probe("EDID:X");
         for c in &caps {
-            assert!(matches!(c.cap, AdjustmentCap::Unsupported(_)), "{}", c.adjustment);
+            assert!(
+                matches!(c.cap, AdjustmentCap::Unsupported(_)),
+                "{}",
+                c.adjustment
+            );
         }
     }
 
     #[test]
     fn probe_hdr_reports_all_unsupported() {
         let mut mock = MockIgcl::new();
-        mock.probe = IgclProbe { hdr: true, blocks: healthy_probe().blocks };
+        mock.probe = IgclProbe {
+            hdr: true,
+            blocks: healthy_probe().blocks,
+        };
         let b = backend(mock);
         let caps = b.probe("EDID:X");
         for c in &caps {
-            assert!(matches!(c.cap, AdjustmentCap::Unsupported(_)), "{}", c.adjustment);
+            assert!(
+                matches!(c.cap, AdjustmentCap::Unsupported(_)),
+                "{}",
+                c.adjustment
+            );
         }
     }
 
@@ -2603,7 +2733,10 @@ mod backend_tests {
 
         props.FeatureEnabledFlags = CTL_STD_DISPLAY_FEATURE_FLAG_HDR;
         props.FeatureSupportedFlags = 0;
-        assert!(hdr_from_props(&props), "HDR enabled (regardless of support) → HDR");
+        assert!(
+            hdr_from_props(&props),
+            "HDR enabled (regardless of support) → HDR"
+        );
     }
 
     // ── apply / restore behavior ──────────────────────────────────────────
@@ -2621,7 +2754,11 @@ mod backend_tests {
 
         let result = b.apply(&api, &nv, &preset, "EDID:apply-set");
 
-        assert!(result.gamma_applied, "apply must succeed: {:?}", result.error);
+        assert!(
+            result.gamma_applied,
+            "apply must succeed: {:?}",
+            result.error
+        );
         assert!(!result.vibrance_applied);
         assert!(result.error.is_none());
         // GDI purge was attempted (TestRecorder records a "gamma" write).
@@ -2648,7 +2785,11 @@ mod backend_tests {
 
         let result = b.apply(&api, &nv, &preset, "EDID:matrix-only");
 
-        assert!(result.gamma_applied, "matrix-only apply must succeed: {:?}", result.error);
+        assert!(
+            result.gamma_applied,
+            "matrix-only apply must succeed: {:?}",
+            result.error
+        );
         assert!(result.error.is_none());
         assert!(
             !mock.calls.lock().unwrap().iter().any(|c| c == "read_1dlut"),
@@ -2664,14 +2805,27 @@ mod backend_tests {
         // 1D LUT. Restore resets via RESTORE_DEFAULT AND positively re-writes
         // the identity matrix (M-1 — never rely on RESTORE_DEFAULT alone).
         let restore = b.restore(&api, &nv, "EDID:matrix-only");
-        assert!(restore.gamma_applied, "matrix-only restore must succeed: {:?}", restore.error);
+        assert!(
+            restore.gamma_applied,
+            "matrix-only restore must succeed: {:?}",
+            restore.error
+        );
         assert!(restore.error.is_none());
-        assert!(mock.calls.lock().unwrap().iter().any(|c| c == "restore_default"));
+        assert!(mock
+            .calls
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|c| c == "restore_default"));
         // The restore re-SET must carry an explicit identity matrix.
         let set_blocks = mock.set_blocks.lock().unwrap();
         assert_eq!(set_blocks.len(), 2, "one apply SET + one restore re-SET");
         match &set_blocks[1][0] {
-            PixtxBlock::Matrix { block_id, block_type, matrix } => {
+            PixtxBlock::Matrix {
+                block_id,
+                block_type,
+                matrix,
+            } => {
                 assert_eq!(*block_id, 1);
                 assert_eq!(*block_type, CTL_PIXTX_BLOCK_TYPE_3X3_MATRIX);
                 assert_eq!(*matrix, IDENTITY_3X3);
@@ -2690,7 +2844,11 @@ mod backend_tests {
         let nv = MockNvapi::new(false);
         let result = b.apply(&api, &nv, &test_preset(), "EDID:X");
         assert!(!result.gamma_applied);
-        assert!(result.error.as_ref().unwrap().contains("no active Intel output"));
+        assert!(result
+            .error
+            .as_ref()
+            .unwrap()
+            .contains("no active Intel output"));
     }
 
     #[test]
@@ -2705,12 +2863,24 @@ mod backend_tests {
 
         let result = b.apply(&api, &nv, &test_preset(), "EDID:capture-fail");
 
-        assert!(!result.gamma_applied, "capture failure must not claim success");
+        assert!(
+            !result.gamma_applied,
+            "capture failure must not claim success"
+        );
         let err = result.error.as_ref().unwrap();
-        assert!(err.contains("capture pre-apply 1D LUT failed"), "got: {err}");
-        assert!(err.contains("refusing to apply unrestorable state"), "got: {err}");
+        assert!(
+            err.contains("capture pre-apply 1D LUT failed"),
+            "got: {err}"
+        );
+        assert!(
+            err.contains("refusing to apply unrestorable state"),
+            "got: {err}"
+        );
         // No SET may have been attempted when we cannot restore.
-        assert!(mock.set_blocks.lock().unwrap().is_empty(), "no apply SET on capture failure");
+        assert!(
+            mock.set_blocks.lock().unwrap().is_empty(),
+            "no apply SET on capture failure"
+        );
     }
 
     #[test]
@@ -2731,15 +2901,27 @@ mod backend_tests {
 
         // After apply the mock panel reflects the applied (non-native) LUT.
         let applied = mock.read_lut.lock().unwrap().clone();
-        assert_ne!(applied[0], native_curve()[0], "apply must change the 3ch LUT");
+        assert_ne!(
+            applied[0],
+            native_curve()[0],
+            "apply must change the 3ch LUT"
+        );
 
         let restore = b.restore(&api, &nv, "EDID:roundtrip");
-        assert!(restore.gamma_applied, "restore must succeed: {:?}", restore.error);
+        assert!(
+            restore.gamma_applied,
+            "restore must succeed: {:?}",
+            restore.error
+        );
         assert!(restore.error.is_none());
 
         // The mock panel's LUT must be back to the captured native curve.
         let restored = mock.read_lut.lock().unwrap().clone();
-        assert_eq!(restored, native_curve(), "restore must re-SET the captured pre-apply LUT");
+        assert_eq!(
+            restored,
+            native_curve(),
+            "restore must re-SET the captured pre-apply LUT"
+        );
 
         // The restore path must have issued a re-SET (not only RESTORE_DEFAULT):
         // an explicit identity matrix + the captured 1D LUT (M-1).
@@ -2751,16 +2933,27 @@ mod backend_tests {
             "restore re-SETs the identity matrix + captured 1D LUT"
         );
         match &set_blocks[1][0] {
-            PixtxBlock::Matrix { block_id, block_type, matrix } => {
+            PixtxBlock::Matrix {
+                block_id,
+                block_type,
+                matrix,
+            } => {
                 assert_eq!(*block_id, 327427);
                 assert_eq!(*block_type, CTL_PIXTX_BLOCK_TYPE_3X3_MATRIX_AND_OFFSETS);
-                assert_eq!(*matrix, IDENTITY_3X3, "restore neutralizes the matrix by construction");
+                assert_eq!(
+                    *matrix, IDENTITY_3X3,
+                    "restore neutralizes the matrix by construction"
+                );
             }
             other => panic!("expected Matrix, got {other:?}"),
         }
         match &set_blocks[1][1] {
             PixtxBlock::OneDLut { samples, .. } => {
-                assert_eq!(*samples, native_curve(), "restore re-SETs the captured native curve");
+                assert_eq!(
+                    *samples,
+                    native_curve(),
+                    "restore re-SETs the captured native curve"
+                );
             }
             other => panic!("expected OneDLut, got {other:?}"),
         }
@@ -2781,13 +2974,19 @@ mod backend_tests {
         // Apply A (gamma 2.2) captures the native pre-apply state.
         let mut a = test_preset();
         a.gamma = 2.2;
-        assert!(b.apply(&api, &nv, &a, "EDID:ab").gamma_applied, "apply A must succeed");
+        assert!(
+            b.apply(&api, &nv, &a, "EDID:ab").gamma_applied,
+            "apply A must succeed"
+        );
         let lut_a = mock.read_lut.lock().unwrap().clone();
 
         // Apply B (gamma 3.0) must NOT overwrite the native capture.
         let mut b2 = test_preset();
         b2.gamma = 3.0;
-        assert!(b.apply(&api, &nv, &b2, "EDID:ab").gamma_applied, "apply B must succeed");
+        assert!(
+            b.apply(&api, &nv, &b2, "EDID:ab").gamma_applied,
+            "apply B must succeed"
+        );
         let lut_b = mock.read_lut.lock().unwrap().clone();
         assert_ne!(lut_a, lut_b, "A and B must produce different LUTs");
         assert_eq!(
@@ -2798,7 +2997,11 @@ mod backend_tests {
 
         // Restore must return to A's pre-apply state (native), not B's curve.
         let restore = b.restore(&api, &nv, "EDID:ab");
-        assert!(restore.gamma_applied, "restore must succeed: {:?}", restore.error);
+        assert!(
+            restore.gamma_applied,
+            "restore must succeed: {:?}",
+            restore.error
+        );
         assert_eq!(
             mock.read_lut.lock().unwrap().clone(),
             native_curve(),
@@ -2822,14 +3025,23 @@ mod backend_tests {
         assert!(get_capture("EDID:clr").is_some(), "apply must capture");
 
         // Restore verifies by read-back and, on success, clears the capture.
-        assert!(b.restore(&api, &nv, "EDID:clr").gamma_applied, "restore must succeed");
-        assert!(get_capture("EDID:clr").is_none(), "a verified restore must clear the capture");
+        assert!(
+            b.restore(&api, &nv, "EDID:clr").gamma_applied,
+            "restore must succeed"
+        );
+        assert!(
+            get_capture("EDID:clr").is_none(),
+            "a verified restore must clear the capture"
+        );
 
         // A subsequent apply re-captures the current (restored) state — native.
         let mut preset2 = test_preset();
         preset2.gamma = 1.5;
         assert!(b.apply(&api, &nv, &preset2, "EDID:clr").gamma_applied);
-        assert!(get_capture("EDID:clr").is_some(), "apply after restore must re-capture");
+        assert!(
+            get_capture("EDID:clr").is_some(),
+            "apply after restore must re-capture"
+        );
         assert_eq!(
             get_capture("EDID:clr").unwrap().samples,
             native_curve(),
@@ -2847,7 +3059,10 @@ mod backend_tests {
 
         let result = b.restore(&api, &nv, "EDID:nocapture");
 
-        assert!(!result.gamma_applied, "must NOT claim success without a capture");
+        assert!(
+            !result.gamma_applied,
+            "must NOT claim success without a capture"
+        );
         let err = result.error.as_ref().unwrap();
         assert!(err.contains("no pre-apply 1D LUT capture"), "got: {err}");
     }
@@ -2868,11 +3083,15 @@ mod backend_tests {
 
         // Simulate an accepted-but-ineffective restore write: the driver
         // returns Ok but the panel keeps the applied (non-native) LUT.
-        mock.set_lut_noop.store(true, std::sync::atomic::Ordering::Relaxed);
+        mock.set_lut_noop
+            .store(true, std::sync::atomic::Ordering::Relaxed);
 
         let restore = b.restore(&api, &nv, "EDID:mismatch");
 
-        assert!(!restore.gamma_applied, "must NOT claim success on a mismatched read-back");
+        assert!(
+            !restore.gamma_applied,
+            "must NOT claim success on a mismatched read-back"
+        );
         let err = restore.error.as_ref().unwrap();
         assert!(err.contains("read-back"), "got: {err}");
     }
@@ -2893,7 +3112,11 @@ mod backend_tests {
 
         let restore = b.restore(&api, &nv, "EDID:resetfail");
         assert!(!restore.gamma_applied);
-        assert!(restore.error.as_ref().unwrap().contains("mock restore failure"));
+        assert!(restore
+            .error
+            .as_ref()
+            .unwrap()
+            .contains("mock restore failure"));
     }
 
     // ── M-4: untrusted pre-apply capture (restart-without-reboot) ─────────
@@ -2925,14 +3148,23 @@ mod backend_tests {
 
         let result = b.apply(&api, &nv, &preset, "EDID:m4-refuse");
 
-        assert!(!result.gamma_applied, "untrusted non-identity capture must refuse");
+        assert!(
+            !result.gamma_applied,
+            "untrusted non-identity capture must refuse"
+        );
         let err = result.error.as_ref().unwrap();
-        assert!(err.contains("reboot"), "refusal must direct the user to reboot: {err}");
+        assert!(
+            err.contains("reboot"),
+            "refusal must direct the user to reboot: {err}"
+        );
         assert!(
             mock.set_blocks.lock().unwrap().is_empty(),
             "no SET when refusing an untrusted baseline"
         );
-        assert!(get_capture("EDID:m4-refuse").is_none(), "no poisoned baseline is stored");
+        assert!(
+            get_capture("EDID:m4-refuse").is_none(),
+            "no poisoned baseline is stored"
+        );
     }
 
     #[test]
@@ -2954,14 +3186,22 @@ mod backend_tests {
 
         let result = b.apply(&api, &nv, &preset, "EDID:m4-allow");
 
-        assert!(result.gamma_applied, "identity (factory) capture must be allowed: {:?}", result.error);
+        assert!(
+            result.gamma_applied,
+            "identity (factory) capture must be allowed: {:?}",
+            result.error
+        );
         assert!(
             !is_capture_untrusted("EDID:m4-allow"),
             "a verified-factory capture clears the untrusted mark for this session"
         );
         // The stored baseline is the factory identity, not a leftover curve.
         let capture = get_capture("EDID:m4-allow").expect("capture stored");
-        assert!(lut_is_identity(&capture.samples, capture.samples_per_channel, capture.channels));
+        assert!(lut_is_identity(
+            &capture.samples,
+            capture.samples_per_channel,
+            capture.channels
+        ));
     }
 
     // ── L-4: negative correlation cache TTL ──────────────────────────────
@@ -2971,13 +3211,26 @@ mod backend_tests {
         let mut entries = HashMap::new();
         let now = Instant::now();
         entries.insert("E".to_string(), now + NEGATIVE_CORRELATION_TTL);
-        assert!(negative_hit(&entries, "E", now), "fresh negative verdict is a hit");
         assert!(
-            negative_hit(&entries, "E", now + NEGATIVE_CORRELATION_TTL - Duration::from_secs(1)),
+            negative_hit(&entries, "E", now),
+            "fresh negative verdict is a hit"
+        );
+        assert!(
+            negative_hit(
+                &entries,
+                "E",
+                now + NEGATIVE_CORRELATION_TTL - Duration::from_secs(1)
+            ),
             "still within TTL"
         );
-        assert!(!negative_hit(&entries, "E", now + NEGATIVE_CORRELATION_TTL), "TTL elapsed");
-        assert!(!negative_hit(&entries, "OTHER", now), "absent EDID is not a hit");
+        assert!(
+            !negative_hit(&entries, "E", now + NEGATIVE_CORRELATION_TTL),
+            "TTL elapsed"
+        );
+        assert!(
+            !negative_hit(&entries, "OTHER", now),
+            "absent EDID is not a hit"
+        );
     }
 }
 
@@ -3056,15 +3309,24 @@ mod hw_verify {
 
         // ── No-capture restore must report an honest failure, not success.
         let no_cap = backend.restore(&api, &nv, INTERNAL_EDID);
-        assert!(!no_cap.gamma_applied, "no-capture restore must NOT claim success");
-        assert!(no_cap.error.as_ref().unwrap().contains("no pre-apply 1D LUT capture"));
+        assert!(
+            !no_cap.gamma_applied,
+            "no-capture restore must NOT claim success"
+        );
+        assert!(no_cap
+            .error
+            .as_ref()
+            .unwrap()
+            .contains("no pre-apply 1D LUT capture"));
         eprintln!(
             "[hw-verify] no-capture restore -> gamma_applied={} error={:?}",
             no_cap.gamma_applied, no_cap.error
         );
 
         // ── Resolve the internal panel and read its pre-apply LUT.
-        let output = REAL_IGCL.resolve(INTERNAL_EDID).expect("resolve internal Intel panel");
+        let output = REAL_IGCL
+            .resolve(INTERNAL_EDID)
+            .expect("resolve internal Intel panel");
         let info = REAL_IGCL.probe(output).expect("probe internal panel");
         let lut = info
             .blocks
@@ -3078,8 +3340,14 @@ mod hw_verify {
             .read_1dlut(output, lut.block_id, lut.samples_per_channel, lut.channels)
             .expect("read pre-apply LUT");
         let per = lut.samples_per_channel as usize;
-        eprintln!("[hw-verify] BEFORE       R[0..4] = {:?}", &before[0..4.min(per)]);
-        eprintln!("[hw-verify] BEFORE       R[last-2..] = {:?}", &before[per - 2..per]);
+        eprintln!(
+            "[hw-verify] BEFORE       R[0..4] = {:?}",
+            &before[0..4.min(per)]
+        );
+        eprintln!(
+            "[hw-verify] BEFORE       R[last-2..] = {:?}",
+            &before[per - 2..per]
+        );
 
         // ── Apply mild saturation (65), then confirm the LUT changed.
         let preset = sat65_preset();
@@ -3100,7 +3368,10 @@ mod hw_verify {
         let after = REAL_IGCL
             .read_1dlut(output, lut.block_id, lut.samples_per_channel, lut.channels)
             .expect("read post-apply LUT");
-        eprintln!("[hw-verify] AFTER-APPLY  R[0..4] = {:?}", &after[0..4.min(per)]);
+        eprintln!(
+            "[hw-verify] AFTER-APPLY  R[0..4] = {:?}",
+            &after[0..4.min(per)]
+        );
         assert!(
             max_delta(&after, &before) > LUT_VERIFY_EPSILON,
             "apply must change the 3ch LUT"
@@ -3108,12 +3379,19 @@ mod hw_verify {
 
         // ── Restore and verify the panel is byte-close to the capture.
         let restore = backend.restore(&api, &nv, INTERNAL_EDID);
-        assert!(restore.gamma_applied, "restore must succeed: {:?}", restore.error);
+        assert!(
+            restore.gamma_applied,
+            "restore must succeed: {:?}",
+            restore.error
+        );
 
         let after_restore = REAL_IGCL
             .read_1dlut(output, lut.block_id, lut.samples_per_channel, lut.channels)
             .expect("read post-restore LUT");
-        eprintln!("[hw-verify] AFTER-RESTORE R[0..4] = {:?}", &after_restore[0..4.min(per)]);
+        eprintln!(
+            "[hw-verify] AFTER-RESTORE R[0..4] = {:?}",
+            &after_restore[0..4.min(per)]
+        );
         let delta = max_delta(&after_restore, &before);
         eprintln!("[hw-verify] max_delta(after_restore, before) = {delta:.3e}");
         assert!(

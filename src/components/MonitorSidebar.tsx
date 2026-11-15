@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import type { Monitor, Preset } from "../lib/types";
 import { identifyMonitors, resetAllMonitors, resetMonitor, setMonitorName, unpinMonitor, probeMonitor } from "../lib/tauri";
+import { deriveSilhouetteState, SILHOUETTE } from "../lib/monitorSilhouette";
 import { resetAllSummary } from "../lib/resetAllSummary";
 import { valueFor } from "../lib/edidKey";
 import { splitCategory } from "../lib/presetCard";
 import { PresetTag } from "@/components/ui/preset-tag";
 import { Input } from "@/components/ui/input";
-import { IdentifyGlyph, MonitorGlyph, ProbeGlyph, ResetGlyph } from "@/components/ui/icons";
+import { IdentifyGlyph, ProbeGlyph, ResetGlyph } from "@/components/ui/icons";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Check, ChevronDown, Pencil, PinOff } from "lucide-react";
@@ -39,7 +40,7 @@ function UtilityButton({
       )}
     >
       <span className="shrink-0 transition-transform duration-[var(--motion-fast)] ease-[var(--ease-standard)] group-hover/util-icon:scale-[1.05]">{icon}</span>
-      <span className="font-mono text-[10px] leading-[1.4] whitespace-nowrap">{label}</span>
+      <span className="font-sans text-[12px] leading-[1.4] whitespace-nowrap">{label}</span>
     </button>
   );
 }
@@ -105,7 +106,7 @@ function MonitorNameEditor({ monitor, onRefreshParent }: { monitor: Monitor; onR
     <span className="inline-flex min-w-0 items-center gap-1">
       <span
         className={cn(
-          "truncate font-display text-[15px] leading-none",
+          "truncate font-display text-[15px] font-semibold leading-none",
           monitor.connected ? "text-foreground" : "text-muted-foreground",
         )}
       >
@@ -268,6 +269,7 @@ function MonitorCard({ monitor, pinnedPreset, appliedMap, autoMap, setAppliedMap
   // source: drag a preset from one display to another to copy it.
   const { beginDrag, draggingPresetId } = useDragSource();
   const [dragOrigin, setDragOrigin] = useState(false);
+  const [unpinError, setUnpinError] = useState<string | null>(null);
   const pendingDrag = useRef<{ pointerId: number; x: number; y: number; rect: DOMRect } | null>(null);
   const detachPending = useRef<(() => void) | null>(null);
 
@@ -377,123 +379,159 @@ function MonitorCard({ monitor, pinnedPreset, appliedMap, autoMap, setAppliedMap
     : null;
   const dropTag = isDropHover && draggedTag ? draggedTag : tag;
 
-  const showAppliedBadge =
-    isPinned || (connected && (appliedPreset !== null || isAuto));
+  // Approved silhouette state machine (Figma masters 97:201–97:268): one
+  // decision point for phase, accent colour, tint, and labels.
+  const silhouette = deriveSilhouetteState({
+    connected,
+    isDropHover,
+    samePresetApplied,
+    draggedTag,
+    slotPreset: slotPreset
+      ? { name: slotPreset.name, color_tag: slotPreset.color_tag }
+      : null,
+    isPinned,
+    isAuto,
+    wasApplied: appliedPreset !== null,
+    statusPhase,
+    statusPresetName: status?.presetName,
+    statusError: status?.error,
+  });
 
-  // Single status chip replaces the old dot + APPLIED/DEFAULT/OFFLINE badge:
-  // assigned monitors show the preset's category on a tag-tinted pill, so the
-  // colour carries preset identity while the text keeps it colour-blind safe.
-  const chipLabel = showAppliedBadge
-    ? slotTitle?.category || slotTitle?.title || "ASSIGNED"
-    : connected
-      ? "DEFAULT"
-      : "OFFLINE";
+  // Tint drain: when the accent disappears (reset, unpin, offline) the last
+  // tint fades out once instead of vanishing with the element.
+  const tintBefore = useRef<{ color: string; opacity: number } | null>(null);
+  const drainSeq = useRef(0);
+  const [drain, setDrain] = useState<{ color: string; opacity: number; seq: number } | null>(null);
+  useEffect(() => {
+    if (silhouette.accent && silhouette.tintOpacity !== null) {
+      tintBefore.current = { color: silhouette.accent, opacity: silhouette.tintOpacity };
+      return;
+    }
+    if (tintBefore.current) {
+      drainSeq.current += 1;
+      setDrain({ ...tintBefore.current, seq: drainSeq.current });
+      tintBefore.current = null;
+    }
+  }, [silhouette.accent, silhouette.tintOpacity]);
 
   return (
     <div
       data-drop-monitor={monitor.edid_id}
       data-drop-enabled={connected ? "true" : "false"}
       className={cn(
-        "group/pad monitor-card-enter relative shrink-0 rounded-[8px] border bg-surface p-2 transition-[scale,border-color] duration-[var(--motion-fast)]",
+        "group/pad monitor-card-enter relative flex shrink-0 flex-col transition-[scale] duration-[var(--motion-fast)]",
         compact ? "h-[146px]" : "h-[160px]",
-        isPinned && !tag ? "border-primary" : "border-border",
         // Standalone `scale` (not transform) so the entrance animation keeps
         // ownership of `transform`.
-        showValidDrop && "monitor-drop-target scale-[1.01]",
-        isDropHover && connected && samePresetApplied &&
-          "cursor-default border-border-hover",
-        isOfflineHover && "cursor-not-allowed border-destructive drop-shake",
+        showValidDrop && "scale-[1.01]",
+        isDropHover && connected && samePresetApplied && "cursor-default",
+        isOfflineHover && "cursor-not-allowed drop-shake",
       )}
       style={
         {
           "--stagger-ms": `${Math.min(index * 60, 180)}ms`,
           // Let .monitor-drop-target own the border while a drag is hovering.
-          ...(isPinned && tag && !isDropHover ? { borderColor: tag } : {}),
           ...(dropTag ? { "--tag": dropTag } : {}),
         } as Record<string, string>
       }
     >
+      {/* Screen bezel — the single border of the silhouette card. */}
       <div
+        data-slot="monitor-screen"
         className={cn(
-          "flex h-full min-h-0 flex-col overflow-hidden rounded-[8px] border border-border-hover bg-surface hover:bg-surface-hover",
+          "relative min-h-0 shrink-0 overflow-hidden rounded-[6px] border border-border bg-surface transition-[border-color,background-color] duration-[var(--motion-fast)]",
+          "hover:bg-surface-hover",
           compact ? "p-3" : "p-4",
+          showValidDrop && "monitor-drop-target",
+          isDropHover && connected && samePresetApplied && "border-border-hover",
+          isOfflineHover && "border-destructive",
+          dragOrigin && "opacity-40",
         )}
+        style={{
+          height: compact ? SILHOUETTE.screenHCompact : SILHOUETTE.screenH,
+          // Inline accent owns the border except while .monitor-drop-target
+          // (CSS) must light it with the dragged preset's colour.
+          ...(!showValidDrop && silhouette.accent
+            ? { borderColor: silhouette.accent }
+            : {}),
+          // Pinned-but-untagged keeps the old primary ring.
+          ...(!showValidDrop && !silhouette.accent && isPinned
+            ? { borderColor: "var(--color-primary)" }
+            : {}),
+        }}
       >
-        {/* Identity */}
-        <div className="flex min-w-0 items-center gap-2">
-          <MonitorGlyph
-            className={cn(
-              "shrink-0",
-              connected ? "text-primary" : "text-subtle-fg",
-            )}
+        {/* Preset tint — accent wash inside the screen, never a second border. */}
+        {silhouette.accent !== null && silhouette.tintOpacity !== null && (
+          <span
+            aria-hidden="true"
+            data-slot="screen-tint"
+            className="screen-tint pointer-events-none absolute inset-0"
+            style={{ backgroundColor: silhouette.accent, opacity: silhouette.tintOpacity }}
           />
-          <div className="flex min-w-0 flex-1 flex-col gap-[3px]">
+        )}
+        {/* Drain of the previous tint after a reset / unpin. */}
+        {drain && (
+          <span
+            key={drain.seq}
+            aria-hidden="true"
+            className="reset-drain pointer-events-none absolute inset-0"
+            style={{ backgroundColor: drain.color, ["--tint-from" as string]: drain.opacity }}
+          />
+        )}
+
+        {/* Identity */}
+        <div className="relative flex min-w-0 items-start justify-between gap-2">
+          <div className="flex min-w-0 flex-col gap-[3px]">
             <MonitorNameEditor monitor={monitor} onRefreshParent={onRefresh} />
-            <span className="truncate font-mono text-[9px] leading-[1.4] text-muted-foreground">
+            <span className="truncate font-mono text-[11px] leading-[1.4] text-muted-foreground">
               {monitor.serial || monitor.edid_id}
             </span>
           </div>
-          <span
-            className={cn(
-              "inline-flex w-fit max-w-[104px] shrink-0 items-center justify-center overflow-hidden rounded-full border px-2 py-[3px] font-mono text-[9px] leading-[1.4] uppercase tracking-normal whitespace-nowrap transition-colors",
-              showAppliedBadge
-                ? tag
-                  ? ""
-                  : "border-primary bg-primary-subtle text-primary"
-                : "border-border bg-transparent text-muted-foreground",
-              showAppliedBadge && !connected && "opacity-60",
+          <div className="flex shrink-0 items-center gap-1.5">
+            {isAuto && (
+              <span
+                data-slot="auto-badge"
+                title="Applied automatically for a mapped program"
+                className="mono shrink-0 rounded-[8px] border border-primary px-1 py-[1px] text-[8px] leading-[1.4] uppercase tracking-[0.1em] text-primary"
+              >
+                AUTO
+              </span>
             )}
-            style={
-              showAppliedBadge && tag
-                ? {
-                    backgroundColor: `color-mix(in srgb, ${tag} 18%, transparent)`,
-                    borderColor: tag,
-                    color: tag,
-                  }
-                : undefined
-            }
-            title={
-              showAppliedBadge && slotPreset
-                ? `${slotPreset.name}${connected ? "" : " · monitor offline"}`
-                : connected
-                  ? "No preset applied — display defaults in use"
-                  : "Monitor not connected"
-            }
-          >
-            <span className="truncate">{chipLabel}</span>
-          </span>
-          {isAuto && (
             <span
-              data-slot="auto-badge"
-              title="Applied automatically for a mapped program"
-              className="mono shrink-0 rounded-[8px] border border-primary px-1 py-[1px] text-[8px] leading-[1.4] uppercase tracking-[0.1em] text-primary"
+              className={cn(
+                "truncate font-mono text-[10px] uppercase tracking-[0.08em] leading-[1.4] whitespace-nowrap",
+                silhouette.phase === "error" && "text-destructive",
+                silhouette.phase === "applying" && "text-primary",
+                (silhouette.phase === "empty" || silhouette.phase === "offline") &&
+                  "text-muted-foreground",
+              )}
+              style={
+                silhouette.accent &&
+                ["pinned", "auto", "applied"].includes(silhouette.phase)
+                  ? { color: silhouette.accent }
+                  : undefined
+              }
+              title={
+                slotPreset
+                  ? `${slotPreset.name}${connected ? "" : " · monitor offline"}`
+                  : connected
+                    ? "No preset applied — display defaults in use"
+                    : "Monitor not connected"
+              }
             >
-              AUTO
+              {silhouette.statusLabel}
             </span>
-          )}
+          </div>
         </div>
 
         {/* Slot: apply-in-progress / applied summary / drop prompt.
             When filled it is also a drag source for copying to another display. */}
         <div
           className={cn(
-            "flex min-h-0 flex-1 flex-col justify-center rounded-[8px] p-2 transition-colors relative overflow-hidden",
-            compact ? "mt-2" : "mt-3",
-            slotPreset
-              ? "border border-border bg-surface"
-              : "border border-dashed border-border bg-transparent",
+            "relative flex min-h-0 flex-1 flex-col justify-center overflow-hidden",
             slotPreset && connected && "cursor-grab active:cursor-grabbing",
-            dragOrigin && "opacity-40",
-            showValidDrop && "monitor-drop-target",
-            isOfflineHover && "border-destructive",
           )}
-          style={
-            slotPreset && tag
-              ? { backgroundColor: `color-mix(in srgb, ${tag} 8%, var(--color-surface))` }
-              : undefined
-          }
-          onPointerDown={slotPreset && connected ? handleSlotPointerDown : undefined}
-          title={
+          onPointerDown={slotPreset && connected ? handleSlotPointerDown : undefined}          title={
             slotPreset && connected
               ? `Drag ${slotPreset.name} onto another monitor to copy it`
               : undefined
@@ -503,31 +541,44 @@ function MonitorCard({ monitor, pinnedPreset, appliedMap, autoMap, setAppliedMap
             <span className="flex min-w-0 items-center gap-2">
               <span
                 aria-hidden="true"
-                className="inline-block size-3 shrink-0 animate-spin rounded-full border border-primary-border border-t-primary"
+                className="inline-block size-4 shrink-0 animate-spin rounded-full border border-primary-border border-t-primary"
               />
-              <span className="truncate font-mono text-[9px] leading-[1.3] text-primary">
+              <span className="truncate font-display text-[15px] leading-tight text-primary">
                 Applying {status.presetName}…
               </span>
             </span>
-          ) : status?.phase === "error" ? (
+          ) : status?.phase === "error" && !slotTitle ? (
             <span className="flex min-w-0 flex-col gap-0.5" title={status.error}>
-              <span className="validation-slide truncate font-mono text-[9px] leading-[1.3] text-destructive">
+              <span className="validation-slide truncate font-display text-[13px] leading-tight text-destructive">
                 Apply failed
               </span>
-              <span className="truncate font-mono text-[9px] leading-[1.3] text-destructive/80">
+              <span className="truncate font-mono text-[11px] leading-snug text-destructive/80">
                 {status.error}
               </span>
             </span>
           ) : slotTitle ? (
-            <div className="flex min-w-0 items-center gap-2">
+            <div className="flex min-w-0 items-center gap-2.5">
               <PresetTag color={tag ?? undefined} shape={slotPreset?.tag_shape} size="md" />
               <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <span className="truncate font-mono text-[10px] leading-[1.3] text-foreground">
+                <span
+                  className={cn(
+                    "truncate font-display font-semibold leading-tight text-foreground",
+                    isPinned ? "text-[20px]" : "text-[16px]",
+                  )}
+                >
                   {slotTitle.title}
                 </span>
                 {slotTitle.category && (
-                  <span className="truncate font-mono text-[9px] leading-[1.3] text-muted-foreground">
+                  <span className="truncate font-mono text-[11px] leading-snug text-muted-foreground">
                     {slotTitle.category}
+                  </span>
+                )}
+                {status?.phase === "error" && status.error && (
+                  <span
+                    className="validation-slide truncate font-mono text-[11px] leading-snug text-destructive"
+                    title={status.error}
+                  >
+                    {status.error}
                   </span>
                 )}
               </div>
@@ -539,41 +590,70 @@ function MonitorCard({ monitor, pinnedPreset, appliedMap, autoMap, setAppliedMap
               )}
             </div>
           ) : (
-            <span className="truncate font-mono text-[9px] text-muted-foreground">
-              {isDragging && connected
-                ? "Release to apply"
-                : connected
-                  ? "Drop preset here"
-                  : "Not connected"}
+            <span className="truncate font-display text-[15px] leading-tight text-muted-foreground">
+              {isDragging && connected ? "Release to apply" : silhouette.primaryLabel}
             </span>
+          )}
+          {unpinError && <span role="alert" className="mono text-[10px] text-foreground" title={unpinError}>{unpinError}</span>}
+          {/* Apply-in-flight wash — moving light, not a progress bar. */}
+          {silhouette.phase === "applying" && (
+            <span aria-hidden="true" className="applying-wash absolute inset-0" />
           )}
           {/* Success wash — remounts on every applied transition. */}
           {statusPhase === "applied" && (
             <span key={sweepKey} aria-hidden="true" className="apply-sweep absolute inset-0" />
           )}
         </div>
+      </div>
 
-        {/* Actions */}
-          <div className={cn("flex h-[22px] min-w-0 shrink-0 items-center gap-4", compact ? "mt-2" : "mt-3", !connected && "opacity-40 transition-opacity hover:opacity-100")}>
-          <MonitorResetButton edidId={monitor.edid_id} onPinChange={onPinChange} setAppliedMap={setAppliedMap} />
-          <MonitorProbeButton edidId={monitor.edid_id} />
-          {valueFor(pins, monitor.edid_id) && (
-            <button
-              type="button"
-              title="Unpin from this monitor"
-              aria-label={`Unpin from ${monitor.alias || monitor.model}`}
-              onClick={async () => {
-                try {
-                  await unpinMonitor(monitor.edid_id);
-                  onPinChange();
-                } catch { /* silent */ }
-              }}
-              className="inline-flex shrink-0 items-center justify-center rounded-[8px] p-1 text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-none"
-            >
-              <PinOff className="size-[13px] transition-transform duration-[var(--motion-fast)] ease-[var(--ease-standard)] hover:scale-110" strokeWidth={1.5} />
-            </button>
-          )}
-        </div>
+      {/* Stand — neck + foot, purely indicative geometry. */}
+      <div
+        aria-hidden="true"
+        className={cn("mx-auto shrink-0 rounded-b-[2px]", silhouette.muted && "opacity-40")}
+        style={{
+          width: SILHOUETTE.neckW,
+          height: SILHOUETTE.neckH,
+          background: "var(--color-border-hover)",
+        }}
+      />
+      <div
+        aria-hidden="true"
+        className={cn("mx-auto shrink-0 rounded-[1px]", silhouette.muted && "opacity-40")}
+        style={{
+          width: SILHOUETTE.footW,
+          height: SILHOUETTE.footH,
+          background: "var(--color-border-hover)",
+        }}
+      />
+
+      {/* Actions */}
+      <div
+        className={cn(
+          "mt-auto flex h-[22px] min-w-0 shrink-0 items-center gap-4",
+          !connected && "opacity-40 transition-opacity hover:opacity-100",
+        )}
+      >
+        <MonitorResetButton edidId={monitor.edid_id} onPinChange={onPinChange} setAppliedMap={setAppliedMap} />
+        <MonitorProbeButton edidId={monitor.edid_id} />
+        {valueFor(pins, monitor.edid_id) && (
+          <button
+            type="button"
+            title="Unpin from this monitor"
+            aria-label={`Unpin from ${monitor.alias || monitor.model}`}
+            onClick={async () => {
+              try {
+                setUnpinError(null);
+                await unpinMonitor(monitor.edid_id);
+                onPinChange();
+              } catch (error) {
+                setUnpinError(`Unpin failed: ${String(error)}`);
+              }
+            }}
+            className="inline-flex shrink-0 items-center justify-center rounded-[8px] p-1 text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-none"
+          >
+            <PinOff className="size-[13px] transition-transform duration-[var(--motion-fast)] ease-[var(--ease-standard)] hover:scale-110" strokeWidth={1.5} />
+          </button>
+        )}
       </div>
     </div>
   );

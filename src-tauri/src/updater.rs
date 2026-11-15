@@ -58,9 +58,7 @@ pub async fn download_and_install_cmd(app: AppHandle) -> Result<(), String> {
             |chunk_length, content_length| {
                 downloaded += chunk_length as u64;
                 total = total.or(content_length);
-                let percent = content_length.map(|t| {
-                    (downloaded as f64 / t as f64 * 100.0) as u32
-                });
+                let percent = content_length.map(|t| (downloaded as f64 / t as f64 * 100.0) as u32);
                 let _ = app_clone.emit(
                     "update://progress",
                     serde_json::json!({
@@ -75,14 +73,7 @@ pub async fn download_and_install_cmd(app: AppHandle) -> Result<(), String> {
         .await
         .map_err(|e| e.to_string())?;
 
-    let _ = app.emit(
-        "update://progress",
-        serde_json::json!({
-            "downloaded": downloaded,
-            "total": total,
-            "percent": 100u32,
-        }),
-    );
+    let _ = app.emit("update://installing", ());
 
     update.install(bytes).map_err(|e| e.to_string())?;
     Ok(())
