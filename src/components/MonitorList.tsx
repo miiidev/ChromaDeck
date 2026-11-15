@@ -40,7 +40,7 @@ interface Props {
 function SkeletonRow() {
   return (
     <div className="rounded-[8px] border border-border bg-surface p-2">
-      <div className="flex h-[132px] flex-col gap-3 rounded-[8px] border border-border-hover bg-surface p-4">
+      <div className="flex h-[132px] flex-col gap-3 rounded-[8px] border border-transparent bg-surface p-4">
         <Skeleton className="h-4 w-20" />
         <Skeleton className="h-8 w-2/3" />
         <Skeleton className="mt-auto h-6 w-full" />
@@ -372,7 +372,7 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
     return (
       <section className="shell-enter flex min-h-0 min-w-0 flex-1 flex-col" style={{ ["--shell-delay" as string]: "120ms" }}>
         <div className="flex h-10 shrink-0 items-center justify-between border-b border-border pb-2">
-          <span className="mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+          <span className="mono text-[12px] uppercase tracking-[0.14em] text-muted-foreground">
             Presets (0)
           </span>
           <Button
@@ -419,7 +419,7 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
       <LibraryScrollRoot
         header={
           <div className="flex h-10 shrink-0 items-center justify-between gap-4 border-b border-border pb-2">
-            <span className="mono min-w-0 truncate text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+            <span className="mono min-w-0 truncate text-[12px] uppercase tracking-[0.14em] text-muted-foreground">
               {isSearching
                 ? `Presets (${filteredPresets.length} of ${libraryPresets.length})`
                 : `Presets (${libraryPresets.length})`}
@@ -435,7 +435,7 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
                 <SelectTrigger
                   size="sm"
                   aria-label="Filter presets by category"
-                  className="w-[136px] font-mono text-[11px] focus-visible:ring-1 focus-visible:ring-primary-border"
+                  className="w-[136px] font-body text-[12px] focus-visible:ring-1 focus-visible:ring-primary-border"
                 >
                   <SelectValue>{(value: string | null) => (value && value !== ALL_CATEGORIES ? (value === NO_CATEGORY ? "No category" : value) : "All categories")}</SelectValue>
                 </SelectTrigger>
@@ -476,7 +476,7 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
                   placeholder="Search presets…"
                   aria-label="Search presets"
                   title="Search presets (/)"
-                  className="h-8 w-[150px] rounded-[8px] py-1 pr-7 pl-8 font-mono text-[11px] md:text-[11px] min-[1100px]:w-[210px] [&::-webkit-search-cancel-button]:appearance-none"
+                  className="h-8 w-[150px] rounded-[8px] py-1 pr-7 pl-8 font-mono text-[12px] md:text-[12px] min-[1100px]:w-[210px] [&::-webkit-search-cancel-button]:appearance-none"
                 />
                 {isSearching && (
                   <button

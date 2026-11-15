@@ -181,7 +181,7 @@ export default function ApplyDialog({ preset, monitors, pins, initialEdid, onClo
     >
       <DialogContent className="sm:max-w-[520px]">
         <DialogHeader>
-          <span className="mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+          <span className="mono text-[12px] uppercase tracking-[0.12em] text-muted-foreground">
             Apply preset
           </span>
           <DialogTitle className="truncate font-display text-[24px] leading-tight tracking-[-0.48px] text-foreground">
@@ -234,7 +234,7 @@ export default function ApplyDialog({ preset, monitors, pins, initialEdid, onClo
                   <span className="truncate font-mono text-[17px] leading-tight text-foreground">
                     {m.alias || m.model || m.device_name}
                   </span>
-                  <span className="truncate font-mono text-[9px] leading-tight text-muted-foreground">
+                  <span className="truncate font-mono text-[12px] leading-tight text-muted-foreground">
                     {m.serial || m.edid_id}
                   </span>
                 </div>
@@ -246,7 +246,7 @@ export default function ApplyDialog({ preset, monitors, pins, initialEdid, onClo
                   )}
                   <span
                     className={cn(
-                      "inline-flex shrink-0 items-center rounded-[8px] border px-2 py-[3px] font-mono text-[9px] uppercase tracking-[0.1em]",
+                      "inline-flex shrink-0 items-center rounded-[8px] border px-2 py-[3px] font-mono text-[12px] uppercase tracking-[0.1em]",
                       status === "PINNED"
                         ? "border-primary bg-primary-subtle text-primary"
                         : "border-border text-muted-foreground",
@@ -273,7 +273,7 @@ export default function ApplyDialog({ preset, monitors, pins, initialEdid, onClo
           <Checkbox checked={applyAll} onCheckedChange={(v) => { setApplyAll(Boolean(v)); setLastResult(null); }}>
             <CheckboxIndicator />
           </Checkbox>
-          <span className="mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+          <span className="font-body text-[12px] uppercase tracking-[0.4px] text-muted-foreground">
             Apply to all
           </span>
         </label>

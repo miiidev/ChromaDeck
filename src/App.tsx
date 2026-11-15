@@ -80,7 +80,7 @@ function AutostartToggle() {
         onChange={toggle}
         className="size-[14px] rounded-[4px] accent-[var(--color-primary)]"
       />
-      <span className="mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+      <span className="font-body text-[12px] uppercase tracking-[0.4px] text-muted-foreground">
         Autostart
       </span>
     </label>
@@ -111,7 +111,7 @@ function AutoApplyToggle({ on, onChange }: { on: boolean; onChange: (next: boole
         aria-label="Auto-apply mapped programs"
         className="size-[14px] rounded-[4px] accent-[var(--color-primary)]"
       />
-      <span className="mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+      <span className="font-body text-[12px] uppercase tracking-[0.4px] text-muted-foreground">
         Auto-apply
       </span>
     </label>
@@ -633,7 +633,7 @@ function App() {
               ? "LOADING…"
               : `${presets.length} PRESET${presets.length !== 1 ? "S" : ""} · ${monitors.filter((m) => m.connected).length} MONITOR${monitors.filter((m) => m.connected).length !== 1 ? "S" : ""} CONNECTED · ${Object.keys(pins).length} PINNED`;
             return (
-              <span key={t} className="value-swap mono truncate text-[10px] uppercase tracking-[0.12em] tabular-nums text-muted-foreground">
+              <span key={t} className="value-swap font-body truncate text-[12px] uppercase tracking-[0.4px] tabular-nums text-muted-foreground">
                 {t}
               </span>
             );
@@ -641,7 +641,7 @@ function App() {
           {reapplyMsg && (
             <>
               <span className="h-4 w-px shrink-0 bg-border" aria-hidden="true" />
-              <span className="transient-enter mono truncate text-[10px] text-muted-foreground">
+              <span className="transient-enter font-body truncate text-[12px] text-muted-foreground">
                 {reapplyMsg}
               </span>
             </>
@@ -649,7 +649,7 @@ function App() {
           {autoMsg && (
             <>
               <span className="h-4 w-px shrink-0 bg-border" aria-hidden="true" />
-              <span className="transient-enter mono truncate text-[10px] text-muted-foreground">
+              <span className="transient-enter font-body truncate text-[12px] text-muted-foreground">
                 {autoMsg}
               </span>
             </>
@@ -657,7 +657,7 @@ function App() {
           {updateMsg && (
             <>
               <span className="h-4 w-px shrink-0 bg-border" aria-hidden="true" />
-              <span className="transient-enter mono truncate text-[10px] text-muted-foreground">
+              <span className="transient-enter font-body truncate text-[12px] text-muted-foreground">
                 {updateMsg}
               </span>
             </>
@@ -685,7 +685,7 @@ function App() {
               }
               fetchData();
             }}
-            className="inline-flex items-center justify-center rounded-[8px] border border-border bg-transparent px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-foreground transition-colors hover:border-border-hover hover:bg-surface-hover"
+            className="inline-flex items-center justify-center rounded-[8px] border border-border bg-transparent px-3 py-1.5 font-body text-[12px] uppercase tracking-[0.4px] text-foreground transition-colors hover:border-border-hover hover:bg-surface-hover"
             title="Re-run enforcement now"
           >
             <span className="btn-label">Reapply</span>

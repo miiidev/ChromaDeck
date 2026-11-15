@@ -109,7 +109,7 @@ function LiveColorCard({
       )}
     >
       <div className="mb-3 flex items-center justify-between">
-        <span className="mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+        <span className="font-body text-[12px] uppercase tracking-[0.4px] text-muted-foreground">
           {label}
         </span>
         <span className="mono text-[9px] text-muted-foreground">
@@ -317,7 +317,7 @@ export default function PresetEditor({ presets, editPreset, onClose, onClosed, o
     >
       <DialogContent className="max-h-[calc(100dvh-3rem)] overflow-x-clip overflow-y-auto sm:max-w-[708px]">
         <DialogHeader>
-          <span className="mono text-[10px] uppercase tracking-[0.12em] text-primary">
+          <span className="mono text-[12px] uppercase tracking-[0.12em] text-primary">
             Preset editor / {isEditing ? editPreset?.name : "New"}
           </span>
           <DialogTitle className="font-display text-[32px] leading-none tracking-[-0.96px] text-foreground">
@@ -334,7 +334,7 @@ export default function PresetEditor({ presets, editPreset, onClose, onClosed, o
             <div className="flex min-w-0 flex-col gap-2">
               <Label
                 htmlFor="preset-name"
-                className="mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground"
+                className="mono text-[12px] uppercase tracking-[0.12em] text-muted-foreground"
               >
                 Preset name
               </Label>
@@ -353,7 +353,7 @@ export default function PresetEditor({ presets, editPreset, onClose, onClosed, o
             <div className="flex min-w-0 flex-col gap-2">
               <Label
                 htmlFor="preset-category"
-                className="mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground"
+                className="mono text-[12px] uppercase tracking-[0.12em] text-muted-foreground"
               >
                 Category
               </Label>
@@ -410,7 +410,7 @@ export default function PresetEditor({ presets, editPreset, onClose, onClosed, o
           {/* ── Color tag ────────────────────────────────────────── */}
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between gap-3">
-              <span className="mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+              <span className="font-body text-[12px] uppercase tracking-[0.4px] text-muted-foreground">
                 Tag colour
               </span>
               <span className="mono text-[10px] text-muted-foreground">{tagLabel}</span>
@@ -440,7 +440,7 @@ export default function PresetEditor({ presets, editPreset, onClose, onClosed, o
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
-              <span className="mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+              <span className="font-body text-[12px] uppercase tracking-[0.4px] text-muted-foreground">
                 Tag shape
               </span>
               <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Tag shape">
@@ -479,14 +479,14 @@ export default function PresetEditor({ presets, editPreset, onClose, onClosed, o
           {/* ── Programs (auto-apply) ────────────────────────────── */}
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between gap-3">
-              <span className="mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+              <span className="font-body text-[12px] uppercase tracking-[0.4px] text-muted-foreground">
                 Programs
               </span>
               <span className="mono text-[10px] text-muted-foreground">
                 {form.attached_programs.length} mapped
               </span>
             </div>
-            <p className="mono text-[10px] text-muted-foreground">
+            <p className="font-body text-[12px] text-muted-foreground">
               Applies this preset to the monitor showing the program when it comes forward.
               Auto-apply must be switched on in the footer.
             </p>
@@ -537,14 +537,14 @@ export default function PresetEditor({ presets, editPreset, onClose, onClosed, o
               <button
                 type="button"
                 onClick={handleAddProgram}
-                className="shrink-0 rounded-full border border-border px-2.5 py-1 font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground transition-colors hover:border-border-hover hover:text-foreground"
+                className="shrink-0 rounded-full border border-border px-2.5 py-1 font-mono text-[12px] uppercase tracking-[0.1em] text-muted-foreground transition-colors hover:border-border-hover hover:text-foreground"
               >
                 Add
               </button>
               <button
                 type="button"
                 onClick={() => void handleBrowseProgram()}
-                className="shrink-0 rounded-full border border-border px-2.5 py-1 font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground transition-colors hover:border-border-hover hover:text-foreground"
+                className="shrink-0 rounded-full border border-border px-2.5 py-1 font-mono text-[12px] uppercase tracking-[0.1em] text-muted-foreground transition-colors hover:border-border-hover hover:text-foreground"
               >
                 Browse…
               </button>
@@ -556,7 +556,7 @@ export default function PresetEditor({ presets, editPreset, onClose, onClosed, o
 
           {/* ── Live colour bar preview ──────────────────────────── */}
           <div className="flex flex-col gap-3">
-            <span className="mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+            <span className="mono text-[12px] uppercase tracking-[0.12em] text-muted-foreground">
               Live colour bar preview
             </span>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -626,8 +626,8 @@ export default function PresetEditor({ presets, editPreset, onClose, onClosed, o
                 <Upload className="size-4" strokeWidth={1.5} />
               </span>
               <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <span className="mono text-[11px] text-foreground">ICC profile</span>
-                <span className="mono truncate text-[10px] text-muted-foreground" title={iccStatus?.filename}>
+                <span className="mono text-[12px] text-foreground">ICC profile</span>
+                <span className="mono truncate text-[12px] text-muted-foreground" title={iccStatus?.filename}>
                   Optional · .icc or .icm · {iccStatus ? iccStatus.filename : "No file selected"}
                 </span>
               </div>
@@ -635,7 +635,7 @@ export default function PresetEditor({ presets, editPreset, onClose, onClosed, o
                 type="button"
                 onClick={() => void handleBrowseIcc()}
                 disabled={iccImporting}
-                className="shrink-0 rounded-full border border-border px-2.5 py-1 font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground transition-colors hover:border-border-hover hover:text-foreground disabled:opacity-50"
+                className="shrink-0 rounded-full border border-border px-2.5 py-1 font-mono text-[12px] uppercase tracking-[0.1em] text-muted-foreground transition-colors hover:border-border-hover hover:text-foreground disabled:opacity-50"
               >
                 {iccImporting ? "Importing…" : "Choose file"}
               </button>
@@ -672,7 +672,7 @@ function SliderField({
   return (
     <div className="flex min-w-0 flex-col gap-2">
       <div className="flex items-baseline justify-between gap-3">
-        <Label className="mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+        <Label className="font-body text-[12px] uppercase tracking-[0.4px] text-muted-foreground">
           {label}
         </Label>
         <span className="mono text-[12px] tabular-nums text-foreground">{display}</span>
