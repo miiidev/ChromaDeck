@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import type { Monitor, Preset, ApplyResult } from "../lib/types";
 import { adjustmentLabel, summarizeApply } from "../lib/applyOutcomes";
 import { connectedEdidSignature } from "../lib/connectedSignature";
-import { applyPreset, getDisplayCapabilities } from "../lib/tauri";
+import { applyPreset, getDisplayCapabilities, pinPreset, unpinMonitor } from "../lib/tauri";
 import { valueFor } from "../lib/edidKey";
 import { Button } from "@/components/ui/button";
 import { Checkbox, CheckboxIndicator } from "@/components/ui/checkbox";
@@ -36,6 +36,8 @@ export default function ApplyDialog({ preset, monitors, pins, initialEdid, onClo
   const [open, setOpen] = useState(true);
   const [selectedEdid, setSelectedEdid] = useState<string>("");
   const [applyAll, setApplyAll] = useState(false);
+  // Pin = keep this preset enforced on the target(s) after it applies.
+  const [pinToggle, setPinToggle] = useState(false);
   const [applying, setApplying] = useState(false);
   const [lastResult, setLastResult] = useState<ApplyResult | null>(null);
   const [backends, setBackends] = useState<Record<string, BackendState>>({});
@@ -99,6 +101,7 @@ export default function ApplyDialog({ preset, monitors, pins, initialEdid, onClo
       : false;
     if (explicitOk && initialEdid) {
       setSelectedEdid(initialEdid);
+      setPinToggle(valueFor(pins, initialEdid) === preset.id);
       return;
     }
     const remembered = lastTargetByPreset.get(preset.id);
@@ -107,8 +110,11 @@ export default function ApplyDialog({ preset, monitors, pins, initialEdid, onClo
       : false;
     const fallback = monitors.find((m) => m.connected);
     const target = rememberedOk && remembered ? remembered : fallback?.edid_id;
-    if (target) setSelectedEdid(target);
-  }, [monitors, selectedEdid, preset.id, initialEdid]);
+    if (target) {
+      setSelectedEdid(target);
+      setPinToggle(valueFor(pins, target) === preset.id);
+    }
+  }, [monitors, selectedEdid, preset.id, initialEdid, pins]);
 
   const handleApply = async () => {
     if (applying) return;
@@ -130,6 +136,13 @@ export default function ApplyDialog({ preset, monitors, pins, initialEdid, onClo
           if (!firstFailure) firstFailure = result;
         } else {
           succeeded += 1;
+          // Pin / unpin only where the apply landed.
+          const wasPinned = valueFor(pins, target.edid_id) === preset.id;
+          if (pinToggle && !wasPinned) {
+            try { await pinPreset(target.edid_id, preset.id); } catch { /* best-effort */ }
+          } else if (!pinToggle && wasPinned) {
+            try { await unpinMonitor(target.edid_id); } catch { /* best-effort */ }
+          }
         }
       } catch (err) {
         if (!firstFailure) {
@@ -197,6 +210,7 @@ export default function ApplyDialog({ preset, monitors, pins, initialEdid, onClo
           value={selectedEdid}
           onValueChange={(v) => {
             setSelectedEdid(v);
+            setPinToggle(valueFor(pins, v) === preset.id);
             setLastResult(null);
           }}
           className="flex flex-col gap-2"
@@ -268,15 +282,28 @@ export default function ApplyDialog({ preset, monitors, pins, initialEdid, onClo
           </p>
         )}
 
-        {/* ── Apply to all ──────────────────────────────────────── */}
-        <label className="flex cursor-pointer items-center gap-2.5">
-          <Checkbox checked={applyAll} onCheckedChange={(v) => { setApplyAll(Boolean(v)); setLastResult(null); }}>
-            <CheckboxIndicator />
-          </Checkbox>
-          <span className="font-body text-[12px] uppercase tracking-[0.4px] text-muted-foreground">
-            Apply to all
-          </span>
-        </label>
+        {/* ── Apply to all / Pin ────────────────────────────────── */}
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+          <label className="flex cursor-pointer items-center gap-2.5">
+            <Checkbox checked={applyAll} onCheckedChange={(v) => { setApplyAll(Boolean(v)); setLastResult(null); }}>
+              <CheckboxIndicator />
+            </Checkbox>
+            <span className="font-body text-[12px] uppercase tracking-[0.4px] text-muted-foreground">
+              Apply to all
+            </span>
+          </label>
+          <label
+            className="flex cursor-pointer items-center gap-2.5"
+            title="Keep this preset enforced: ChromaDeck restores it if a game, HDR toggle or driver update changes it"
+          >
+            <Checkbox checked={pinToggle} onCheckedChange={(v) => { setPinToggle(Boolean(v)); setLastResult(null); }}>
+              <CheckboxIndicator />
+            </Checkbox>
+            <span className="font-body text-[12px] uppercase tracking-[0.4px] text-muted-foreground">
+              Pin
+            </span>
+          </label>
+        </div>
 
         {/* ── Failure feedback — persistent while the dialog stays open ── */}
         {lastResult && summary && (
