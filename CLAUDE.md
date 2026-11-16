@@ -50,7 +50,7 @@ Before declaring work complete, `npm run build`, `npm test`, and `cargo test` sh
 ## Design system and UI conventions
 
 - **Figma is authoritative for appearance** (file key `vfF5g0hTALNbScBM4Nz1Y1`); the existing app is authoritative for behavior. A reskin must not change flows, state, or Tauri integrations — functional changes need explicit user authorization. See `AGENTS.md` for the full rules (inspect before editing, use real Figma values via MCP, report unknown values instead of guessing, visual verification against Figma before claiming visual completion).
-- `DESIGN.md` is the current design spec (Flat Dark Minimal, mint `#5eead4` accent, Geist font). The README's "light neobrutalist" description is outdated.
+- `DESIGN.md` is the current design spec (Flat Dark Minimal, mint `#5eead4` accent, Geist font).
 - Design tokens are CSS custom properties in the `@theme` block of `src/App.css` (Tailwind v4, no tailwind.config). Use tokens, not magic values.
 - UI primitives in `src/components/ui/` follow shadcn `base-nova` conventions: `data-slot` attributes, `cva` variants, Base UI React primitives (Radix only for Slider). Icons: lucide-react.
 - Preset tag color is exposed as a `--tag` CSS variable and reused for state styling (`var(--tag, var(--color-primary))`).

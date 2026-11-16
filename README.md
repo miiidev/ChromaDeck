@@ -15,11 +15,11 @@ Per-monitor display color profile manager for Windows. Save color presets — br
 - **Digital vibrance & hue** — driven through the NVIDIA driver (same control as NVCP), with per-display support detection. Saturation (0–100, neutral 50) is the vendor-neutral colour-intensity control and is available on Intel displays.
 - **ICC profiles** — bundle `.icc`/`.icm` files into presets and associate them per monitor.
 - **Pin & enforce** — pin a preset per monitor; on NVIDIA displays a background loop restores it if anything (games, HDR toggles, driver updates) stomps it. Intel pins are recorded and shown but are not auto-reapplied (see Display support). Tray-resident with autostart and single-instance.
+- **Auto-apply per program** — map programs (e.g. `chrome.exe`) to a preset in the editor. With **Auto-apply** switched on in the footer, the preset is applied to whichever monitor shows that program while it is in front, and reverted when it leaves. Pinned monitors are left alone, so a pin always wins. Applying or resetting a monitor by hand takes it back from auto-apply.
 - **Reset, duplicate, delete** — full-default reset (gamma + vibrance + hue), one-click duplicate, delete with confirmation.
-- **Import NVCP state** — capture the driver's live color state straight into a new preset.
-- **Preset deck UI** — light neobrutalist theme: paper background, black borders, hard offset shadows, mint accent fills, tap-to-apply deck, in-use highlighting on preset cards, monitor sidebar, support for offline monitors.
-- **Preset editor** — fine-tune gamma, contrast, brightness, RGB gains, vibrance, saturation, hue, tag colour, and tag shape with live before/after swatch preview. Reset, duplicate, and delete presets from any card.
-- **Auto-updater** — checks a hosted update manifest on startup and on demand, downloads a new release, verifies its Ed25519 signature, and prompts you to install — all inside the app. No more downloading a new installer for every release.
+- **Preset deck UI** — flat dark theme with a single mint accent and Geist type (see `DESIGN.md`). Monitors are drawn as monitor silhouettes that show empty, drag-over, applying, applied, pinned, offline and error states at a glance; drag a preset onto a monitor to apply it. Preset cards are single-bordered and tap-to-apply, with in-use highlighting, search, a category filter, and support for offline monitors.
+- **Preset editor** — fine-tune gamma, contrast, brightness, RGB gains, vibrance, saturation, hue, tag colour, tag shape and program mappings with live before/after swatch preview. Reset, duplicate, and delete presets from any card.
+- **Auto-updater** — checks a hosted update manifest on startup and on demand, downloads a new release, verifies its signature, and installs it — all inside the app. No more downloading a new installer for every release.
 - **Tray-native window** — closing hides to the tray; every re-open (tray Show, tray click, second launch) replays the staged load animation; the window spawns centered on launch.
 
 ## Installation (Windows 10/11 x64)
@@ -31,13 +31,15 @@ Download from the [releases page](https://github.com/miiidev/ChromaDeck/releases
 | `ChromaDeck_*_x64_en-US.msi` | Standard Windows installer (recommended) |
 | `ChromaDeck_*_x64-setup.exe` | NSIS setup wizard |
 | `ChromaDeck_*_x64-portable.zip` | Portable ZIP (exe + license + marker, unzip and run — settings stay in a `data` folder next to the exe, nothing in AppData) |
-| `chromadeck.exe` | Standalone binary, no install needed |
+| `*.sig` | Updater signatures for the installers |
 
 ## Auto-updater
 
-ChromaDeck checks for updates automatically on startup and on demand via a "Check for updates" button in the footer. When a newer version is available, a dialog shows the release notes and a "Download & install" button. The MSI is downloaded and its Ed25519 signature is verified before installation — unsigned or tampered updates are never executed.
+ChromaDeck checks for updates automatically on startup and on demand via a "Check for updates" button in the footer. When a newer version is available, a dialog shows the release notes and a "Download & install" button. The MSI is downloaded and its Ed25519 (minisign) signature is verified before installation — unsigned or tampered updates are never executed.
 
-After a successful install, the app restarts on the new version. Clicking "Remind me later" on the dialog suppresses update notifications for 24 hours; clicking "Check for updates" again always overrides the suppression.
+While the update downloads and installs, the dialog shows progress and then an installing state; the app closes when the installer starts. If the check, download or install fails, the dialog says so and offers **Check again**. Clicking "Remind me later" suppresses update notifications for 24 hours; clicking "Check for updates" again always overrides the suppression.
+
+> **Upgrading from v0.9.2:** v0.9.2 shipped with a malformed updater key and cannot install updates by itself. Download and install [v0.9.3](https://github.com/miiidev/ChromaDeck/releases/tag/v0.9.3) once by hand; updates work from inside the app after that.
 
 Requirements: Windows 10/11 x64 and the WebView2 runtime (preinstalled on Windows 10 1809+ and Windows 11). NVIDIA displays unlock the NVCP-native engine plus digital vibrance/hue; Intel-driven displays use the Intel IGCL pipeline (saturation, hue, gamma family); any other display falls back to OS-level color controls where supported.
 
@@ -61,17 +63,19 @@ Known limitations, stated plainly:
 - **Exclusive-fullscreen games** — best effort. Driver-level (NVAPI) settings commonly hold through fullscreen; the GDI fallback can be bypassed by exclusive fullscreen. The enforcement loop re-applies on drift where it can detect it.
 - **Intel restore** — Intel reset restores the panel to the state captured before ChromaDeck's own apply in this session, verified by read-back. With no such capture, reset reports an honest failure instead of a false success; a reboot returns the panel to the driver's own default.
 - **Intel pins are not auto-enforced** — the background drift loop and startup re-apply deliberately skip Intel displays (their colour lives in a runtime-only driver LUT that Reset depends on capturing). A pin still records intent and enables **Apply…**; use **Reapply** after an external change.
-- **Apply verification** — apply reports which adjustments were written, skipped, or failed, and marks writes as accepted-by-driver but not read-back-verified. The sidebar **Probe** is the read-back check.
+- **Apply verification** — apply reports which adjustments were written, skipped, or failed, and marks writes as accepted-by-driver but not read-back-verified. The **Probe** button on each monitor card is the read-back check.
 - **AMD** — not yet implemented. AMD displays fall back to the basic GDI engine; the backend interface has a slot for a future AMD implementation.
 
 ## Usage
 
-1. Launch ChromaDeck — the sidebar lists your monitors (connected, plus last-known offline ones); the library deck below holds your presets. Fresh installs start empty: click **+ Create** (or **Create preset** in the empty state) to build your first preset — name it, tweak sliders, optionally attach an ICC profile, capture the live NVCP state, or set a color tag.
-2. Click a preset pad (or **Apply…** on a monitor's pinned preset) to open the Apply dialog: pick the target monitor (your last target per preset is remembered), optionally toggle **Pin**, then **Apply**.
+1. Launch ChromaDeck — the top row shows your monitors (connected, plus last-known offline ones); the preset library sits below. Fresh installs start empty: click **Create preset** to build your first preset — name it, tweak sliders, optionally attach an ICC profile, map programs, or set a colour tag.
+2. Click a preset card (or **Apply…** on a monitor's pinned preset) to open the Apply dialog: pick the target monitor (your last target per preset is remembered), optionally toggle **Pin**, then **Apply**. You can also drag a preset card straight onto a monitor.
 3. A pinned preset stays enforced on NVIDIA displays — the background loop restores it if games, HDR toggles, or driver updates stomp it. Intel pins are not auto-reapplied; use **Reapply** after an external change (see Display support). Cards show **IN USE** while pinned or applied on a connected monitor.
-4. Manage each monitor from the sidebar: **✎** renames it, **Reset** returns it to defaults (and unpins it once the restore succeeds), **Unpin** releases a pin. **Identify** flashes every monitor's number on screen. **Probe** reads back live hardware state (engine, vibrance, ramp peak) without changing anything — the answer to "did it land?".
-5. Manage the library from the deck toolbar: pencil edits, copy duplicates, trash deletes (with confirmation); **Select** enables multi-delete. The footer shows preset/monitor/pin counts plus **Reapply** and the **Start with Windows** toggle.
-6. Closing the window hides it to the tray — right-click the tray icon for Show / Reapply now / Quit, or left-click to reopen.
+4. Manage each monitor from its card: **✎** renames it, **Reset** returns it to defaults (and unpins it once the restore succeeds), the unpin icon releases a pin. **Probe** reads back live hardware state (engine, vibrance, ramp peak) without changing anything — the answer to "did it land?". Above the cards, **Identify** flashes every monitor's number on screen and **Reset all** restores every connected monitor and clears all pins (after a confirmation).
+5. Manage the library from the cards and toolbar: pencil edits, copy duplicates, trash deletes (with confirmation). Search and the category filter narrow the deck, and the toolbar toggles between grid and carousel views.
+6. To switch presets per program, add programs under **Programs** in the editor (type a name like `chrome.exe` or **Browse…** for the exe), then turn on **Auto-apply** in the footer.
+7. The footer shows preset/monitor/pin counts plus the **Auto-apply** and **Autostart** toggles, **Reapply** and **Check for updates**.
+8. Closing the window hides it to the tray — right-click the tray icon for Show / Reapply now / Quit, or left-click to reopen.
 
 All values show their neutral points in the editor (e.g. brightness/contrast 50, gamma 1.0): a fresh preset changes nothing until you move a slider.
 
@@ -82,13 +86,13 @@ All values show their neutral points in the editor (e.g. brightness/contrast 50,
 - NVIDIA Control Panel → Adjust desktop color settings → select the display → Restore defaults (or Intel Graphics Command Center / AMD Software → restore defaults).
 - Windows Settings → System → Display (per display): Night Light off, HDR off.
 - In-game video settings and OEM display apps (PremierColor, LegionZone, …) override everything silently.
-- The sidebar **Probe** button reads live hardware state without changing anything — if it disagrees with Reset's report, that's the lead.
+- The **Probe** button on a monitor card reads live hardware state without changing anything — if it disagrees with Reset's report, that's the lead.
 - Note: Reset never removes ICC profile associations (by design); remove those in Windows Color Management if a preset installed one.
 
 ## How it works
 
-- **Frontend:** React + Vite + Tailwind CSS v4, light neobrutalist theme (paper, black borders, hard shadows, mint accent fills; see `DESIGN.md`).
-- **Backend:** Rust via Tauri v2. `monitor.rs` enumerates displays as an adapter→monitor tree with EDID identity; `store.rs` persists presets/pins/aliases as JSON; `backend/` holds the vendor-neutral `ColorBackend` interface with its NVIDIA (`nvapi`), Intel (`intel`, dynamic-loaded IGCL), and universal GDI implementations, selected per display; `capabilities.rs` reports per-adjustment availability to the editor; `color.rs` orchestrates ICC + backend apply; `nvgamma.rs` + `nvapi.rs` implement the NVCP transfer math (reimplemented from observed driver behavior), 1024-entry float ramps, and driver-registry persistence; `enforce.rs` runs startup re-apply, the 10-second drift-check loop, and exit classification; `identify.rs` spawns numbered overlay windows for monitor identification.
+- **Frontend:** React + Vite + Tailwind CSS v4, flat dark theme with a mint accent (tokens in `src/App.css`; see `DESIGN.md`).
+- **Backend:** Rust via Tauri v2. `monitor.rs` enumerates displays as an adapter→monitor tree with EDID identity; `store.rs` persists presets/pins/aliases as JSON; `backend/` holds the vendor-neutral `ColorBackend` interface with its NVIDIA (`nvapi`), Intel (`intel`, dynamic-loaded IGCL), and universal GDI implementations, selected per display; `capabilities.rs` reports per-adjustment availability to the editor; `color.rs` orchestrates ICC + backend apply; `nvgamma.rs` + `nvapi.rs` implement the NVCP transfer math (reimplemented from observed driver behavior), 1024-entry float ramps, and driver-registry persistence; `enforce.rs` runs startup re-apply, the 10-second drift-check loop, and exit classification; `auto_apply.rs` (pure rules) + `auto_apply_runtime.rs` + `foreground.rs` drive per-program auto-apply, with display writes serialized so a manual change is never undone by a stale background pass; `identify.rs` spawns numbered overlay windows for monitor identification; `updater.rs` wraps the Tauri updater plugin.
 - **Data lives in** `%LOCALAPPDATA%\ChromaDeck\` (`presets.json`, `pins.json`, `applied.json`, `monitor_names.json`, `profiles\`, plus timestamped `.bak-*` backups before migrations). The portable ZIP keeps data in a `data` folder next to the exe instead (via its marker file); setting `CHROMADECK_DATA_DIR` overrides the location entirely.
 
 ## Development
@@ -108,14 +112,20 @@ npm test                                        # frontend tests (vitest)
 cargo test --manifest-path src-tauri/Cargo.toml # backend tests
 npm run tauri build                             # release bundles -> src-tauri/target/release/bundle/
 npm run bundle:portable                         # portable ZIP (after tauri build)
+npx playwright test                             # browser e2e tests (starts the dev server)
 ```
 (All commands run from the repo root.)
+
+Running `npm run dev` without Tauri serves the UI in a browser with built-in demo data, which is handy for visual work.
+
+Releases are signed for the auto-updater with a private key kept outside the repo; the full release procedure is in [`docs/superpowers/specs/2026-11-10-auto-updater-design.md`](docs/superpowers/specs/2026-11-10-auto-updater-design.md#whats-left-to-the-builder).
 
 Project layout:
 
 ```
 src/                    # React frontend (App, components, lib)
-src-tauri/src/          # Rust backend (backend/, capabilities, monitor, store, color, nvapi, nvgamma, enforce)
+src-tauri/src/          # Rust backend (backend/, capabilities, monitor, store, color, nvapi, nvgamma, enforce, auto_apply, updater)
+tests/                  # Playwright e2e tests
 docs/superpowers/       # design specs + implementation plans
 docs/screenshots/       # README images
 ```
