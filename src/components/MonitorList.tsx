@@ -52,19 +52,19 @@ function SkeletonRow() {
 /** Full empty state */
 function EmptyState({ onCreateNew }: { onCreateNew: () => void }) {
   return (
-    <div className="empty-state-enter flex flex-col items-center justify-center gap-4 py-12 text-center">
-      <div className="flex size-16 items-center justify-center rounded-[8px] border border-dashed border-border text-muted-foreground">
+    <div className="empty-state-enter flex flex-col items-center justify-center gap-3 py-6 text-center">
+      <div className="flex size-14 items-center justify-center rounded-[8px] border border-dashed border-border text-muted-foreground">
         <svg className="size-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14M5 12h14" />
         </svg>
       </div>
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-1.5">
         <h3 className="font-display text-xl font-semibold tracking-[-0.48px] text-foreground">No presets yet</h3>
         <p className="max-w-xs font-mono text-[10px] leading-relaxed text-muted-foreground">
           Create your first colour preset to apply an ICC profile and gamma adjustment to a monitor.
         </p>
       </div>
-      <Button variant="secondary" size="sm" onClick={() => onCreateNew()}>
+      <Button variant="default" size="sm" onClick={() => onCreateNew()}>
         <Plus className="size-3.5" />
         Create preset
       </Button>
@@ -79,9 +79,26 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
   const [canScrollRight, setCanScrollRight] = useState(false);
   const [query, setQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>(ALL_CATEGORIES);
-  const [libraryView, setLibraryView] = useState<"grid" | "carousel">(
-    (localStorage.getItem("chromadeck:library-view") as "grid" | "carousel") ?? "grid"
-  );
+  const [libraryView, setLibraryView] = useState<"grid" | "carousel">(() => {
+    try {
+      return localStorage.getItem("chromadeck:library-view") === "carousel"
+        ? "carousel"
+        : "grid";
+    } catch {
+      return "grid";
+    }
+  });
+  const toggleLibraryView = () => {
+    setLibraryView((prev) => {
+      const next = prev === "grid" ? "carousel" : "grid";
+      try {
+        localStorage.setItem("chromadeck:library-view", next);
+      } catch {
+        // localStorage may be unavailable; keep in-memory state
+      }
+      return next;
+    });
+  };
   const draggingDeckRef = useRef(false);
   const onDragStart = () => { draggingDeckRef.current = true; };
   const onDragEnd = () => { draggingDeckRef.current = false; };
@@ -198,7 +215,7 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
   };
 
   // Keep the arrow disabled states in sync with real overflow (mount, resize,
-  // card count changes) instead of reading the ref during render.
+  // card count changes, view switches) instead of reading the ref during render.
   useEffect(() => {
     const deck = carouselRef.current;
     updateScrollState();
@@ -206,7 +223,29 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
     const ro = new ResizeObserver(updateScrollState);
     ro.observe(deck);
     return () => ro.disconnect();
-  }, [updateScrollState, filteredPresets.length, loading]);
+  }, [updateScrollState, filteredPresets.length, loading, libraryView]);
+
+  // Global "/" or Ctrl/Cmd+F shortcut jumps to preset search from anywhere
+  // (skipped while a modal dialog is open or while typing into a form field).
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
+      const isFindShortcut =
+        (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f";
+      if (!isFindShortcut && e.key !== "/") return;
+      if (document.querySelector('[role="dialog"]')) return;
+      const target = e.target instanceof HTMLElement ? e.target : null;
+      const typing = target?.closest(
+        'input, textarea, select, [contenteditable="true"], [contenteditable=""]',
+      );
+      if (typing && !isFindShortcut) return;
+      if (!searchRef.current) return;
+      e.preventDefault();
+      searchRef.current.focus();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   // A new query or category starts the result list from the first card.
   useEffect(() => {
@@ -245,16 +284,16 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
   // Pre-computed carousel content (avoids nested JSX expressions inside the ternary)
   const allPresetsApplied = presets.length > 0 && libraryPresets.length === 0;
   const emptyPresetsContent = (
-    <div className="flex min-h-64 flex-1 flex-col items-center justify-center gap-3 rounded-[8px] border border-dashed border-border bg-transparent py-12 text-center">
+    <div className="flex min-h-44 flex-1 flex-col items-center justify-center gap-3 rounded-[8px] border border-dashed border-border bg-transparent py-8 text-center">
       <p className="font-mono text-[10px] text-muted-foreground">
         {allPresetsApplied ? "Every preset is applied to a monitor" : "No presets yet"}
       </p>
       {allPresetsApplied && (
         <p className="max-w-xs font-mono text-[9px] leading-relaxed text-muted-foreground/80">
-          Duplicate a preset from a monitor to reuse it on another display.
+          Drag a preset from a monitor onto another display to copy it.
         </p>
       )}
-      <Button variant="secondary" size="sm" onClick={() => onCreateNew()}>
+      <Button variant="default" size="sm" onClick={() => onCreateNew()}>
         <Plus className="size-3.5" />
         Create preset
       </Button>
@@ -262,7 +301,7 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
   );
 
   const noResultsContent = (
-    <div className="empty-state-enter flex min-h-64 flex-1 flex-col items-center justify-center gap-3 rounded-[8px] border border-dashed border-border bg-transparent py-12 text-center">
+    <div className="empty-state-enter flex min-h-44 flex-1 flex-col items-center justify-center gap-3 rounded-[8px] border border-dashed border-border bg-transparent py-8 text-center">
       <p className="max-w-[420px] truncate font-mono text-[10px] text-muted-foreground">
         No presets match the current filters
       </p>
@@ -395,20 +434,6 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
     <section
       className="flex min-h-0 min-w-0 flex-1 flex-col"
       onKeyDown={(e) => {
-        // "/" or Ctrl/Cmd+F jumps to the preset search from anywhere in the panel.
-        const isFindShortcut =
-          (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f";
-        if (isFindShortcut || e.key === "/") {
-          const target = e.target instanceof HTMLElement ? e.target : null;
-          const typing = target?.closest(
-            'input, textarea, select, [contenteditable="true"], [contenteditable=""]',
-          );
-          if (!typing || isFindShortcut) {
-            e.preventDefault();
-            searchRef.current?.focus();
-            return;
-          }
-        }
         if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
         if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
         if (!shouldHandleArrowKeys(e.target)) return;
@@ -476,7 +501,10 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
                   placeholder="Search presets…"
                   aria-label="Search presets"
                   title="Search presets (/)"
-                  className="h-8 w-[150px] rounded-[8px] py-1 pr-7 pl-8 font-mono text-[12px] md:text-[12px] min-[1100px]:w-[210px] [&::-webkit-search-cancel-button]:appearance-none"
+                  className={cn(
+                    "h-8 w-[176px] rounded-[8px] py-1 pl-8 font-mono text-[12px] md:text-[12px] min-[1100px]:w-[210px] [&::-webkit-search-cancel-button]:appearance-none",
+                    isSearching ? "pr-7" : "pr-3",
+                  )}
                 />
                 {isSearching && (
                   <button
@@ -484,7 +512,7 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
                     aria-label="Clear filters"
                     title="Clear filters"
                     onClick={clearFilters}
-                    className="absolute top-1/2 right-1 inline-flex size-6 -translate-y-1/2 items-center justify-center rounded-[6px] text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-none"
+                    className="absolute top-1/2 right-1 inline-flex size-6 -translate-y-1/2 items-center justify-center rounded-[6px] text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     <X className="size-3" />
                   </button>
@@ -496,7 +524,7 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
               </Button>
               <button
                 type="button"
-                onClick={() => setLibraryView(libraryView === "grid" ? "carousel" : "grid")}
+                onClick={toggleLibraryView}
                 title={libraryView === "grid" ? "Switch to carousel" : "Switch to grid"}
                 className="inline-flex size-7 items-center justify-center rounded-[8px] text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring"
                 aria-label={libraryView === "grid" ? "Switch to carousel" : "Switch to grid"}

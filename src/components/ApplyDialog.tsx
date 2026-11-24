@@ -179,7 +179,7 @@ export default function ApplyDialog({ preset, monitors, pins, initialEdid, onClo
   const statusClass: Record<string, string> = {
     applied: "text-foreground",
     skipped: "text-muted-foreground",
-    failed: "text-destructive",
+    failed: "text-destructive-text",
   };
 
   return (
@@ -197,11 +197,13 @@ export default function ApplyDialog({ preset, monitors, pins, initialEdid, onClo
           <span className="mono text-[12px] uppercase tracking-[0.12em] text-muted-foreground">
             Apply preset
           </span>
-          <DialogTitle className="truncate font-display text-[24px] leading-tight tracking-[-0.48px] text-foreground">
+          <DialogTitle className="truncate font-display text-[24px] leading-tight tracking-[-0.48px] text-foreground" title={preset.name}>
             {preset.name}
           </DialogTitle>
           <DialogDescription className="font-mono text-[12px] leading-snug text-muted-foreground">
-            Choose a monitor to apply this preset.
+            {applyAll
+              ? `Applies to all ${connectedCount} connected display${connectedCount === 1 ? "" : "s"}.`
+              : "Choose a monitor to apply this preset."}
           </DialogDescription>
         </DialogHeader>
 
@@ -209,6 +211,7 @@ export default function ApplyDialog({ preset, monitors, pins, initialEdid, onClo
         <RadioGroup
           value={selectedEdid}
           onValueChange={(v) => {
+            if (applyAll) setApplyAll(false);
             setSelectedEdid(v);
             setPinToggle(valueFor(pins, v) === preset.id);
             setLastResult(null);
@@ -216,10 +219,10 @@ export default function ApplyDialog({ preset, monitors, pins, initialEdid, onClo
           className="flex flex-col gap-2"
         >
           {monitors.length === 0 && (
-            <p className="font-mono text-[10px] text-destructive">No monitors detected.</p>
+            <p className="font-mono text-[10px] text-destructive-text">No monitors detected.</p>
           )}
           {monitors.map((m) => {
-            const isSelected = m.edid_id === selectedEdid;
+            const isSelected = applyAll ? m.connected : m.edid_id === selectedEdid;
             const isPinnedHere = valueFor(pins, m.edid_id) === preset.id;
             const backend = backends[m.edid_id];
             const status = isPinnedHere ? "PINNED" : m.connected ? "READY" : "OFFLINE";
@@ -237,7 +240,7 @@ export default function ApplyDialog({ preset, monitors, pins, initialEdid, onClo
               >
                 <RadioGroupItem
                   value={m.edid_id}
-                  disabled={!m.connected}
+                  disabled={!m.connected || applyAll}
                   onClick={() => {
                     if (m.connected) setLastResult(null);
                   }}
@@ -276,11 +279,28 @@ export default function ApplyDialog({ preset, monitors, pins, initialEdid, onClo
 
         {/* Capability for the chosen target lives here, where the target is
             actually known — the preset editor is global and stays ungated. */}
-        {selectedBackend?.status === "ready" && selectedBackend.unsupported.length > 0 && (
+        {!applyAll && selectedBackend?.status === "ready" && selectedBackend.unsupported.length > 0 && (
           <p className="mono text-[10px] leading-snug text-muted-foreground">
             Not supported on this display: {selectedBackend.unsupported.join(", ")}
           </p>
         )}
+        {applyAll && (() => {
+          const allUnsupported = Array.from(
+            new Set(
+              monitors
+                .filter((m) => m.connected)
+                .flatMap((m) => {
+                  const b = backends[m.edid_id];
+                  return b?.status === "ready" ? b.unsupported : [];
+                }),
+            ),
+          );
+          return allUnsupported.length > 0 ? (
+            <p className="mono text-[10px] leading-snug text-muted-foreground">
+              Not supported on some displays: {allUnsupported.join(", ")}
+            </p>
+          ) : null;
+        })()}
 
         {/* ── Apply to all / Pin ────────────────────────────────── */}
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
@@ -309,7 +329,7 @@ export default function ApplyDialog({ preset, monitors, pins, initialEdid, onClo
         {lastResult && summary && (
           <div aria-live="polite" className="feedback-enter rounded-[8px] border border-border bg-surface p-3">
             {lastResult.error && (
-              <span className="validation-slide block font-mono text-[10px] text-destructive">
+              <span className="validation-slide block font-mono text-[10px] text-destructive-text">
                 Apply failed: {lastResult.error}
               </span>
             )}

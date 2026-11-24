@@ -56,8 +56,8 @@ export default function DeletePresetDialog({
           <Trash2 className="size-5 text-white" strokeWidth={1.5} />
         </div>
 
-        <div className="flex flex-col gap-2">
-          <DialogTitle className="truncate font-display text-[32px] leading-none tracking-[-0.96px] text-foreground">
+        <div className="flex min-w-0 flex-col gap-2 pr-8">
+          <DialogTitle className="truncate font-display text-[32px] leading-none tracking-[-0.96px] text-foreground" title={`Delete ${preset.name}?`}>
             Delete {preset.name}?
           </DialogTitle>
           <DialogDescription className="font-mono text-[12px] leading-snug text-muted-foreground">
@@ -65,11 +65,11 @@ export default function DeletePresetDialog({
           </DialogDescription>
         </div>
 
-        <div className="rounded-[12px] border border-border bg-surface p-4">
-          <span className="inline-flex items-center rounded-full border border-border px-2 py-[3px] font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground">
+        <div className="min-w-0 rounded-[8px] border border-border bg-surface p-4">
+          <span className="inline-flex items-center rounded-[8px] border border-border px-2 py-[3px] font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground">
             {category ?? "Preset"}
           </span>
-          <p className="mt-2 truncate font-mono text-[12px] text-foreground">{preset.name}</p>
+          <p className="mt-2 truncate font-mono text-[12px] text-foreground" title={preset.name}>{preset.name}</p>
           <p className="mt-1 truncate font-mono text-[10px] text-muted-foreground">{status}</p>
         </div>
 
@@ -78,7 +78,7 @@ export default function DeletePresetDialog({
         </p>
 
         {error && (
-          <p role="alert" className="truncate font-mono text-[10px] text-destructive">
+          <p role="alert" className="truncate font-mono text-[10px] text-destructive-text" title={error}>
             {error}
           </p>
         )}

@@ -20,12 +20,21 @@ export default function DragGhost() {
     : null;
   const summary = `γ ${preset.gamma.toFixed(2)} · B ${preset.brightness.toFixed(0)} · C ${preset.contrast.toFixed(0)} · V ${preset.vibrance.toFixed(0)} · S ${preset.saturation.toFixed(0)}`;
 
+  const clampedLeft =
+    typeof window !== "undefined"
+      ? Math.min(x + 14, Math.max(8, window.innerWidth - width - 8))
+      : x + 14;
+  const clampedTop =
+    typeof window !== "undefined"
+      ? Math.min(y + 14, Math.max(8, window.innerHeight - 110))
+      : y + 14;
+
   return createPortal(
     <div
       aria-hidden="true"
       data-slot="drag-ghost"
       className="drag-ghost pointer-events-none fixed z-[100] select-none opacity-90"
-      style={{ left: x + 14, top: y + 14, width }}
+      style={{ left: clampedLeft, top: clampedTop, width }}
     >
       <div className="flex flex-col gap-2 rounded-[8px] border border-primary-border bg-surface-raised p-2 shadow-[0_16px_40px_rgba(0,0,0,0.55)]">
         <div className="flex flex-col gap-2 rounded-[8px] border border-transparent bg-surface-raised px-3 py-2.5">

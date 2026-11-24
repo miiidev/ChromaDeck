@@ -64,13 +64,13 @@ export default function UpdateDialog({
           )}
         </DialogHeader>
         <div className="flex flex-col gap-3">
-          {kind === "error" && <p role="alert" className="text-sm text-foreground">{error}</p>}
+          {kind === "error" && <p role="alert" className="text-sm text-destructive-text">{error}</p>}
           {kind === "installing" && <p role="status" className="text-sm text-muted-foreground">Installing update… The app will close when the installer starts.</p>}
           <div className="mono text-[12px] text-muted-foreground">
             Version {version}
           </div>
           {notes && kind !== "up-to-date" && (
-            <div className="mono text-[10px] text-foreground leading-relaxed">
+            <div className="mono whitespace-pre-line text-[10px] leading-relaxed text-foreground">
               {notes}
             </div>
           )}
@@ -100,18 +100,25 @@ export default function UpdateDialog({
               Installing…
             </Button>
           ) : kind === "up-to-date" ? (
-            <Button onClick={onRemindMeLater}>
+            <Button onClick={onClose}>
               OK
             </Button>
+          ) : kind === "error" ? (
+            <>
+              <Button variant="outline" onClick={onClose}>
+                Close
+              </Button>
+              <Button onClick={onRetry}>
+                Check again
+              </Button>
+            </>
           ) : (
             <>
               <Button variant="outline" onClick={onRemindMeLater}>
                 Remind me later
               </Button>
-              <Button
-                onClick={kind === "error" ? onRetry : handleDownloadAndInstall}
-              >
-                {kind === "error" ? "Check again" : "Download & install"}
+              <Button onClick={handleDownloadAndInstall}>
+                Download & install
               </Button>
             </>
           )}

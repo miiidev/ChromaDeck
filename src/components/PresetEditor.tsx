@@ -104,7 +104,7 @@ function LiveColorCard({
   return (
     <div
       className={cn(
-        "rounded-[16px] border bg-surface p-4",
+        "rounded-[8px] border bg-surface p-4",
         highlight ? "border-primary" : "border-border",
       )}
     >
@@ -315,9 +315,12 @@ export default function PresetEditor({ presets, editPreset, onClose, onClosed, o
         if (!next) onClosed?.();
       }}
     >
-      <DialogContent className="max-h-[calc(100dvh-3rem)] overflow-x-clip overflow-y-auto sm:max-w-[708px]">
+      <DialogContent className="max-h-[calc(100dvh-3rem)] sm:max-w-[708px]">
         <DialogHeader>
-          <span className="mono text-[12px] uppercase tracking-[0.12em] text-primary">
+          <span
+            className="mono truncate text-[12px] uppercase tracking-[0.12em] text-primary"
+            title={isEditing ? `Preset editor / ${editPreset?.name}` : "Preset editor / New"}
+          >
             Preset editor / {isEditing ? editPreset?.name : "New"}
           </span>
           <DialogTitle className="font-display text-[32px] leading-none tracking-[-0.96px] text-foreground">
@@ -347,7 +350,7 @@ export default function PresetEditor({ presets, editPreset, onClose, onClosed, o
                 aria-invalid={errors.name ? ("true" as const) : undefined}
                 className="h-11 rounded-[8px] px-3 py-2.5"
               />
-              {errors.name && <p className="mono text-[10px] text-destructive validation-slide">{errors.name}</p>}
+              {errors.name && <p className="mono text-[10px] text-destructive-text validation-slide">{errors.name}</p>}
             </div>
 
             <div className="flex min-w-0 flex-col gap-2">
@@ -385,7 +388,7 @@ export default function PresetEditor({ presets, editPreset, onClose, onClosed, o
                         setCategory("");
                         setCategoryError(null);
                       }}
-                      className="absolute top-1/2 right-1 inline-flex size-8 -translate-y-1/2 items-center justify-center rounded-[8px] text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-none"
+                      className="absolute top-1/2 right-1 inline-flex size-8 -translate-y-1/2 items-center justify-center rounded-[8px] text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
                       <X className="size-3.5" />
                     </button>
@@ -402,7 +405,7 @@ export default function PresetEditor({ presets, editPreset, onClose, onClosed, o
                 </ComboboxContent>
               </Combobox>
               {categoryError && (
-                <p className="mono text-[10px] text-destructive validation-slide">{categoryError}</p>
+                <p className="mono text-[10px] text-destructive-text validation-slide">{categoryError}</p>
               )}
             </div>
           </div>
@@ -537,20 +540,20 @@ export default function PresetEditor({ presets, editPreset, onClose, onClosed, o
               <button
                 type="button"
                 onClick={handleAddProgram}
-                className="shrink-0 rounded-full border border-border px-2.5 py-1 font-mono text-[12px] uppercase tracking-[0.1em] text-muted-foreground transition-colors hover:border-border-hover hover:text-foreground"
+                className="shrink-0 rounded-[8px] border border-border px-2.5 py-1.5 font-mono text-[11px] uppercase tracking-[0.1em] text-muted-foreground transition-colors hover:border-border-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring"
               >
                 Add
               </button>
               <button
                 type="button"
                 onClick={() => void handleBrowseProgram()}
-                className="shrink-0 rounded-full border border-border px-2.5 py-1 font-mono text-[12px] uppercase tracking-[0.1em] text-muted-foreground transition-colors hover:border-border-hover hover:text-foreground"
+                className="shrink-0 rounded-[8px] border border-border px-2.5 py-1.5 font-mono text-[11px] uppercase tracking-[0.1em] text-muted-foreground transition-colors hover:border-border-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring"
               >
                 Browse…
               </button>
             </div>
             {programError && (
-              <p className="mono text-[10px] text-destructive validation-slide">{programError}</p>
+              <p className="mono text-[10px] text-destructive-text validation-slide">{programError}</p>
             )}
           </div>
 
@@ -621,7 +624,7 @@ export default function PresetEditor({ presets, editPreset, onClose, onClosed, o
 
           {/* ── ICC profile upload ───────────────────────────────── */}
           <div className="flex flex-col gap-2">
-            <div className="flex items-center gap-4 rounded-[12px] border border-dashed border-border p-4">
+            <div className="flex items-center gap-4 rounded-[8px] border border-dashed border-border p-4">
               <span className="flex size-9 shrink-0 items-center justify-center rounded-[8px] border border-border text-muted-foreground">
                 <Upload className="size-4" strokeWidth={1.5} />
               </span>
@@ -635,12 +638,12 @@ export default function PresetEditor({ presets, editPreset, onClose, onClosed, o
                 type="button"
                 onClick={() => void handleBrowseIcc()}
                 disabled={iccImporting}
-                className="shrink-0 rounded-full border border-border px-2.5 py-1 font-mono text-[12px] uppercase tracking-[0.1em] text-muted-foreground transition-colors hover:border-border-hover hover:text-foreground disabled:opacity-50"
+                className="shrink-0 rounded-[8px] border border-border px-2.5 py-1.5 font-mono text-[11px] uppercase tracking-[0.1em] text-muted-foreground transition-colors hover:border-border-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring disabled:opacity-50"
               >
                 {iccImporting ? "Importing…" : "Choose file"}
               </button>
             </div>
-            {errors.icc_path && <p className="mono text-[10px] text-destructive validation-slide">{errors.icc_path}</p>}
+            {errors.icc_path && <p className="mono text-[10px] text-destructive-text validation-slide">{errors.icc_path}</p>}
           </div>
 
           {/* ── Actions ──────────────────────────────────────────── */}
@@ -685,7 +688,7 @@ function SliderField({
         onValueChange={([v]) => onChange(v)}
         className="w-full"
       />
-      {error && <p className="mono text-[10px] text-destructive validation-slide">{error}</p>}
+      {error && <p className="mono text-[10px] text-destructive-text validation-slide">{error}</p>}
     </div>
   );
 }

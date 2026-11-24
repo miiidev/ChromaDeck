@@ -18,7 +18,7 @@ const CLICK_SUPPRESS_MS = 400;
  *  The visible box stays 22px; `after:-inset-1` expands the pointer target
  *  to 30px without affecting layout. */
 const iconStripButton =
-  "relative inline-flex size-[22px] shrink-0 items-center justify-center rounded-[8px] text-muted-foreground transition-colors after:absolute after:-inset-1 after:content-[''] hover:bg-surface-hover hover:text-foreground focus-visible:bg-surface-hover focus-visible:text-foreground focus-visible:outline-none";
+  "relative inline-flex size-[22px] shrink-0 items-center justify-center rounded-[8px] text-muted-foreground transition-colors after:absolute after:-inset-1 after:content-[''] hover:bg-surface-hover hover:text-foreground focus-visible:bg-surface-hover focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 interface Props {
   preset: Preset;
@@ -392,7 +392,7 @@ export default function PresetCard({
               {title}
             </span>
             {titleOverflows ? (
-              <span className="block w-full overflow-hidden whitespace-nowrap" title={preset.name}>
+              <span className="preset-title-fade block w-full overflow-hidden whitespace-nowrap" title={preset.name}>
                 <span className="marquee-track">
                   <span className={`pr-10 ${titleTextClass}`} style={titleTextStyle}>
                     {title}
@@ -416,7 +416,7 @@ export default function PresetCard({
           {/* ═══ Row 3: Mono summary — always visible; failures replace it ═══ */}
           {actionError ? (
             <div role="alert" className="flex h-3 min-w-0 items-center">
-              <span className="truncate font-mono text-[12px] leading-[1.3] text-destructive">
+              <span className="truncate font-mono text-[12px] leading-[1.3] text-destructive-text" title={actionError}>
                 {actionError}
               </span>
             </div>
@@ -440,7 +440,7 @@ export default function PresetCard({
           <div className="mt-auto flex h-[22px] items-center justify-between gap-2">
             <button
               type="button"
-              className="inline-flex h-[22px] items-center gap-1.5 rounded-[8px] border border-border bg-transparent px-2 font-body text-[12px] text-foreground opacity-60 transition-opacity hover:bg-surface-hover focus-visible:opacity-100 group-hover/card:opacity-100 group-focus-within/card:opacity-100"
+              className="inline-flex h-[22px] items-center gap-1.5 rounded-[8px] border border-border bg-transparent px-2 font-body text-[12px] text-foreground opacity-60 transition-opacity hover:bg-surface-hover focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover/card:opacity-100 group-focus-within/card:opacity-100"
               onClick={(e) => {
                 e.stopPropagation();
                 onApply(preset);

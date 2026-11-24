@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { IdentifyGlyph, ProbeGlyph, ResetGlyph } from "@/components/ui/icons";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Check, ChevronDown, Pencil, PinOff } from "lucide-react";
 import { useDragAndDrop, useDragSource } from "./DragAndDropContext";
 import { cn } from "cn";
@@ -35,7 +36,7 @@ function UtilityButton({
       disabled={disabled}
       title={title}
       className={cn(
-        "group/util-icon inline-flex shrink-0 items-center gap-[6px] rounded-[8px] px-1 py-0.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-none disabled:pointer-events-none",
+        "group/util-icon inline-flex shrink-0 items-center gap-[6px] rounded-[8px] px-1 py-0.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring disabled:pointer-events-none",
         disabled && "disabled:opacity-50 disabled:pointer-events-none",
       )}
     >
@@ -86,7 +87,7 @@ function MonitorNameEditor({ monitor, onRefreshParent }: { monitor: Monitor; onR
           type="button"
           onClick={() => void save()}
           disabled={saving}
-          className="shrink-0 font-mono text-[10px] text-primary hover:opacity-80"
+          className="shrink-0 rounded-[4px] px-1 font-mono text-[10px] text-primary hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {saving ? "…" : "Save"}
         </button>
@@ -94,7 +95,7 @@ function MonitorNameEditor({ monitor, onRefreshParent }: { monitor: Monitor; onR
           type="button"
           onClick={() => setEditing(false)}
           disabled={saving}
-          className="shrink-0 font-mono text-[10px] text-muted-foreground hover:text-foreground"
+          className="shrink-0 rounded-[4px] px-1 font-mono text-[10px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           Cancel
         </button>
@@ -120,7 +121,7 @@ function MonitorNameEditor({ monitor, onRefreshParent }: { monitor: Monitor; onR
         }}
         title="Rename monitor"
         aria-label={`Rename monitor ${displayName}`}
-        className="shrink-0 rounded-[4px] p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/pad:opacity-100"
+        className="shrink-0 rounded-[4px] p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover/pad:opacity-100"
       >
         <Pencil className="size-3" strokeWidth={1.5} />
       </button>
@@ -186,7 +187,7 @@ function MonitorResetButton({ edidId, onPinChange, setAppliedMap }: { edidId: st
           title={message.text}
           className={cn(
             "transient-enter max-w-[110px] truncate font-mono text-[9px]",
-            message.ok ? "text-foreground" : "text-destructive",
+            message.ok ? "text-foreground" : "text-destructive-text",
           )}
         >
           {message.text}
@@ -227,7 +228,7 @@ function MonitorProbeButton({ edidId }: { edidId: string }) {
   };
 
   return (
-    <span className="inline-flex min-w-0 items-center gap-2">
+    <span className="inline-flex min-w-0 flex-1 items-center gap-2">
       <UtilityButton
         label={probing ? "…" : "Probe"}
         title="Read live hardware state for this monitor (changes nothing)"
@@ -240,7 +241,7 @@ function MonitorProbeButton({ edidId }: { edidId: string }) {
           key={report}
           aria-live="polite"
           title={report}
-          className="max-w-[120px] truncate font-mono text-[9px] text-muted-foreground"
+          className="min-w-0 truncate font-mono text-[9px] text-muted-foreground"
         >
           {report}
         </span>
@@ -439,9 +440,9 @@ function MonitorCard({ monitor, pinnedPreset, appliedMap, autoMap, setAppliedMap
       <div
         data-slot="monitor-screen"
         className={cn(
-          "relative min-h-0 shrink-0 overflow-hidden rounded-[6px] border border-border bg-surface transition-[border-color,background-color] duration-[var(--motion-fast)]",
+          "relative flex min-h-0 shrink-0 flex-col overflow-hidden rounded-[6px] border border-border bg-surface transition-[border-color,background-color] duration-[var(--motion-fast)]",
           "hover:bg-surface-hover",
-          compact ? "p-3" : "p-4",
+          compact ? "gap-1 px-3 py-2.5" : "gap-1.5 p-4",
           showValidDrop && "monitor-drop-target",
           isDropHover && connected && samePresetApplied && "border-border-hover",
           isOfflineHover && "border-destructive",
@@ -480,10 +481,15 @@ function MonitorCard({ monitor, pinnedPreset, appliedMap, autoMap, setAppliedMap
         )}
 
         {/* Identity */}
-        <div className="relative flex min-w-0 items-start justify-between gap-2">
-          <div className="flex min-w-0 flex-col gap-[3px]">
+        <div className="relative flex min-w-0 shrink-0 items-start justify-between gap-2">
+          <div className="flex min-w-0 flex-col gap-[2px]">
             <MonitorNameEditor monitor={monitor} onRefreshParent={onRefresh} />
-            <span className="truncate font-mono text-[12px] leading-[1.4] text-muted-foreground">
+            <span
+              className={cn(
+                "truncate font-mono leading-[1.3] text-muted-foreground",
+                compact ? "text-[10px]" : "text-[12px]",
+              )}
+            >
               {monitor.serial || monitor.edid_id}
             </span>
           </div>
@@ -500,7 +506,7 @@ function MonitorCard({ monitor, pinnedPreset, appliedMap, autoMap, setAppliedMap
             <span
               className={cn(
                 "truncate font-mono text-[10px] uppercase tracking-[0.08em] leading-[1.4] whitespace-nowrap",
-                silhouette.phase === "error" && "text-destructive",
+                silhouette.phase === "error" && "text-destructive-text",
                 silhouette.phase === "applying" && "text-primary",
                 (silhouette.phase === "empty" || silhouette.phase === "offline") &&
                   "text-muted-foreground",
@@ -549,10 +555,10 @@ function MonitorCard({ monitor, pinnedPreset, appliedMap, autoMap, setAppliedMap
             </span>
           ) : status?.phase === "error" && !slotTitle ? (
             <span className="flex min-w-0 flex-col gap-0.5" title={status.error}>
-              <span className="validation-slide truncate font-display text-[13px] leading-tight text-destructive">
+              <span className="validation-slide truncate font-display text-[13px] leading-tight text-destructive-text">
                 Apply failed
               </span>
-              <span className="truncate font-mono text-[12px] leading-snug text-destructive/80">
+              <span className="truncate font-mono text-[12px] leading-snug text-destructive-text/90">
                 {status.error}
               </span>
             </span>
@@ -563,19 +569,24 @@ function MonitorCard({ monitor, pinnedPreset, appliedMap, autoMap, setAppliedMap
                 <span
                   className={cn(
                     "truncate font-display font-semibold leading-tight text-foreground",
-                    isPinned ? "text-[20px]" : "text-[16px]",
+                    compact ? "text-[15px]" : isPinned ? "text-[18px]" : "text-[16px]",
                   )}
                 >
                   {slotTitle.title}
                 </span>
                 {slotTitle.category && (
-                  <span className="truncate font-mono text-[12px] leading-snug text-muted-foreground">
+                  <span
+                    className={cn(
+                      "truncate font-mono leading-tight text-muted-foreground",
+                      compact ? "text-[10px]" : "text-[11px]",
+                    )}
+                  >
                     {slotTitle.category}
                   </span>
                 )}
                 {status?.phase === "error" && status.error && (
                   <span
-                    className="validation-slide truncate font-mono text-[12px] leading-snug text-destructive"
+                    className="validation-slide truncate font-mono text-[11px] leading-snug text-destructive-text"
                     title={status.error}
                   >
                     {status.error}
@@ -594,7 +605,7 @@ function MonitorCard({ monitor, pinnedPreset, appliedMap, autoMap, setAppliedMap
               {isDragging && connected ? "Release to apply" : silhouette.primaryLabel}
             </span>
           )}
-          {unpinError && <span role="alert" className="mono text-[10px] text-foreground" title={unpinError}>{unpinError}</span>}
+          {unpinError && <span role="alert" className="mono text-[10px] text-destructive-text" title={unpinError}>{unpinError}</span>}
           {/* Apply-in-flight wash — moving light, not a progress bar. */}
           {silhouette.phase === "applying" && (
             <span aria-hidden="true" className="applying-wash absolute inset-0" />
@@ -649,7 +660,7 @@ function MonitorCard({ monitor, pinnedPreset, appliedMap, autoMap, setAppliedMap
                 setUnpinError(`Unpin failed: ${String(error)}`);
               }
             }}
-            className="inline-flex shrink-0 items-center justify-center rounded-[8px] p-1 text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-none"
+            className="inline-flex shrink-0 items-center justify-center rounded-[8px] p-1 text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring"
           >
             <PinOff className="size-[13px] transition-transform duration-[var(--motion-fast)] ease-[var(--ease-standard)] hover:scale-110" strokeWidth={1.5} />
           </button>
@@ -674,7 +685,6 @@ function ResetAllConfirmDialog({
   const requestClose = (force = false) => {
     if (resetting && !force) return;
     setOpen(false);
-    onClosed();
   };
   return (
     <Dialog
@@ -794,7 +804,7 @@ function ResetAllButton({ monitors, pins, setAppliedMap, onRefresh, onPinChange 
         onClick={() => setConfirmOpen(true)}
         disabled={resetting || nothingToDo}
         title="Reset every connected screen to default colours and remove all pins"
-        className="inline-flex items-center gap-1.5 rounded-[8px] px-1.5 py-1 text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-none disabled:opacity-50"
+        className="inline-flex items-center gap-1.5 rounded-[8px] px-1.5 py-1 text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring disabled:opacity-50"
       >
         <ResetGlyph className="size-3.5 transition-transform duration-[var(--motion-fast)] ease-[var(--ease-standard)] hover:scale-110" />
         <span className="font-body text-[12px] leading-[1.4]">Reset all</span>
@@ -813,7 +823,7 @@ function ResetAllButton({ monitors, pins, setAppliedMap, onRefresh, onPinChange 
           data-slot="undo-toast"
           className={cn(
             "undo-toast-enter fixed bottom-[72px] left-1/2 z-[90] flex -translate-x-1/2 items-center gap-3 rounded-[8px] border border-border bg-surface-raised px-3 py-2 shadow-[0_12px_32px_rgba(0,0,0,0.5)]",
-            toast.ok ? "text-foreground" : "text-destructive",
+            toast.ok ? "text-foreground" : "text-destructive-text",
           )}
         >
           <span className="font-mono text-[11px] leading-snug">{toast.text}</span>
@@ -823,9 +833,10 @@ function ResetAllButton({ monitors, pins, setAppliedMap, onRefresh, onPinChange 
   );
 }
 
-export default function MonitorSidebar({ monitors, presets, pins, appliedMap, autoMap, setAppliedMap, onRefresh, onPinChange }: {
+export default function MonitorSidebar({ monitors, presets, loading = false, pins, appliedMap, autoMap, setAppliedMap, onRefresh, onPinChange }: {
   monitors: Monitor[];
   presets: Preset[];
+  loading?: boolean;
   pins: Record<string, string>;
   appliedMap: Record<string, string>;
   autoMap: Record<string, string>;
@@ -859,11 +870,38 @@ export default function MonitorSidebar({ monitors, presets, pins, appliedMap, au
       className="shell-enter relative flex min-h-0 min-w-0 flex-1 flex-col"
       style={{ ["--shell-delay" as string]: "60ms" }}
     >
-      {/* Panel heading */}
-      <div className="flex h-10 shrink-0 items-center justify-between border-b border-border pb-2">
-        <span className="mono text-[12px] uppercase tracking-[0.14em] text-muted-foreground">
-          Monitors ({monitors.length})
-        </span>
+      {/* Panel heading — also hosts the "All monitors" drop pill while dragging
+          so it never covers monitor cards or shifts layout mid-drag. */}
+      <div className="relative flex h-10 shrink-0 items-center justify-between border-b border-border pb-2">
+        {loading && monitors.length === 0 ? (
+          <Skeleton className="h-3 w-28" />
+        ) : (
+          <span className="mono text-[12px] uppercase tracking-[0.14em] text-muted-foreground">
+            Monitors ({monitors.length})
+          </span>
+        )}
+        {isDragging && (
+          <div className="pointer-events-none absolute inset-x-0 top-0 flex justify-center">
+            <div
+              data-drop-all="true"
+              aria-hidden="true"
+              className={cn(
+                "pop-in pointer-events-auto flex h-8 select-none items-center justify-center gap-2 rounded-full border px-3 font-mono text-[10px] uppercase tracking-[0.12em] shadow-[0_8px_24px_rgba(0,0,0,0.45)] transition-colors",
+                connectedCount === 0
+                  ? "border-border bg-surface text-muted-foreground"
+                  : isAllHover
+                    ? "border-primary bg-primary-subtle text-primary shadow-[inset_0_0_0_1px_var(--color-primary-border)]"
+                    : "border-primary-border bg-surface text-primary",
+              )}
+            >
+              <ChevronDown className="size-3.5 stroke-[1.5]" />
+              <span>All monitors</span>
+              <span className="text-[9px] normal-case tracking-normal text-muted-foreground">
+                {connectedCount} connected
+              </span>
+            </div>
+          </div>
+        )}
         <div className="flex items-center gap-1">
           <ResetAllButton
             monitors={monitors}
@@ -877,7 +915,7 @@ export default function MonitorSidebar({ monitors, presets, pins, appliedMap, au
             onClick={() => void handleIdentify()}
             disabled={identifying}
             title="Show monitor numbers on each display"
-            className="inline-flex items-center gap-1.5 rounded-[8px] px-1.5 py-1 text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-none disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-[8px] px-1.5 py-1 text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring disabled:opacity-50"
           >
             <IdentifyGlyph className="size-3.5 transition-transform duration-[var(--motion-fast)] ease-[var(--ease-standard)] hover:scale-110" />
             <span className="font-body text-[12px] leading-[1.4]">
@@ -887,47 +925,35 @@ export default function MonitorSidebar({ monitors, presets, pins, appliedMap, au
         </div>
       </div>
 
-      {/* ── "All monitors" target — overlays the top of the panel only
-             while a drag is in flight, so it never shifts cards under the
-             pointer mid-drag. ─────────────────────────────────────────── */}
+      {/* ── Monitors scrollport ──────────────────────────────────────── */}
       <div className="relative min-h-0 flex-1">
         {isDragging && (
-          <>
-            {/* Empty panel space signals "drop here"; releasing applies to all. */}
-            <div
-              aria-hidden="true"
-              className={cn(
-                "pointer-events-none absolute inset-0 z-10 rounded-[8px] border border-dashed transition-colors",
-                isPanelHover ? "border-primary-border" : "border-border",
-              )}
-            />
-            <div className="pointer-events-none absolute inset-x-0 top-2 z-20 flex justify-center">
-              <div
-                data-drop-all="true"
-                aria-hidden="true"
-                className={cn(
-                  "pop-in pointer-events-auto flex h-8 select-none items-center justify-center gap-2 rounded-full border px-3 font-mono text-[10px] uppercase tracking-[0.12em] shadow-[0_8px_24px_rgba(0,0,0,0.45)] transition-colors",
-                  connectedCount === 0
-                    ? "border-border bg-surface text-muted-foreground"
-                    : isAllHover
-                      ? "border-primary bg-primary-subtle text-primary shadow-[inset_0_0_0_1px_var(--color-primary-border)]"
-                      : "border-primary-border bg-surface text-primary",
-                )}
-              >
-                <ChevronDown className="size-3.5 stroke-[1.5]" />
-                <span>All monitors</span>
-                <span className="text-[9px] normal-case tracking-normal text-muted-foreground">
-                  {connectedCount} connected
-                </span>
-              </div>
-            </div>
-          </>
+          /* Empty panel space signals "drop here"; releasing applies to all. */
+          <div
+            aria-hidden="true"
+            className={cn(
+              "pointer-events-none absolute inset-0 z-10 rounded-[8px] border border-dashed transition-colors",
+              isPanelHover ? "border-primary-border" : "border-border",
+            )}
+          />
         )}
         <div
           data-drag-scroll="true"
-          className="h-full min-h-0 overflow-y-auto overflow-x-clip pt-4"
+          className="-mx-1 h-full min-h-0 overflow-y-auto overflow-x-clip px-1 pt-4 pb-1"
         >
-          {monitors.length === 0 ? (
+          {loading && monitors.length === 0 ? (
+            <div className="grid grid-cols-1 gap-4 min-[760px]:grid-cols-2 min-[1000px]:grid-cols-3">
+              {[0, 1].map((i) => (
+                <div key={i} className="flex h-[160px] flex-col">
+                  <div className="flex h-[116px] flex-col gap-3 rounded-[6px] border border-border bg-surface p-4">
+                    <Skeleton className="h-4 w-36" />
+                    <Skeleton className="h-3 w-24" />
+                    <Skeleton className="mt-auto h-4 w-28" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : monitors.length === 0 ? (
             <div className="rounded-[8px] border border-dashed border-border p-4">
               <span className="font-mono text-[10px] text-muted-foreground">No monitors detected</span>
             </div>

@@ -19,7 +19,7 @@ export default function UpdateCheckButton({ checking, onCheck }: Props) {
       data-slot="button"
       disabled={checking}
       onClick={handleClick}
-      className="inline-flex items-center justify-center rounded-[8px] border border-border bg-transparent px-3 py-1.5 font-body text-[12px] uppercase tracking-[0.4px] text-foreground transition-colors hover:border-border-hover hover:bg-surface-hover disabled:opacity-50 disabled:pointer-events-none"
+      className="inline-flex items-center justify-center rounded-[8px] border border-border bg-transparent px-2.5 py-1.5 font-body text-[11px] uppercase tracking-[0.4px] text-foreground whitespace-nowrap transition-colors hover:border-border-hover hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring disabled:opacity-50 disabled:pointer-events-none"
       title={checking ? "Checking for updates…" : "Check for updates"}
     >
       {checking ? (

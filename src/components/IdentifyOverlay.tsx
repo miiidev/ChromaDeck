@@ -56,7 +56,7 @@ export default function IdentifyOverlay({
       style={
         prefersReducedMotion
           ? { transition: "none" }
-          : { transition: "opacity var(--motion-std) var(--ease-out)" }
+          : { transition: "opacity var(--motion-standard) var(--ease-out)" }
       }
     >
       {/* Card is sized in vmin so it reads the same on 1080p → 4K/ultrawide. */}

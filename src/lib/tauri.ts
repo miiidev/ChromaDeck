@@ -51,6 +51,14 @@ export async function listPresets(): Promise<Preset[]> {
 
 /** Create a new preset from user-supplied settings. */
 export async function createPreset(input: PresetInput): Promise<Preset> {
+  if (isBrowserPreview()) {
+    return {
+      ...input,
+      id: `demo-${Date.now()}`,
+      icc_hash: "",
+      icc_filename: "",
+    };
+  }
   return invoke<Preset>("create_preset_cmd", { input });
 }
 
@@ -59,11 +67,17 @@ export async function updatePreset(
   id: string,
   input: PresetInput,
 ): Promise<Preset> {
+  if (isBrowserPreview()) {
+    return { ...input, id, icc_hash: "", icc_filename: "" };
+  }
   return invoke<Preset>("update_preset_cmd", { id, input });
 }
 
 /** Delete a preset by its UUID.  Returns the deleted preset. */
 export async function deletePreset(id: string): Promise<Preset> {
+  if (isBrowserPreview()) {
+    return DEMO_PRESETS.find((p) => p.id === id) ?? DEMO_PRESETS[0];
+  }
   return invoke<Preset>("delete_preset_cmd", { id });
 }
 
@@ -84,6 +98,9 @@ export async function importIcc(srcPath: string): Promise<string> {
  * them. Legacy fields keep their original meaning.
  */
 export async function applyPreset(id: string, targetEdid: string): Promise<ApplyResult> {
+  if (isBrowserPreview()) {
+    return { icc_applied: false, gamma_applied: true, vibrance_applied: true };
+  }
   return invoke<ApplyResult>("apply_preset_cmd", { id, targetEdid });
 }
 
@@ -94,6 +111,9 @@ export async function applyPreset(id: string, targetEdid: string): Promise<Apply
  * error instead of reporting false success.
  */
 export async function resetMonitor(edidId: string): Promise<ApplyResult> {
+  if (isBrowserPreview()) {
+    return { icc_applied: false, gamma_applied: true, vibrance_applied: true };
+  }
   // Tauri v2 maps camelCase JS keys to snake_case Rust params
   // (cf. importIcc/srcPath); the backend expects `edidId`.
   return invoke<ApplyResult>("reset_monitor_cmd", { edidId });
@@ -112,6 +132,17 @@ export interface ResetAllOutcome {
  * monitor resets fail (enforcer must never repaint afterwards).
  */
 export async function resetAllMonitors(): Promise<ResetAllOutcome> {
+  if (isBrowserPreview()) {
+    return {
+      pins_removed: Object.keys(DEMO_PINS).length,
+      results: DEMO_MONITORS.filter((m) => m.connected).map((m) => ({
+        edid_id: m.edid_id,
+        icc_applied: false,
+        gamma_applied: true,
+        vibrance_applied: true,
+      })),
+    };
+  }
   return invoke<ResetAllOutcome>("reset_all_monitors_cmd");
 }
 
@@ -121,6 +152,17 @@ export async function resetAllMonitors(): Promise<ResetAllOutcome> {
  * and whether the ramp is identity. Answers "did it land?".
  */
 export async function probeMonitor(edidId: string): Promise<MonitorProbe> {
+  if (isBrowserPreview()) {
+    return {
+      engine: "preview",
+      backend_id: "preview",
+      vibrance_supported: false,
+      vibrance: null,
+      hue: null,
+      ramp_peak: 1.0,
+      ramp_identity: true,
+    };
+  }
   return invoke<MonitorProbe>("probe_monitor_cmd", { edidId });
 }
 
@@ -129,6 +171,7 @@ export async function probeMonitor(edidId: string): Promise<MonitorProbe> {
  * Resolves by EDID; arg name must be camelCase (Tauri v2 convention).
  */
 export async function vibranceSupported(edidId: string): Promise<boolean> {
+  if (isBrowserPreview()) return false;
   return invoke<boolean>("vibrance_supported_cmd", { edidId });
 }
 
@@ -138,6 +181,13 @@ export async function vibranceSupported(edidId: string): Promise<boolean> {
  * Resolves by EDID; arg name must be camelCase (Tauri v2 convention).
  */
 export async function getDisplayCapabilities(edidId: string): Promise<DisplayCapabilities> {
+  if (isBrowserPreview()) {
+    return {
+      backend_id: "preview",
+      backend_label: "Browser preview",
+      adjustments: [],
+    };
+  }
   return invoke<DisplayCapabilities>("get_display_capabilities", { edidId });
 }
 
@@ -145,11 +195,13 @@ export async function getDisplayCapabilities(edidId: string): Promise<DisplayCap
 
 /** Pin a preset as the enforced default for its monitor. */
 export async function pinPreset(edidId: string, presetId: string): Promise<void> {
+  if (isBrowserPreview()) return;
   return invoke<void>("pin_preset_cmd", { edidId, presetId });
 }
 
 /** Remove enforcement for a monitor (no-op when unpinned). */
 export async function unpinMonitor(edidId: string): Promise<void> {
+  if (isBrowserPreview()) return;
   return invoke<void>("unpin_monitor_cmd", { edidId });
 }
 
@@ -167,6 +219,7 @@ export async function listApplied(): Promise<Record<string, string>> {
 
 /** Set a monitor's display name (empty clears back to default). */
 export async function setMonitorName(edidId: string, alias: string): Promise<void> {
+  if (isBrowserPreview()) return;
   return invoke<void>("set_monitor_name_cmd", { edidId, alias });
 }
 

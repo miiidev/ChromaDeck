@@ -51,7 +51,7 @@ function DialogContent({
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-[8px] border border-border bg-surface-raised p-6 text-sm text-foreground outline-none sm:max-w-md data-open:animate-in data-open:fade-in-0 data-open:enter-shell-up data-closed:animate-out data-closed:fade-out-0 data-closed:exit-shell-down",
+          "fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[8px] border border-border bg-surface-raised text-sm text-foreground outline-none sm:max-w-md data-open:animate-in data-open:fade-in-0 data-open:enter-shell-up data-closed:animate-out data-closed:fade-out-0 data-closed:exit-shell-down",
           className
         )}
         {...props}
@@ -61,7 +61,7 @@ function DialogContent({
             data-slot="dialog-close"
             render={
               <button
-                className="absolute top-4 right-4 z-10 shrink-0 rounded-[8px] border border-border bg-surface px-1 py-1 text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+                className="absolute top-4 right-4 z-20 shrink-0 rounded-[8px] border border-border bg-surface px-1 py-1 text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
                 type="button"
                 aria-label="Close"
               />
@@ -71,7 +71,10 @@ function DialogContent({
             <span className="sr-only">Close</span>
           </DialogPrimitive.Close>
         )}
-        <div className="flex flex-col gap-4" data-slot="dialog-inner">
+        <div
+          className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-x-hidden overflow-y-auto p-6"
+          data-slot="dialog-inner"
+        >
           {children}
         </div>
       </DialogPrimitive.Popup>
@@ -83,7 +86,7 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="dialog-header"
-      className={cn("flex flex-col gap-2", className)}
+      className={cn("flex min-w-0 flex-col gap-2 pr-8", className)}
       {...props}
     />
   )

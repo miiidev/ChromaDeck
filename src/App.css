@@ -26,6 +26,7 @@
   --color-primary-border: rgba(94, 234, 212, 0.3);
   --color-destructive: #ef4444;
   --color-destructive-foreground: #ffffff;
+  --color-destructive-text: #f87171; /* 6.5:1 AA on surface-raised */
   --color-warning: #fbbf24;
   --color-ring: #5eead4;
 
@@ -478,6 +479,21 @@ h6,
 .preset-title .marquee-track {
   display: inline-flex;
   width: max-content;
+}
+
+.preset-title-fade {
+  -webkit-mask-image: linear-gradient(
+    to right,
+    #000 0,
+    #000 calc(100% - 28px),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    #000 0,
+    #000 calc(100% - 28px),
+    transparent 100%
+  );
 }
 
 .preset-title:hover .marquee-track,

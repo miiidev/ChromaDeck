@@ -26,6 +26,7 @@ import UpdateDialog from "./components/updater/UpdateDialog";
 import { DragAndDropProvider } from "./components/DragAndDropContext";
 import DragGhost from "./components/DragGhost";
 import UndoToast from "./components/UndoToast";
+import { cn } from "cn";
 
 // ── Update suppression ─────────────────────────────────────────────────────
 // When the user clicks "Remind me later", suppress the update dialog for 24h.
@@ -73,14 +74,14 @@ function AutostartToggle() {
     }
   };
   return (
-    <label className="inline-flex cursor-pointer items-center gap-2">
+    <label className="inline-flex cursor-pointer items-center gap-1.5">
       <input
         type="checkbox"
         checked={on ?? false}
         onChange={toggle}
-        className="size-[14px] rounded-[4px] accent-[var(--color-primary)]"
+        className="size-[14px] rounded-[4px] accent-[var(--color-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       />
-      <span className="font-body text-[12px] uppercase tracking-[0.4px] text-muted-foreground">
+      <span className="font-body text-[11px] uppercase tracking-[0.4px] text-muted-foreground whitespace-nowrap">
         Autostart
       </span>
     </label>
@@ -103,15 +104,15 @@ function AutoApplyToggle({ on, onChange }: { on: boolean; onChange: (next: boole
     }
   };
   return (
-    <label className="inline-flex cursor-pointer items-center gap-2">
+    <label className="inline-flex cursor-pointer items-center gap-1.5">
       <input
         type="checkbox"
         checked={on}
         onChange={toggle}
         aria-label="Auto-apply mapped programs"
-        className="size-[14px] rounded-[4px] accent-[var(--color-primary)]"
+        className="size-[14px] rounded-[4px] accent-[var(--color-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       />
-      <span className="font-body text-[12px] uppercase tracking-[0.4px] text-muted-foreground">
+      <span className="font-body text-[11px] uppercase tracking-[0.4px] text-muted-foreground whitespace-nowrap">
         Auto-apply
       </span>
     </label>
@@ -538,28 +539,36 @@ function App() {
       {/* ── Error banner ────────────────────────────────────────────────── */}
       {error && (
         <div className="error-banner-enter mx-6 mt-4 flex items-center gap-2.5 rounded-[8px] border border-border bg-surface px-3 py-2">
-          <svg className="size-4 shrink-0 text-destructive" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+          <svg className="size-4 shrink-0 text-destructive-text" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
           </svg>
-          <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-destructive">
+          <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-destructive-text" title={`FAILED TO LOAD: ${error}`}>
             FAILED TO LOAD: {error}
           </span>
-          <button onClick={() => void fetchData()} data-slot="button" className="inline-flex shrink-0 items-center justify-center rounded-[8px] border border-border bg-transparent px-2.5 py-1 font-mono text-[10px] text-foreground transition-colors hover:border-border-hover hover:bg-surface-hover">
+          <button onClick={() => void fetchData()} data-slot="button" className="inline-flex shrink-0 items-center justify-center rounded-[8px] border border-border bg-transparent px-2.5 py-1 font-mono text-[10px] text-foreground transition-colors hover:border-border-hover hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring">
             <span className="btn-label">Retry</span>
           </button>
         </div>
       )}
 
-      {/* ── Content: two stacked panels, monitors shorter at min height, presets absorb extra ─── */}
-      <div className="flex min-h-0 flex-1 flex-col p-6">
-        <div className="h-4 w-full" />
+      {/* ── Content: two stacked panels, monitors capped & scrollable, presets absorb extra ─── */}
+      <div className="flex min-h-0 flex-1 flex-col gap-4 p-6">
         <div
-          className="flex-[0_0_auto] min-h-[200px] shrink-0"
-          style={{ maxHeight: "min(500px, calc(100vh - 440px))" }}
+          className={cn(
+            "flex min-h-0 flex-[0_0_auto] shrink-0 flex-col overflow-hidden",
+            (loading || monitors.length > 0) && "min-h-[176px]",
+          )}
+          style={{
+            maxHeight:
+              loading || monitors.length > 0
+                ? "min(500px, max(176px, calc(100vh - 404px)))"
+                : undefined,
+          }}
         >
           <MonitorSidebar
             monitors={monitors}
             presets={presets}
+            loading={loading}
             pins={pins}
             appliedMap={appliedMap}
             autoMap={autoMap}
@@ -568,7 +577,6 @@ function App() {
             onPinChange={fetchData}
           />
         </div>
-        <div className="h-4 w-full" />
         <div className="flex min-h-0 flex-1">
           <MonitorList
             monitors={monitors}
@@ -587,15 +595,14 @@ function App() {
             onApply={(preset) => { setApplyTargetEdid(null); setApplyingPreset(preset); }}
           />
         </div>
-        <div className="h-4 w-full" />
       </div>
 
       {/* ── Footer / status bar: flat strip ──────────────────────────── */}
       <footer
-        className="shell-enter flex h-14 shrink-0 items-center justify-between border-t border-border bg-background pl-6 pr-4"
+        className="shell-enter flex h-14 shrink-0 items-center justify-between gap-3 border-t border-border bg-background pl-6 pr-4"
         style={{ ["--shell-delay" as string]: "180ms" }}
       >
-        <div className="flex min-w-0 items-center gap-3">
+        <div className="flex min-w-0 flex-1 items-center gap-2.5">
           {(() => {
             const errors = lastReapply?.errors ?? 0;
             const healthKey: "loading" | "ok" | "error" | "empty" = loading
@@ -633,7 +640,11 @@ function App() {
               ? "LOADING…"
               : `${presets.length} PRESET${presets.length !== 1 ? "S" : ""} · ${monitors.filter((m) => m.connected).length} MONITOR${monitors.filter((m) => m.connected).length !== 1 ? "S" : ""} CONNECTED · ${Object.keys(pins).length} PINNED`;
             return (
-              <span key={t} className="value-swap font-body truncate text-[12px] uppercase tracking-[0.4px] tabular-nums text-muted-foreground">
+              <span
+                key={t}
+                title={t}
+                className="value-swap font-body min-w-0 truncate text-[11px] uppercase tracking-[0.4px] tabular-nums text-muted-foreground"
+              >
                 {t}
               </span>
             );
@@ -641,7 +652,7 @@ function App() {
           {reapplyMsg && (
             <>
               <span className="h-4 w-px shrink-0 bg-border" aria-hidden="true" />
-              <span className="transient-enter font-body truncate text-[12px] text-muted-foreground">
+              <span title={reapplyMsg} className="transient-enter font-body min-w-[72px] shrink truncate text-[11px] text-muted-foreground">
                 {reapplyMsg}
               </span>
             </>
@@ -649,7 +660,7 @@ function App() {
           {autoMsg && (
             <>
               <span className="h-4 w-px shrink-0 bg-border" aria-hidden="true" />
-              <span className="transient-enter font-body truncate text-[12px] text-muted-foreground">
+              <span title={autoMsg} className="transient-enter font-body min-w-[72px] shrink truncate text-[11px] text-muted-foreground">
                 {autoMsg}
               </span>
             </>
@@ -657,13 +668,13 @@ function App() {
           {updateMsg && (
             <>
               <span className="h-4 w-px shrink-0 bg-border" aria-hidden="true" />
-              <span className="transient-enter font-body truncate text-[12px] text-muted-foreground">
+              <span title={updateMsg} className="transient-enter font-body min-w-[72px] shrink truncate text-[11px] text-muted-foreground">
                 {updateMsg}
               </span>
             </>
           )}
         </div>
-        <div className="flex shrink-0 items-center gap-4">
+        <div className="flex shrink-0 items-center gap-2.5 min-[920px]:gap-3.5">
           <span className="h-4 w-px bg-border" aria-hidden="true" />
           <AutoApplyToggle on={autoEnabled} onChange={setAutoEnabled} />
           <AutostartToggle />
@@ -685,7 +696,7 @@ function App() {
               }
               fetchData();
             }}
-            className="inline-flex items-center justify-center rounded-[8px] border border-border bg-transparent px-3 py-1.5 font-body text-[12px] uppercase tracking-[0.4px] text-foreground transition-colors hover:border-border-hover hover:bg-surface-hover"
+            className="inline-flex items-center justify-center rounded-[8px] border border-border bg-transparent px-2.5 py-1.5 font-body text-[11px] uppercase tracking-[0.4px] text-foreground transition-colors hover:border-border-hover hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring"
             title="Re-run enforcement now"
           >
             <span className="btn-label">Reapply</span>
