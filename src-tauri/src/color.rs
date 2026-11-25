@@ -138,6 +138,10 @@ pub trait ColorApi {
     /// Install + associate an ICC profile for the monitor.
     fn associate_icc(&self, edid_id: &str, profile_path: &str) -> Result<(), String>;
 
+    /// Dissociate a previously associated ICC profile from the monitor.
+    /// Returns `Ok(true)` if removed, `Ok(false)` if it was not associated.
+    fn dissociate_icc(&self, edid_id: &str, profile_path: &str) -> Result<bool, String>;
+
     /// Set the OS gamma ramp for the monitor.
     fn set_gamma_ramp(
         &self,
@@ -242,6 +246,47 @@ impl ColorApi for RealColorApi {
         }
 
         Ok(())
+    }
+
+    fn dissociate_icc(&self, edid_id: &str, profile_path: &str) -> Result<bool, String> {
+        use windows::Win32::UI::ColorSystem::DisassociateColorProfileFromDeviceW;
+
+        let device_name = Self::device_name_for_edid(edid_id)
+            .ok_or_else(|| format!("no display device found for EDID {edid_id}"))?;
+
+        let wide_path: Vec<u16> = OsString::from(profile_path)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let wide_device: Vec<u16> = OsString::from(&device_name)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+
+        // SAFETY: DisassociateColorProfileFromDeviceW unlinks profile from device.
+        let ok: bool = unsafe {
+            DisassociateColorProfileFromDeviceW(
+                PCWSTR::null(),
+                PCWSTR::from_raw(wide_path.as_ptr()),
+                PCWSTR::from_raw(wide_device.as_ptr()),
+            )
+            .as_bool()
+        };
+
+        if ok {
+            return Ok(true);
+        }
+
+        // Win32 returns ERROR_FILE_NOT_FOUND (2) or ERROR_INVALID_PARAMETER (87)
+        // when the given profile is not associated with this device — treat as no-op.
+        let os_err = std::io::Error::last_os_error();
+        if matches!(os_err.raw_os_error(), Some(2) | Some(87) | Some(2016)) {
+            Ok(false)
+        } else {
+            Err(format!(
+                "failed to dissociate ICC profile from {device_name} ({os_err})"
+            ))
+        }
     }
 
     fn set_gamma_ramp(
@@ -777,10 +822,21 @@ pub struct ResetAllOutcome {
 pub fn reset_all_monitors_cmd(
     app: tauri::AppHandle,
     state: tauri::State<'_, crate::store::AppStore>,
+    clear_icc: Option<bool>,
 ) -> Result<ResetAllOutcome, String> {
     let _operation = crate::auto_apply_runtime::DISPLAY_OPERATION
         .lock()
         .map_err(|e| e.to_string())?;
+    let icc_paths = if clear_icc.unwrap_or(false) {
+        let data_dir = state
+            .0
+            .lock()
+            .map(|s| s.data_dir().to_path_buf())
+            .unwrap_or_else(|_| crate::store::default_store_path());
+        managed_icc_paths(&data_dir.join("profiles"))
+    } else {
+        Vec::new()
+    };
     let api = RealColorApi;
     let nv = crate::nvapi::RealNvapi;
     let monitors = crate::monitor::list_monitors();
@@ -788,7 +844,9 @@ pub fn reset_all_monitors_cmd(
         crate::auto_apply_runtime::relinquish_manual(&app, &monitor.edid_id);
     }
     let results = reset_all_connected(
-        &mut |edid: &str| -> ApplyResult { reset_monitor(&api, &nv, edid) },
+        &mut |edid: &str| -> ApplyResult {
+            reset_monitor_with_icc(&api, &nv, edid, &icc_paths)
+        },
         &monitors,
     );
     // Clear each successful monitor's applied record, matching
@@ -827,15 +885,147 @@ pub fn reset_monitor(
     nv: &dyn crate::nvapi::NvColorApi,
     edid_id: &str,
 ) -> ApplyResult {
+    reset_monitor_with_icc(api, nv, edid_id, &[])
+}
+
+/// Reset a monitor to defaults, optionally dissociating any ChromaDeck-managed
+/// ICC profile paths supplied in `icc_paths`.
+pub fn reset_monitor_with_icc(
+    api: &dyn ColorApi,
+    nv: &dyn crate::nvapi::NvColorApi,
+    edid_id: &str,
+    icc_paths: &[String],
+) -> ApplyResult {
     if !api.is_connected(edid_id) {
         return ApplyResult::offline();
     }
 
     // Backend selection is delegated to the registry: the selected backend
-    // (NVAPI or GDI) owns the full reset path (gamma + vibrance + read-back).
-    BackendRegistry::new()
+    // (NVAPI, Intel, or GDI) owns the full reset path (gamma + vibrance + read-back).
+    let mut result = BackendRegistry::new()
         .select(edid_id)
-        .restore(api, nv, edid_id)
+        .restore(api, nv, edid_id);
+
+    for path in icc_paths {
+        if let Err(e) = api.dissociate_icc(edid_id, path) {
+            result.error = Some(match result.error.take() {
+                Some(prev) => format!("{prev}; ICC dissociate: {e}"),
+                None => format!("ICC dissociate: {e}"),
+            });
+        }
+    }
+
+    result
+}
+
+/// Collect full paths of ChromaDeck-managed `.icc`/`.icm` files in `profiles_dir`.
+fn managed_icc_paths(profiles_dir: &std::path::Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(profiles_dir) else {
+        return Vec::new();
+    };
+    entries
+        .filter_map(|e| e.ok().map(|entry| entry.path()))
+        .filter(|path| {
+            path.is_file()
+                && path
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("icc") || ext.eq_ignore_ascii_case("icm"))
+        })
+        .map(|path| path.to_string_lossy().into_owned())
+        .collect()
+}
+
+// ── Transient live hardware preview (editor) ────────────────────────────────
+
+/// Build an ephemeral `Preset` from editor slider inputs after range validation.
+/// Never touches ICC profiles or the persistent store.
+pub fn ephemeral_preset_from_input(
+    input: &crate::store::PresetInput,
+) -> Result<crate::store::Preset, String> {
+    if !(0.0..=100.0).contains(&input.brightness) {
+        return Err("brightness must be in 0.0..=100.0".into());
+    }
+    if !(0.0..=100.0).contains(&input.contrast) {
+        return Err("contrast must be in 0.0..=100.0".into());
+    }
+    if !(0.3..=2.8).contains(&input.gamma) {
+        return Err("gamma must be in 0.3..=2.8".into());
+    }
+    if !(0.0..=100.0).contains(&input.vibrance) {
+        return Err("vibrance must be in 0.0..=100.0".into());
+    }
+    if !(0.0..=100.0).contains(&input.saturation) {
+        return Err("saturation must be in 0.0..=100.0".into());
+    }
+    if !(0.0..=359.0).contains(&input.hue_deg) {
+        return Err("hue_deg must be in 0.0..=359.0".into());
+    }
+    for &g in &input.rgb_gains {
+        if !(0.0..=10.0).contains(&g) {
+            return Err("rgb_gains values must be in 0.0..=10.0".into());
+        }
+    }
+    Ok(crate::store::Preset {
+        id: String::new(),
+        name: input.name.clone(),
+        icc_hash: String::new(),
+        icc_filename: String::new(),
+        brightness: input.brightness,
+        contrast: input.contrast,
+        rgb_gains: input.rgb_gains,
+        gamma: input.gamma,
+        vibrance: input.vibrance,
+        saturation: input.saturation,
+        hue_deg: input.hue_deg,
+        color_model: "nvcp-v1".into(),
+        color_tag: None,
+        tag_shape: None,
+        attached_programs: Vec::new(),
+    })
+}
+
+/// Apply transient editor values to `target_edid` without touching ICC or store.
+pub fn preview_preset(
+    api: &dyn ColorApi,
+    nv: &dyn crate::nvapi::NvColorApi,
+    input: &crate::store::PresetInput,
+    target_edid: &str,
+) -> ApplyOutcome {
+    if !api.is_connected(target_edid) {
+        return ApplyOutcome::legacy(ApplyResult::offline());
+    }
+    let preset = match ephemeral_preset_from_input(input) {
+        Ok(p) => p,
+        Err(e) => {
+            return ApplyOutcome::legacy(ApplyResult {
+                icc_applied: false,
+                gamma_applied: false,
+                vibrance_applied: false,
+                error: Some(e),
+            })
+        }
+    };
+    let (result, backend_id) = apply_color_with_backend(api, nv, &preset, target_edid);
+    let adjustments = adjustment_outcomes(backend_id, &preset, &result);
+    ApplyOutcome {
+        result,
+        adjustments,
+    }
+}
+
+/// Restore a monitor after ending live preview: re-apply its prior active
+/// preset (pinned or manually applied) if one exists, otherwise reset to defaults.
+pub fn restore_after_preview(
+    api: &dyn ColorApi,
+    nv: &dyn crate::nvapi::NvColorApi,
+    target_edid: &str,
+    active_preset: Option<&crate::store::Preset>,
+) -> ApplyResult {
+    match active_preset {
+        Some(preset) => apply_color(api, nv, preset, target_edid),
+        None => reset_monitor(api, nv, target_edid),
+    }
 }
 
 // ── Recorder / mock for testing ─────────────────────────────────────────────
@@ -883,6 +1073,16 @@ impl ColorApi for TestRecorder {
             Err("mock ICC failure".into())
         } else {
             Ok(())
+        }
+    }
+
+    fn dissociate_icc(&self, _edid_id: &str, _profile_path: &str) -> Result<bool, String> {
+        let mut calls = self.calls.lock().unwrap();
+        calls.push("dissociate_icc".into());
+        if self.icc_should_fail {
+            Err("mock ICC dissociate failure".into())
+        } else {
+            Ok(true)
         }
     }
 
@@ -1051,10 +1251,30 @@ pub fn probe_monitor_cmd(edid_id: String) -> Result<MonitorProbe, String> {
 }
 
 #[tauri::command]
-pub fn reset_monitor_cmd(
-    app: tauri::AppHandle,
+pub fn preview_preset_cmd(
+    input: crate::store::PresetInput,
+    target_edid: String,
+) -> ApplyOutcome {
+    let _operation = match crate::auto_apply_runtime::DISPLAY_OPERATION.lock() {
+        Ok(guard) => guard,
+        Err(e) => {
+            return ApplyOutcome::legacy(ApplyResult {
+                icc_applied: false,
+                gamma_applied: false,
+                vibrance_applied: false,
+                error: Some(e.to_string()),
+            })
+        }
+    };
+    let api = RealColorApi;
+    let nv = crate::nvapi::RealNvapi;
+    preview_preset(&api, &nv, &input, &target_edid)
+}
+
+#[tauri::command]
+pub fn restore_preview_cmd(
     state: tauri::State<'_, crate::store::AppStore>,
-    edid_id: String,
+    target_edid: String,
 ) -> ApplyResult {
     let _operation = match crate::auto_apply_runtime::DISPLAY_OPERATION.lock() {
         Ok(guard) => guard,
@@ -1067,10 +1287,63 @@ pub fn reset_monitor_cmd(
             }
         }
     };
+    let active_preset = state.0.lock().ok().and_then(|store| {
+        let pins = store.list_pins();
+        let applied = store.list_applied();
+        let presets = store.list_presets();
+        let preset_id = pins
+            .get(&target_edid)
+            .or_else(|| {
+                pins.iter()
+                    .find(|(k, _)| crate::monitor::key_match(k, &target_edid))
+                    .map(|(_, v)| v)
+            })
+            .or_else(|| applied.get(&target_edid))
+            .or_else(|| {
+                applied
+                    .iter()
+                    .find(|(k, _)| crate::monitor::key_match(k, &target_edid))
+                    .map(|(_, v)| v)
+            })?;
+        presets.into_iter().find(|p| p.id == *preset_id)
+    });
+    let api = RealColorApi;
+    let nv = crate::nvapi::RealNvapi;
+    restore_after_preview(&api, &nv, &target_edid, active_preset.as_ref())
+}
+
+#[tauri::command]
+pub fn reset_monitor_cmd(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, crate::store::AppStore>,
+    edid_id: String,
+    clear_icc: Option<bool>,
+) -> ApplyResult {
+    let _operation = match crate::auto_apply_runtime::DISPLAY_OPERATION.lock() {
+        Ok(guard) => guard,
+        Err(e) => {
+            return ApplyResult {
+                icc_applied: false,
+                gamma_applied: false,
+                vibrance_applied: false,
+                error: Some(e.to_string()),
+            }
+        }
+    };
+    let icc_paths = if clear_icc.unwrap_or(false) {
+        let data_dir = state
+            .0
+            .lock()
+            .map(|s| s.data_dir().to_path_buf())
+            .unwrap_or_else(|_| crate::store::default_store_path());
+        managed_icc_paths(&data_dir.join("profiles"))
+    } else {
+        Vec::new()
+    };
     crate::auto_apply_runtime::relinquish_manual(&app, &edid_id);
     let api = RealColorApi;
     let nv = crate::nvapi::RealNvapi;
-    let mut result = reset_monitor(&api, &nv, &edid_id);
+    let mut result = reset_monitor_with_icc(&api, &nv, &edid_id, &icc_paths);
 
     if result.error.is_none() {
         result.error = match state.0.lock() {
@@ -1866,6 +2139,99 @@ mod tests {
                 .iter()
                 .filter(|c| *c == "gamma")
                 .count(),
+            2
+        );
+    }
+
+    // ── Phase 1: live preview & optional ICC dissociation ────────────────
+
+    #[test]
+    fn preview_preset_applies_color_without_touching_icc() {
+        let color = TestRecorder::new(true);
+        let nv = MockNvapi::new(true);
+        let input = crate::store::PresetInput {
+            name: "Draft".into(),
+            icc_path: Some("C:\\ignored.icc".into()),
+            clear_icc: false,
+            brightness: 60.0,
+            contrast: 55.0,
+            rgb_gains: [1.1, 1.0, 0.9],
+            gamma: 1.4,
+            vibrance: 65.0,
+            saturation: 50.0,
+            hue_deg: 10.0,
+            color_tag: None,
+            tag_shape: None,
+            attached_programs: vec![],
+        };
+        let outcome = preview_preset(&color, &nv, &input, "EDID-001");
+        assert!(outcome.result.gamma_applied);
+        assert!(!outcome.result.icc_applied);
+        assert!(outcome.result.error.is_none());
+        let calls = color.calls.lock().unwrap();
+        assert_eq!(*calls, vec!["gamma"], "preview must never invoke associate_icc");
+    }
+
+    #[test]
+    fn preview_preset_rejects_out_of_range_inputs() {
+        let color = TestRecorder::new(true);
+        let nv = MockNvapi::new(true);
+        let input = crate::store::PresetInput {
+            name: "Bad".into(),
+            icc_path: None,
+            clear_icc: false,
+            brightness: 50.0,
+            contrast: 50.0,
+            rgb_gains: [-1.0, 1.0, 1.0],
+            gamma: 1.0,
+            vibrance: 50.0,
+            saturation: 50.0,
+            hue_deg: 0.0,
+            color_tag: None,
+            tag_shape: None,
+            attached_programs: vec![],
+        };
+        let outcome = preview_preset(&color, &nv, &input, "EDID-001");
+        assert!(!outcome.result.gamma_applied);
+        assert!(outcome.result.error.unwrap().contains("rgb_gains"));
+        assert!(color.calls.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn restore_after_preview_reapplies_active_preset_or_resets_when_none() {
+        let color = TestRecorder::new(true);
+        let nv = MockNvapi::new(true);
+        let mut active = fake_preset();
+        active.brightness = 70.0;
+        active.contrast = 50.0;
+        active.gamma = 1.5;
+        active.rgb_gains = [1.05, 1.0, 0.95];
+
+        let restored = restore_after_preview(&color, &nv, "EDID-001", Some(&active));
+        assert!(restored.gamma_applied);
+        assert!(!restored.icc_applied, "restore after preview skips ICC");
+        let last = color.last_gamma_params.lock().unwrap().unwrap();
+        assert_eq!(last.2, [1.05, 1.0, 0.95]);
+
+        let reset = restore_after_preview(&color, &nv, "EDID-001", None);
+        assert!(reset.gamma_applied);
+        assert_eq!(
+            *color.last_gamma_params.lock().unwrap(),
+            Some((1.0, 1.0, [1.0, 1.0, 1.0], 1.0))
+        );
+    }
+
+    #[test]
+    fn reset_monitor_with_icc_dissociates_supplied_profiles() {
+        let color = TestRecorder::new(true);
+        let nv = MockNvapi::new(true);
+        let paths = vec!["C:\\profiles\\a.icc".into(), "C:\\profiles\\b.icc".into()];
+        let res = reset_monitor_with_icc(&color, &nv, "EDID-001", &paths);
+        assert!(res.gamma_applied);
+        assert!(res.error.is_none());
+        let calls = color.calls.lock().unwrap();
+        assert_eq!(
+            calls.iter().filter(|c| *c == "dissociate_icc").count(),
             2
         );
     }

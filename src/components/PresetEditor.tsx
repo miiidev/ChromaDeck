@@ -1,25 +1,45 @@
-import { useState, useEffect, type FormEvent } from "react";
+import { useState, useEffect, useRef, type FormEvent } from "react";
 
-import type { Preset, PresetInput } from "../lib/types";
-import { createPreset, updatePreset, importIcc } from "../lib/tauri";
+import type { Monitor, Preset, PresetInput } from "../lib/types";
+import {
+  captureNvcp,
+  createPreset,
+  getDisplayCapabilities,
+  importIcc,
+  previewPreset,
+  restorePreview,
+  updatePreset,
+} from "../lib/tauri";
 import { validatePresetForm, type ValidationErrors } from "../lib/validation";
-import { DEFAULT_PRESET_INPUT, presetToFormValues, withSelectedIcc } from "../lib/presetForm";
+import {
+  DEFAULT_PRESET_INPUT,
+  applyCapturedState,
+  clampSliderValue,
+  presetToFormValues,
+  resetSliderValues,
+  withClearedIcc,
+  withSelectedIcc,
+} from "../lib/presetForm";
+import { NEUTRAL } from "../lib/presetCard";
 import { addProgram } from "../lib/programMapping";
 import { joinCategory, splitCategory } from "../lib/presetCard";
 import { applyPreviewPixel, type RgbColor } from "../lib/preview";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Button } from "@/components/ui/button";
+import { Checkbox, CheckboxIndicator } from "@/components/ui/checkbox";
 import { Combobox, ComboboxContent, ComboboxInput, ComboboxItem } from "@/components/ui/combobox";
 import { Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { PresetTag } from "@/components/ui/preset-tag";
-import { Check, ChevronDown, Upload, X } from "lucide-react";
+import { Check, ChevronDown, Download, Eye, RotateCcw, Upload, X } from "lucide-react";
 import { cn } from "cn";
 
 interface Props {
   presets: Preset[];
+  monitors?: Monitor[];
   editPreset: Preset | null;
   onClose: () => void;
   /** Fired after the close animation finishes; the parent unmounts here. */
@@ -134,7 +154,7 @@ function LiveColorCard({
   );
 }
 
-export default function PresetEditor({ presets, editPreset, onClose, onClosed, onSaved }: Props) {
+export default function PresetEditor({ presets, monitors = [], editPreset, onClose, onClosed, onSaved }: Props) {
   const isEditing = editPreset !== null;
   // The dialog owns its open state so Base UI can run the data-closed exit
   // animation before the parent unmounts it (see onOpenChangeComplete below).
@@ -149,10 +169,143 @@ export default function PresetEditor({ presets, editPreset, onClose, onClosed, o
   const [programInput, setProgramInput] = useState("");
   const [programError, setProgramError] = useState<string | null>(null);
 
+  // Hardware target for live preview & driver capture
+  const connectedMonitors = monitors.filter((m) => m.connected);
+  const [targetEdid, setTargetEdid] = useState<string>(
+    () => connectedMonitors[0]?.edid_id ?? "",
+  );
+  const [targetCap, setTargetCap] = useState<{
+    status: "idle" | "loading" | "ready" | "error";
+    backendId?: string;
+    backendLabel?: string;
+  }>({ status: "idle" });
+  const [capturing, setCapturing] = useState(false);
+  const [captureNote, setCaptureNote] = useState<{ text: string; isError: boolean } | null>(null);
+  const [livePreview, setLivePreview] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const previewedEdidRef = useRef<string | null>(null);
+  const previewTimerRef = useRef<number | null>(null);
+
+  // Keep targetEdid pointing at a connected display when monitor list changes
+  useEffect(() => {
+    if (connectedMonitors.length === 0) {
+      if (targetEdid !== "") setTargetEdid("");
+      return;
+    }
+    if (!connectedMonitors.some((m) => m.edid_id === targetEdid)) {
+      setTargetEdid(connectedMonitors[0].edid_id);
+    }
+  }, [connectedMonitors, targetEdid]);
+
+  // Query backend capability for the selected calibration monitor
+  useEffect(() => {
+    if (!targetEdid) {
+      setTargetCap({ status: "idle" });
+      return;
+    }
+    let cancelled = false;
+    setTargetCap({ status: "loading" });
+    getDisplayCapabilities(targetEdid)
+      .then((caps) => {
+        if (!cancelled) {
+          setTargetCap({
+            status: "ready",
+            backendId: caps.backend_id,
+            backendLabel: caps.backend_label,
+          });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setTargetCap({ status: "error" });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [targetEdid]);
+
+  // Restore any previewed monitor cleanly on toggle-off, target switch, or unmount
+  const endLivePreview = async () => {
+    if (previewTimerRef.current !== null) {
+      window.clearTimeout(previewTimerRef.current);
+      previewTimerRef.current = null;
+    }
+    const edid = previewedEdidRef.current;
+    previewedEdidRef.current = null;
+    if (edid) {
+      try {
+        await restorePreview(edid);
+      } catch {
+        // best-effort hardware restore
+      }
+    }
+  };
+
+  useEffect(
+    () => () => {
+      if (previewTimerRef.current !== null) {
+        window.clearTimeout(previewTimerRef.current);
+        previewTimerRef.current = null;
+      }
+      const edid = previewedEdidRef.current;
+      previewedEdidRef.current = null;
+      if (edid) {
+        void restorePreview(edid).catch(() => {});
+      }
+    },
+    [],
+  );
+
+  // Throttled live preview write whenever colour parameters change while active
+  useEffect(() => {
+    if (!livePreview || !targetEdid) {
+      if (previewedEdidRef.current) {
+        void endLivePreview();
+      }
+      setPreviewError(null);
+      return;
+    }
+    // Switching preview monitor restores the previous monitor first
+    if (previewedEdidRef.current && previewedEdidRef.current !== targetEdid) {
+      const previous = previewedEdidRef.current;
+      previewedEdidRef.current = null;
+      void restorePreview(previous).catch(() => {});
+    }
+    if (previewTimerRef.current !== null) {
+      window.clearTimeout(previewTimerRef.current);
+    }
+    previewTimerRef.current = window.setTimeout(() => {
+      previewTimerRef.current = null;
+      previewedEdidRef.current = targetEdid;
+      void previewPreset(form, targetEdid)
+        .then((res) => {
+          setPreviewError(res.error ?? null);
+        })
+        .catch((err) => {
+          setPreviewError(String(err));
+        });
+    }, 60);
+    // Only re-trigger when preview target/toggle or colour parameters change
+  }, [
+    livePreview,
+    targetEdid,
+    form.gamma,
+    form.brightness,
+    form.contrast,
+    form.vibrance,
+    form.saturation,
+    form.hue_deg,
+    form.rgb_gains[0],
+    form.rgb_gains[1],
+    form.rgb_gains[2],
+  ]);
+
   // Escape and backdrop dismissal must respect the same in-flight guard as the
   // disabled Save button; the save-success path passes `force` to close itself.
   const requestClose = (force = false) => {
     if (saving && !force) return;
+    if (!force) {
+      void endLivePreview();
+    }
     setDialogOpen(false);
     onClose();
   };
@@ -177,7 +330,50 @@ export default function PresetEditor({ presets, editPreset, onClose, onClosed, o
     setIccImporting(false);
     setProgramInput("");
     setProgramError(null);
+    setCaptureNote(null);
+    setPreviewError(null);
   }, [editPreset]);
+
+  const canCapture =
+    Boolean(targetEdid) &&
+    targetCap.status === "ready" &&
+    (targetCap.backendId === "nvapi" || targetCap.backendId === "preview");
+
+  const captureDisabledReason = !targetEdid
+    ? "Connect a monitor to capture live settings"
+    : targetCap.status === "loading"
+      ? "Detecting display backend…"
+      : "Live driver capture requires an NVIDIA display";
+
+  const handleCaptureMonitor = async () => {
+    if (!targetEdid || !canCapture || capturing) return;
+    setCapturing(true);
+    setCaptureNote(null);
+    try {
+      const captured = await captureNvcp(targetEdid);
+      setForm((prev) => applyCapturedState(prev, captured));
+      setCaptureNote({
+        text: "Captured live NVCP state (RGB gains reset to 1.00).",
+        isError: false,
+      });
+    } catch (err) {
+      setCaptureNote({
+        text: `Capture failed: ${String(err)}`,
+        isError: true,
+      });
+    } finally {
+      setCapturing(false);
+    }
+  };
+
+  const handleClearIcc = () => {
+    setIccStatus(null);
+    setForm((current) => withClearedIcc(current));
+    setErrors((prev) => {
+      const { icc_path: _, ...rest } = prev;
+      return rest;
+    });
+  };
 
   const handleBrowseIcc = async () => {
     setIccImporting(true);
@@ -266,6 +462,10 @@ export default function PresetEditor({ presets, editPreset, onClose, onClosed, o
       } else {
         await createPreset(payload);
       }
+      // Restore the previewed display after persisting so an edited active
+      // preset re-applies its saved values and an unrelated display returns
+      // cleanly to its prior state.
+      await endLivePreview();
       onSaved();
       requestClose(true);
     } catch (err) {
@@ -566,60 +766,230 @@ export default function PresetEditor({ presets, editPreset, onClose, onClosed, o
               <LiveColorCard label="Original" params={IDENTITY_PREVIEW} />
               <LiveColorCard label="Adjusted" params={previewParams} highlight />
             </div>
+
+            {/* Hardware calibration bar: live monitor preview & NVCP capture */}
+            {connectedMonitors.length > 0 && (
+              <div
+                data-slot="editor-hardware-bar"
+                className="flex flex-col gap-2 rounded-[8px] border border-border bg-surface p-3"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex min-w-0 flex-1 items-center gap-2">
+                    <Select
+                      value={targetEdid}
+                      onValueChange={(value) => {
+                        if (value) {
+                          setTargetEdid(value);
+                          setCaptureNote(null);
+                        }
+                      }}
+                    >
+                      <SelectTrigger
+                        size="sm"
+                        aria-label="Target monitor for preview or capture"
+                        className="max-w-[240px] min-w-[160px] font-mono text-[11px]"
+                      >
+                        <SelectValue>
+                          {(value: string | null) => {
+                            const mon = connectedMonitors.find((m) => m.edid_id === value);
+                            return mon ? (mon.alias || mon.model || mon.device_name) : "Select monitor";
+                          }}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {connectedMonitors.map((m) => (
+                          <SelectItem key={m.edid_id} value={m.edid_id}>
+                            {m.alias || m.model || m.device_name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {targetCap.status === "ready" && targetCap.backendLabel && (
+                      <span className="mono hidden text-[10px] text-muted-foreground sm:inline">
+                        {targetCap.backendLabel}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex shrink-0 items-center gap-2.5">
+                    <label
+                      className={cn(
+                        "inline-flex cursor-pointer items-center gap-1.5 rounded-[8px] border px-2.5 py-1 select-none transition-colors",
+                        livePreview
+                          ? "border-primary bg-primary-subtle text-primary"
+                          : "border-border text-muted-foreground hover:border-border-hover hover:text-foreground",
+                      )}
+                      title="Preview slider changes live on the selected monitor (reverts on Cancel)"
+                    >
+                      <Checkbox
+                        checked={livePreview}
+                        onCheckedChange={(checked) => setLivePreview(Boolean(checked))}
+                        aria-label="Live preview on selected monitor"
+                      >
+                        <CheckboxIndicator />
+                      </Checkbox>
+                      <Eye className="size-3.5" strokeWidth={1.5} />
+                      <span className="font-mono text-[10px] uppercase tracking-[0.1em]">
+                        {livePreview ? "Live" : "Preview"}
+                      </span>
+                    </label>
+
+                    <button
+                      type="button"
+                      onClick={() => void handleCaptureMonitor()}
+                      disabled={!canCapture || capturing}
+                      title={canCapture ? "Import live brightness, contrast, gamma, vibrance and hue from this NVIDIA monitor" : captureDisabledReason}
+                      className="inline-flex shrink-0 items-center gap-1.5 rounded-[8px] border border-border px-2.5 py-1.5 font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground transition-colors enabled:hover:border-border-hover enabled:hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-45"
+                    >
+                      <Download className="size-3" strokeWidth={1.5} />
+                      {capturing ? "Capturing…" : "Capture"}
+                    </button>
+                  </div>
+                </div>
+                {previewError && (
+                  <p className="mono text-[10px] text-destructive-text" role="alert">
+                    Preview error: {previewError}
+                  </p>
+                )}
+                {captureNote && (
+                  <p
+                    className={cn(
+                      "mono text-[10px]",
+                      captureNote.isError ? "text-destructive-text" : "text-muted-foreground",
+                    )}
+                    aria-live="polite"
+                  >
+                    {captureNote.text}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="h-px w-full bg-border" aria-hidden="true" />
 
-          {/* ── Parameters: 2 columns ────────────────────────────── */}
-          <div className="grid grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-2">
-            <SliderField
-              label="Gamma"
-              min={0.3} max={2.8} step={0.05}
-              value={form.gamma}
-              display={form.gamma.toFixed(2)}
-              onChange={(v) => updateField("gamma", v)}
-              error={errors.gamma}
-            />
-            <SliderField
-              label="Brightness"
-              min={0} max={100} step={1}
-              value={form.brightness}
-              display={form.brightness.toFixed(0)}
-              onChange={(v) => updateField("brightness", v)}
-              error={errors.brightness}
-            />
-            <SliderField
-              label="Contrast"
-              min={0} max={100} step={1}
-              value={form.contrast}
-              display={form.contrast.toFixed(0)}
-              onChange={(v) => updateField("contrast", v)}
-              error={errors.contrast}
-            />
-            <SliderField
-              label="Vibrance"
-              min={0} max={100} step={1}
-              value={form.vibrance}
-              display={form.vibrance.toFixed(0)}
-              onChange={(v) => updateField("vibrance", v)}
-              error={errors.vibrance}
-            />
-            <SliderField
-              label="Saturation"
-              min={0} max={100} step={1}
-              value={form.saturation}
-              display={form.saturation.toFixed(0)}
-              onChange={(v) => updateField("saturation", v)}
-              error={errors.saturation}
-            />
-            <SliderField
-              label="Hue"
-              min={0} max={359} step={1}
-              value={form.hue_deg}
-              display={`${form.hue_deg.toFixed(0)}°`}
-              onChange={(v) => updateField("hue_deg", v)}
-              error={errors.hue_deg}
-            />
+          {/* ── Parameters: header + 2 columns ──────────────────── */}
+          <div className="flex flex-col gap-5">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex flex-col gap-0.5">
+                <span className="mono text-[12px] uppercase tracking-[0.12em] text-muted-foreground">
+                  Colour parameters
+                </span>
+                <span className="mono text-[10px] text-muted-foreground">
+                  Click any number to type · Double-click a slider to reset to neutral
+                </span>
+              </div>
+              <button
+                type="button"
+                disabled={
+                  form.gamma === NEUTRAL.gamma &&
+                  form.brightness === NEUTRAL.brightness &&
+                  form.contrast === NEUTRAL.contrast &&
+                  form.vibrance === NEUTRAL.vibrance &&
+                  form.saturation === NEUTRAL.saturation &&
+                  form.hue_deg === 0 &&
+                  form.rgb_gains[0] === 1 &&
+                  form.rgb_gains[1] === 1 &&
+                  form.rgb_gains[2] === 1
+                }
+                onClick={() => setForm((prev) => resetSliderValues(prev))}
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-[8px] border border-border px-2.5 py-1.5 font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground transition-colors enabled:hover:border-border-hover enabled:hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring disabled:opacity-40"
+              >
+                <RotateCcw className="size-3" strokeWidth={1.5} />
+                Reset sliders
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-2">
+              <SliderField
+                label="Gamma"
+                min={0.3} max={2.8} step={0.05} neutral={NEUTRAL.gamma}
+                value={form.gamma}
+                display={form.gamma.toFixed(2)}
+                onChange={(v) => updateField("gamma", v)}
+                error={errors.gamma}
+              />
+              <SliderField
+                label="Brightness"
+                min={0} max={100} step={1} neutral={NEUTRAL.brightness}
+                value={form.brightness}
+                display={form.brightness.toFixed(0)}
+                onChange={(v) => updateField("brightness", v)}
+                error={errors.brightness}
+              />
+              <SliderField
+                label="Contrast"
+                min={0} max={100} step={1} neutral={NEUTRAL.contrast}
+                value={form.contrast}
+                display={form.contrast.toFixed(0)}
+                onChange={(v) => updateField("contrast", v)}
+                error={errors.contrast}
+              />
+              <SliderField
+                label="Vibrance"
+                min={0} max={100} step={1} neutral={NEUTRAL.vibrance}
+                value={form.vibrance}
+                display={form.vibrance.toFixed(0)}
+                onChange={(v) => updateField("vibrance", v)}
+                error={errors.vibrance}
+              />
+              <SliderField
+                label="Saturation"
+                min={0} max={100} step={1} neutral={NEUTRAL.saturation}
+                value={form.saturation}
+                display={form.saturation.toFixed(0)}
+                onChange={(v) => updateField("saturation", v)}
+                error={errors.saturation}
+              />
+              <SliderField
+                label="Hue"
+                min={0} max={359} step={1} neutral={0}
+                value={form.hue_deg}
+                display={`${form.hue_deg.toFixed(0)}°`}
+                onChange={(v) => updateField("hue_deg", v)}
+                error={errors.hue_deg}
+              />
+            </div>
+
+            {/* ── RGB Gains (3-channel multipliers) ──────────────── */}
+            <div className="flex flex-col gap-3 rounded-[8px] border border-border bg-surface p-4">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-body text-[12px] uppercase tracking-[0.4px] text-muted-foreground">
+                  RGB Gains
+                </span>
+                <span className="mono text-[10px] text-muted-foreground">
+                  Neutral 1.00 · per-channel multiplier
+                </span>
+              </div>
+              <div className="grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-3">
+                {(["Red", "Green", "Blue"] as const).map((channel, idx) => (
+                  <SliderField
+                    key={channel}
+                    label={channel}
+                    min={0.5}
+                    max={1.5}
+                    inputMin={0}
+                    inputMax={10}
+                    step={0.01}
+                    neutral={1.0}
+                    value={form.rgb_gains[idx]}
+                    display={form.rgb_gains[idx].toFixed(2)}
+                    onChange={(v) => {
+                      const next: [number, number, number] = [
+                        form.rgb_gains[0],
+                        form.rgb_gains[1],
+                        form.rgb_gains[2],
+                      ];
+                      next[idx] = v;
+                      updateField("rgb_gains", next);
+                    }}
+                  />
+                ))}
+              </div>
+              {errors.rgb_gains && (
+                <p className="mono text-[10px] text-destructive-text validation-slide">{errors.rgb_gains}</p>
+              )}
+            </div>
           </div>
 
           {/* ── ICC profile upload ───────────────────────────────── */}
@@ -634,14 +1004,29 @@ export default function PresetEditor({ presets, editPreset, onClose, onClosed, o
                   Optional · .icc or .icm · {iccStatus ? iccStatus.filename : "No file selected"}
                 </span>
               </div>
-              <button
-                type="button"
-                onClick={() => void handleBrowseIcc()}
-                disabled={iccImporting}
-                className="shrink-0 rounded-[8px] border border-border px-2.5 py-1.5 font-mono text-[11px] uppercase tracking-[0.1em] text-muted-foreground transition-colors hover:border-border-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring disabled:opacity-50"
-              >
-                {iccImporting ? "Importing…" : "Choose file"}
-              </button>
+              <div className="flex shrink-0 items-center gap-2">
+                {iccStatus && (
+                  <button
+                    type="button"
+                    onClick={handleClearIcc}
+                    disabled={iccImporting}
+                    aria-label="Remove ICC profile"
+                    title="Detach ICC profile from this preset"
+                    className="inline-flex shrink-0 items-center gap-1 rounded-[8px] border border-border px-2.5 py-1.5 font-mono text-[11px] uppercase tracking-[0.1em] text-muted-foreground transition-colors hover:border-border-hover hover:text-destructive-text focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring disabled:opacity-50"
+                  >
+                    <X className="size-3" strokeWidth={1.5} />
+                    Clear
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void handleBrowseIcc()}
+                  disabled={iccImporting}
+                  className="shrink-0 rounded-[8px] border border-border px-2.5 py-1.5 font-mono text-[11px] uppercase tracking-[0.1em] text-muted-foreground transition-colors hover:border-border-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring disabled:opacity-50"
+                >
+                  {iccImporting ? "Importing…" : "Choose file"}
+                </button>
+              </div>
             </div>
             {errors.icc_path && <p className="mono text-[10px] text-destructive-text validation-slide">{errors.icc_path}</p>}
           </div>
@@ -661,33 +1046,120 @@ export default function PresetEditor({ presets, editPreset, onClose, onClosed, o
   );
 }
 
-/** Flat slider row: mono 10px label + mono 12px value, full-width track. */
+/** Flat slider row: label + click-to-type mono value + double-click neutral reset. */
 function SliderField({
-  label, min, max, step, value, display, onChange, error,
+  label,
+  min,
+  max,
+  inputMin,
+  inputMax,
+  step,
+  neutral,
+  value,
+  display,
+  onChange,
+  error,
 }: {
   label: string;
-  min: number; max: number; step: number;
+  min: number;
+  max: number;
+  inputMin?: number;
+  inputMax?: number;
+  step: number;
+  neutral: number;
   value: number;
   display: string;
   onChange: (v: number) => void;
   error?: string;
 }) {
+  const [editingNumber, setEditingNumber] = useState(false);
+  const [draft, setDraft] = useState("");
+  const isNonNeutral = Math.abs(value - neutral) > 1e-6;
+  const effectiveMin = inputMin ?? min;
+  const effectiveMax = inputMax ?? max;
+  const sliderValue = Math.min(max, Math.max(min, value));
+
+  const commitDraft = () => {
+    setEditingNumber(false);
+    const parsed = Number(draft);
+    if (!Number.isFinite(parsed)) return;
+    onChange(clampSliderValue(parsed, effectiveMin, effectiveMax, step));
+  };
+
   return (
     <div className="flex min-w-0 flex-col gap-2">
-      <div className="flex items-baseline justify-between gap-3">
+      <div className="flex items-center justify-between gap-2">
         <Label className="font-body text-[12px] uppercase tracking-[0.4px] text-muted-foreground">
           {label}
         </Label>
-        <span className="mono text-[12px] tabular-nums text-foreground">{display}</span>
+        <div className="flex items-center gap-1.5">
+          {isNonNeutral && !editingNumber && (
+            <button
+              type="button"
+              onClick={() => onChange(neutral)}
+              aria-label={`Reset ${label} to neutral (${neutral})`}
+              title={`Reset ${label} to neutral`}
+              className="inline-flex size-4 items-center justify-center rounded-[4px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <RotateCcw className="size-2.5" strokeWidth={1.75} />
+            </button>
+          )}
+          {editingNumber ? (
+            <input
+              type="number"
+              aria-label={`${label} value`}
+              autoFocus
+              step={step}
+              min={effectiveMin}
+              max={effectiveMax}
+              value={draft}
+              onFocus={(e) => e.currentTarget.select()}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={commitDraft}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  commitDraft();
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setEditingNumber(false);
+                }
+              }}
+              className="mono h-5 w-16 rounded-[4px] border border-primary bg-surface-hover px-1.5 text-right text-[12px] tabular-nums text-foreground focus:outline-none"
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setDraft(String(value));
+                setEditingNumber(true);
+              }}
+              title="Click to type an exact value"
+              aria-label={`Edit ${label} value (${display})`}
+              className={cn(
+                "mono rounded-[4px] px-1 text-[12px] tabular-nums transition-colors hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                isNonNeutral ? "text-primary" : "text-foreground",
+              )}
+            >
+              {display}
+            </button>
+          )}
+        </div>
       </div>
-      <Slider
-        min={min}
-        max={max}
-        step={step}
-        value={[value]}
-        onValueChange={([v]) => onChange(v)}
-        className="w-full"
-      />
+      <div
+        onDoubleClick={() => onChange(neutral)}
+        title={`Double-click to reset ${label} to neutral`}
+      >
+        <Slider
+          min={min}
+          max={max}
+          step={step}
+          value={[sliderValue]}
+          onValueChange={([v]) => onChange(v)}
+          className="w-full"
+        />
+      </div>
       {error && <p className="mono text-[10px] text-destructive-text validation-slide">{error}</p>}
     </div>
   );

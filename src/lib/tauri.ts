@@ -105,18 +105,40 @@ export async function applyPreset(id: string, targetEdid: string): Promise<Apply
 }
 
 /**
- * Reset a monitor to system defaults (identity gamma ramp).
- * ICC associations are left untouched. Writes are verified by
- * read-back: a panel that doesn't reflect the reset surfaces an
- * error instead of reporting false success.
+ * Apply transient slider values from the editor onto a connected display
+ * without persisting or changing ICC profile associations.
  */
-export async function resetMonitor(edidId: string): Promise<ApplyResult> {
+export async function previewPreset(input: PresetInput, targetEdid: string): Promise<ApplyResult> {
+  if (isBrowserPreview()) {
+    return { icc_applied: false, gamma_applied: true, vibrance_applied: true };
+  }
+  return invoke<ApplyResult>("preview_preset_cmd", { input, targetEdid });
+}
+
+/**
+ * Restore a display after ending live editor preview: re-applies its active
+ * pinned/applied preset if one exists, otherwise resets to defaults.
+ */
+export async function restorePreview(targetEdid: string): Promise<ApplyResult> {
+  if (isBrowserPreview()) {
+    return { icc_applied: false, gamma_applied: true, vibrance_applied: true };
+  }
+  return invoke<ApplyResult>("restore_preview_cmd", { targetEdid });
+}
+
+/**
+ * Reset a monitor to system defaults (identity gamma ramp).
+ * ICC associations are left untouched unless `clearIcc` is true.
+ * Writes are verified by read-back: a panel that doesn't reflect the reset
+ * surfaces an error instead of reporting false success.
+ */
+export async function resetMonitor(edidId: string, clearIcc = false): Promise<ApplyResult> {
   if (isBrowserPreview()) {
     return { icc_applied: false, gamma_applied: true, vibrance_applied: true };
   }
   // Tauri v2 maps camelCase JS keys to snake_case Rust params
-  // (cf. importIcc/srcPath); the backend expects `edidId`.
-  return invoke<ApplyResult>("reset_monitor_cmd", { edidId });
+  // (cf. importIcc/srcPath); the backend expects `edidId` / `clearIcc`.
+  return invoke<ApplyResult>("reset_monitor_cmd", { edidId, clearIcc });
 }
 
 /** Wire shape of reset_all_monitors_cmd's outcome (snake_case on the wire).
@@ -128,10 +150,11 @@ export interface ResetAllOutcome {
 
 /**
  * Reset every connected screen to default colors and remove all pins.
- * ICC associations are left untouched. Pins clear even when individual
- * monitor resets fail (enforcer must never repaint afterwards).
+ * ICC associations are left untouched unless `clearIcc` is true.
+ * Pins clear even when individual monitor resets fail (enforcer must never
+ * repaint afterwards).
  */
-export async function resetAllMonitors(): Promise<ResetAllOutcome> {
+export async function resetAllMonitors(clearIcc = false): Promise<ResetAllOutcome> {
   if (isBrowserPreview()) {
     return {
       pins_removed: Object.keys(DEMO_PINS).length,
@@ -143,7 +166,7 @@ export async function resetAllMonitors(): Promise<ResetAllOutcome> {
       })),
     };
   }
-  return invoke<ResetAllOutcome>("reset_all_monitors_cmd");
+  return invoke<ResetAllOutcome>("reset_all_monitors_cmd", { clearIcc });
 }
 
 /**
@@ -237,6 +260,15 @@ export async function reapplyNow(): Promise<EnforceEvent[]> {
 
 /** Read NVCP/driver live state into editor-fillable values. */
 export async function captureNvcp(edidId: string): Promise<CapturedState> {
+  if (isBrowserPreview()) {
+    return {
+      brightness: 54,
+      contrast: 52,
+      gamma: 1.05,
+      vibrance: 62,
+      hue_deg: 0,
+    };
+  }
   return invoke<CapturedState>("capture_nvcp_cmd", { edidId });
 }
 

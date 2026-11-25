@@ -9,6 +9,7 @@ import { PresetTag } from "@/components/ui/preset-tag";
 import { Input } from "@/components/ui/input";
 import { IdentifyGlyph, ProbeGlyph, ResetGlyph } from "@/components/ui/icons";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } from "@/components/ui/dialog";
+import { Checkbox, CheckboxIndicator } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Check, ChevronDown, Pencil, PinOff } from "lucide-react";
@@ -25,7 +26,7 @@ function UtilityButton({
 }: {
   label: string;
   title: string;
-  onClick: () => void;
+  onClick: (e: React.MouseEvent<HTMLButtonElement>) => void;
   disabled?: boolean;
   icon: React.ReactNode;
 }) {
@@ -134,12 +135,12 @@ function MonitorResetButton({ edidId, onPinChange, setAppliedMap }: { edidId: st
   const [resetting, setResetting] = useState(false);
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
 
-  const handleReset = async () => {
+  const handleReset = async (clearIcc = false) => {
     setResetting(true);
     setMessage(null);
     try {
       try {
-        const result = await resetMonitor(edidId);
+        const result = await resetMonitor(edidId, clearIcc);
         if (result.error) {
           // Keep the pin: a failed restore (e.g. Intel with no captured LUT)
           // must not silently drop the user's enforcement intent.
@@ -158,7 +159,7 @@ function MonitorResetButton({ edidId, onPinChange, setAppliedMap }: { edidId: st
             delete next[edidId];
             return next;
           });
-          setMessage({ text: "Reset to default", ok: true });
+          setMessage({ text: clearIcc ? "Reset + ICC cleared" : "Reset to default", ok: true });
           setTimeout(() => setMessage(null), 3000);
         }
       } catch (err) {
@@ -175,8 +176,8 @@ function MonitorResetButton({ edidId, onPinChange, setAppliedMap }: { edidId: st
     <span className="inline-flex min-w-0 items-center gap-2">
       <UtilityButton
         label={resetting ? "…" : "Reset"}
-        title="Reset this monitor to default colours (identity gamma)"
-        onClick={() => void handleReset()}
+        title="Reset this monitor to default colours (Shift+click to also dissociate ChromaDeck ICC profiles)"
+        onClick={(e) => void handleReset(e.shiftKey)}
         disabled={resetting}
         icon={<ResetGlyph className="size-[13px]" />}
       />
@@ -678,10 +679,11 @@ function ResetAllConfirmDialog({
   resetting,
 }: {
   onClosed: () => void;
-  onConfirm: () => Promise<boolean>;
+  onConfirm: (clearIcc: boolean) => Promise<boolean>;
   resetting: boolean;
 }) {
   const [open, setOpen] = useState(true);
+  const [clearIcc, setClearIcc] = useState(false);
   const requestClose = (force = false) => {
     if (resetting && !force) return;
     setOpen(false);
@@ -714,6 +716,20 @@ function ResetAllConfirmDialog({
           Pins are lifted even if some screens fail to reset, so enforcement never resumes on its own.
         </p>
 
+        <label className="flex cursor-pointer items-center gap-2.5 rounded-[8px] border border-border bg-surface px-3 py-2.5 select-none transition-colors hover:border-border-hover">
+          <Checkbox
+            checked={clearIcc}
+            onCheckedChange={(checked) => setClearIcc(Boolean(checked))}
+            disabled={resetting}
+            aria-label="Also dissociate ChromaDeck ICC profiles"
+          >
+            <CheckboxIndicator />
+          </Checkbox>
+          <span className="font-mono text-[11px] leading-snug text-foreground">
+            Also dissociate ChromaDeck ICC profiles from connected displays
+          </span>
+        </label>
+
         <DialogFooter>
           <Button variant="ghost" type="button" onClick={() => requestClose()} disabled={resetting}>
             Cancel
@@ -723,7 +739,7 @@ function ResetAllConfirmDialog({
             type="button"
             onClick={() => {
               void (async () => {
-                const done = await onConfirm();
+                const done = await onConfirm(clearIcc);
                 // Close through the exit animation only when the reset ran;
                 // a thrown failure keeps the dialog open with the error.
                 if (done) requestClose(true);
@@ -772,10 +788,10 @@ function ResetAllButton({ monitors, pins, setAppliedMap, onRefresh, onPinChange 
     if (toastTimer.current) clearTimeout(toastTimer.current);
   }, []);
 
-  const handleConfirm = async (): Promise<boolean> => {
+  const handleConfirm = async (clearIcc: boolean): Promise<boolean> => {
     setResetting(true);
     try {
-      const outcome = await resetAllMonitors();
+      const outcome = await resetAllMonitors(clearIcc);
       // Results are keyed to their monitor; mirror the backend's
       // applied-record clearing in UI state so slots stop showing
       // presets that no longer apply.

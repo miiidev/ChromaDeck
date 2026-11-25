@@ -5,7 +5,7 @@
  * can be tested without a DOM testing stack.
  */
 
-import type { Preset, PresetInput } from "./types";
+import type { CapturedState, Preset, PresetInput } from "./types";
 import { NEUTRAL } from "./presetCard";
 
 /** Fresh editor state for a new preset. */
@@ -24,7 +24,13 @@ export const DEFAULT_PRESET_INPUT: PresetInput = {
 };
 
 export function withSelectedIcc(form: PresetInput, path: string): PresetInput {
-  return { ...form, icc_path: path };
+  return { ...form, icc_path: path, clear_icc: false };
+}
+
+/** Explicitly detach any existing or newly picked ICC profile on save. */
+export function withClearedIcc(form: PresetInput): PresetInput {
+  const { icc_path: _removed, ...rest } = form;
+  return { ...rest, clear_icc: true };
 }
 
 /** Populate the editor form from a stored preset (edit mode). */
@@ -33,7 +39,7 @@ export function presetToFormValues(preset: Preset): PresetInput {
     name: preset.name,
     brightness: preset.brightness,
     contrast: preset.contrast,
-    rgb_gains: preset.rgb_gains,
+    rgb_gains: [...preset.rgb_gains] as [number, number, number],
     gamma: preset.gamma,
     vibrance: preset.vibrance,
     saturation: preset.saturation,
@@ -58,5 +64,30 @@ export function resetSliderValues(form: PresetInput): PresetInput {
     vibrance: NEUTRAL.vibrance,
     saturation: NEUTRAL.saturation,
     hue_deg: 0,
+  };
+}
+
+/** Clamp and round a numeric value to the step precision of a slider field. */
+export function clampSliderValue(raw: number, min: number, max: number, step: number): number {
+  const clamped = Math.min(max, Math.max(min, raw));
+  const decimals = step < 1 ? Math.ceil(-Math.log10(step)) : 0;
+  const factor = Math.pow(10, decimals);
+  return Math.round(clamped * factor) / factor;
+}
+
+/**
+ * Apply live captured NVCP state into the form.
+ * RGB gains reset to [1, 1, 1] because NVCP's floating-point ramp has no
+ * separate per-channel gain representation.
+ */
+export function applyCapturedState(form: PresetInput, captured: CapturedState): PresetInput {
+  return {
+    ...form,
+    brightness: clampSliderValue(captured.brightness, 0, 100, 1),
+    contrast: clampSliderValue(captured.contrast, 0, 100, 1),
+    gamma: clampSliderValue(captured.gamma, 0.3, 2.8, 0.05),
+    vibrance: clampSliderValue(captured.vibrance, 0, 100, 1),
+    hue_deg: clampSliderValue(captured.hue_deg, 0, 359, 1),
+    rgb_gains: [1.0, 1.0, 1.0],
   };
 }

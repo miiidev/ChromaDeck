@@ -88,6 +88,11 @@ describe("validatePreset", () => {
     expect(errors.rgb_gains).toBeDefined();
   });
 
+  it("rejects RGB gains above 10 or non-finite", () => {
+    expect(validatePreset({ rgb_gains: [1, 10.5, 1] }).rgb_gains).toBeDefined();
+    expect(validatePreset({ rgb_gains: [Number.NaN, 1, 1] }).rgb_gains).toBeDefined();
+  });
+
   it("accepts zero RGB gains", () => {
     const errors = validatePreset({ rgb_gains: [0, 0, 0] });
     expect(errors.rgb_gains).toBeUndefined();

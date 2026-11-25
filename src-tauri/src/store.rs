@@ -144,6 +144,8 @@ pub struct Preset {
 pub struct PresetInput {
     pub name: String,
     pub icc_path: Option<String>,
+    #[serde(default)]
+    pub clear_icc: bool,
     pub brightness: f64,
     pub contrast: f64,
     pub rgb_gains: [f64; 3],
@@ -622,6 +624,13 @@ impl Store {
                 "hue_deg must be in 0.0..=359.0".into(),
             ));
         }
+        for &g in &input.rgb_gains {
+            if !(0.0..=10.0).contains(&g) {
+                return Err(StoreError::InvalidInput(
+                    "rgb_gains values must be in 0.0..=10.0".into(),
+                ));
+            }
+        }
 
         let attached_programs = self.normalize_program_list(&input.attached_programs, Some(id))?;
 
@@ -642,11 +651,19 @@ impl Store {
             }
         }
 
-        // Handle optional ICC import (new path provided) or keep existing
+        let previous_icc_hash = self.presets[idx].icc_hash.clone();
+
+        // Handle optional ICC import (new path provided), explicit clear, or keep existing
         let (icc_hash, icc_filename) = if let Some(ref src) = input.icc_path {
-            let hash = self.import_icc_file(src)?;
-            let filename = format!("{hash}.icc");
-            (hash, filename)
+            if src.trim().is_empty() {
+                (String::new(), String::new())
+            } else {
+                let hash = self.import_icc_file(src)?;
+                let filename = format!("{hash}.icc");
+                (hash, filename)
+            }
+        } else if input.clear_icc {
+            (String::new(), String::new())
         } else {
             (
                 self.presets[idx].icc_hash.clone(),
@@ -676,6 +693,9 @@ impl Store {
         if let Err(error) = self.flush() {
             self.presets[idx] = previous;
             return Err(error);
+        }
+        if !previous_icc_hash.is_empty() && previous_icc_hash != updated.icc_hash {
+            self.remove_orphan_icc(&previous_icc_hash);
         }
         Ok(updated)
     }
@@ -725,7 +745,22 @@ impl Store {
             }
             return Err(error);
         }
+        if !removed.icc_hash.is_empty() {
+            self.remove_orphan_icc(&removed.icc_hash);
+        }
         Ok(removed)
+    }
+
+    /// Best-effort cleanup of a bundled ICC file once no preset references its hash.
+    fn remove_orphan_icc(&self, hash: &str) {
+        if hash.is_empty() {
+            return;
+        }
+        let still_referenced = self.presets.iter().any(|p| p.icc_hash == hash);
+        if !still_referenced {
+            let path = self.profiles_dir.join(format!("{hash}.icc"));
+            let _ = std::fs::remove_file(path);
+        }
     }
 
     /// Import an ICC profile from `src_path`, copying it into the store and
@@ -1190,6 +1225,7 @@ mod tests {
         PresetInput {
             name: "Test Preset".into(),
             icc_path: None,
+            clear_icc: false,
             brightness: 55.0,
             contrast: 60.0,
             rgb_gains: [1.0, 1.0, 1.0],
@@ -1391,6 +1427,7 @@ mod tests {
                 PresetInput {
                     name: "Updated".into(),
                     icc_path: None,
+                    clear_icc: false,
                     brightness: 55.0,
                     contrast: 60.0,
                     rgb_gains: [0.8, 0.9, 1.0],
@@ -1504,6 +1541,7 @@ mod tests {
                 .create_preset(PresetInput {
                     name: "Second".into(),
                     icc_path: None,
+                    clear_icc: false,
                     brightness: 30.0,
                     contrast: 60.0,
                     rgb_gains: [0.5, 0.5, 0.5],
@@ -1791,6 +1829,7 @@ mod tests {
                 PresetInput {
                     name: "Tagged".into(),
                     icc_path: None,
+                    clear_icc: false,
                     brightness: 55.0,
                     contrast: 60.0,
                     rgb_gains: [1.0, 1.0, 1.0],
@@ -1821,6 +1860,7 @@ mod tests {
                 PresetInput {
                     name: "Cleared".into(),
                     icc_path: None,
+                    clear_icc: false,
                     brightness: 55.0,
                     contrast: 60.0,
                     rgb_gains: [1.0, 1.0, 1.0],
@@ -1851,6 +1891,7 @@ mod tests {
                 PresetInput {
                     name: "Bad".into(),
                     icc_path: None,
+                    clear_icc: false,
                     brightness: 55.0,
                     contrast: 60.0,
                     rgb_gains: [1.0, 1.0, 1.0],
@@ -2444,5 +2485,87 @@ mod tests {
         let err = store.set_auto_apply_enabled(true).unwrap_err();
         assert!(matches!(err, StoreError::LoadFault(_)), "{err}");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ── Phase 1: rgb_gains update parity & clear_icc ─────────────────────
+
+    #[test]
+    fn update_preset_rejects_out_of_range_rgb_gains() {
+        let mut store = test_store();
+        let preset = store.create_preset(minimal_input()).unwrap();
+
+        let mut negative = minimal_input();
+        negative.rgb_gains = [-0.1, 1.0, 1.0];
+        let err = store.update_preset(&preset.id, negative).unwrap_err();
+        assert!(err.to_string().contains("rgb_gains"), "{err}");
+
+        let mut too_high = minimal_input();
+        too_high.rgb_gains = [1.0, 10.1, 1.0];
+        let err = store.update_preset(&preset.id, too_high).unwrap_err();
+        assert!(err.to_string().contains("rgb_gains"), "{err}");
+
+        let mut nan = minimal_input();
+        nan.rgb_gains = [1.0, 1.0, f64::NAN];
+        let err = store.update_preset(&preset.id, nan).unwrap_err();
+        assert!(err.to_string().contains("rgb_gains"), "{err}");
+    }
+
+    #[test]
+    fn update_preset_clear_icc_removes_association_and_orphan_file() {
+        let dir = test_store_dir_unique();
+        let mut store = test_store_at(dir.clone());
+        let src_icc = dir.join("sample.icc");
+        std::fs::write(&src_icc, b"fake icc profile bytes").unwrap();
+
+        let mut input = minimal_input();
+        input.icc_path = Some(src_icc.to_string_lossy().into_owned());
+        let preset = store.create_preset(input).unwrap();
+        assert!(!preset.icc_hash.is_empty());
+        let bundled = dir.join("profiles").join(&preset.icc_filename);
+        assert!(bundled.exists(), "bundled ICC file should exist after create");
+
+        let mut clear = minimal_input();
+        clear.clear_icc = true;
+        let updated = store.update_preset(&preset.id, clear).unwrap();
+        assert!(updated.icc_hash.is_empty());
+        assert!(updated.icc_filename.is_empty());
+        assert!(!bundled.exists(), "unreferenced ICC file should be cleaned up");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn update_preset_clear_icc_keeps_shared_icc_file() {
+        let dir = test_store_dir_unique();
+        let mut store = test_store_at(dir.clone());
+        let src_icc = dir.join("shared.icc");
+        std::fs::write(&src_icc, b"shared icc profile bytes").unwrap();
+        let path_str = src_icc.to_string_lossy().into_owned();
+
+        let mut first = minimal_input();
+        first.icc_path = Some(path_str.clone());
+        let p1 = store.create_preset(first).unwrap();
+
+        let mut second = minimal_input();
+        second.name = "Second".into();
+        second.icc_path = Some(path_str);
+        let p2 = store.create_preset(second).unwrap();
+        assert_eq!(p1.icc_hash, p2.icc_hash);
+
+        let bundled = dir.join("profiles").join(&p1.icc_filename);
+        let mut clear = minimal_input();
+        clear.clear_icc = true;
+        let updated = store.update_preset(&p1.id, clear).unwrap();
+        assert!(updated.icc_hash.is_empty());
+        assert!(bundled.exists(), "ICC file still referenced by p2 must remain");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn preset_input_deserializes_without_clear_icc() {
+        let json = r#"{"name":"Legacy","icc_path":null,"brightness":50.0,"contrast":50.0,"rgb_gains":[1.0,1.0,1.0],"gamma":1.0,"vibrance":50.0,"hue_deg":0.0}"#;
+        let input: PresetInput = serde_json::from_str(json).unwrap();
+        assert!(!input.clear_icc);
     }
 }

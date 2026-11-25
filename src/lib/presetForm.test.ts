@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { DEFAULT_PRESET_INPUT, presetToFormValues, resetSliderValues, withSelectedIcc } from "./presetForm";
+import {
+  DEFAULT_PRESET_INPUT,
+  applyCapturedState,
+  clampSliderValue,
+  presetToFormValues,
+  resetSliderValues,
+  withClearedIcc,
+  withSelectedIcc,
+} from "./presetForm";
 import type { Preset } from "./types";
 
 const PRESET: Preset = {
@@ -67,5 +75,44 @@ describe("preset editor saturation round-trip", () => {
     expect(reset.saturation).toBe(50);
     expect(reset.name).toBe("Movie - Warm");
     expect(reset.color_tag).toBe("#ff5533");
+  });
+});
+
+describe("ICC clearing, capture & slider clamping", () => {
+  it("marks clear_icc when detaching and unmarks when selecting a new ICC", () => {
+    const base = presetToFormValues(PRESET);
+    const cleared = withClearedIcc(base);
+    expect(cleared.clear_icc).toBe(true);
+    expect(cleared.icc_path).toBeUndefined();
+
+    const reselected = withSelectedIcc(cleared, "C:\\profiles\\next.icc");
+    expect(reselected.clear_icc).toBe(false);
+    expect(reselected.icc_path).toBe("C:\\profiles\\next.icc");
+  });
+
+  it("applies captured NVCP values and resets rgb_gains to neutral", () => {
+    const form = presetToFormValues(PRESET);
+    const next = applyCapturedState(form, {
+      brightness: 62.4,
+      contrast: 48.7,
+      gamma: 1.34,
+      vibrance: 75.2,
+      hue_deg: 18.6,
+    });
+    expect(next.brightness).toBe(62);
+    expect(next.contrast).toBe(49);
+    expect(next.gamma).toBe(1.34);
+    expect(next.vibrance).toBe(75);
+    expect(next.hue_deg).toBe(19);
+    expect(next.rgb_gains).toEqual([1, 1, 1]);
+    // Untouched metadata
+    expect(next.name).toBe(form.name);
+    expect(next.saturation).toBe(form.saturation);
+  });
+
+  it("clamps slider values into range at step precision", () => {
+    expect(clampSliderValue(3.5, 0.3, 2.8, 0.05)).toBe(2.8);
+    expect(clampSliderValue(-5, 0, 100, 1)).toBe(0);
+    expect(clampSliderValue(1.126, 0.5, 1.5, 0.01)).toBe(1.13);
   });
 });

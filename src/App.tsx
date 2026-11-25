@@ -733,6 +733,7 @@ function App() {
       {showEditor && (
         <PresetEditor
           presets={presets}
+          monitors={monitors}
           editPreset={editingPreset}
           onClose={handleDialogCloseRequest}
           onClosed={handleEditorClosed}

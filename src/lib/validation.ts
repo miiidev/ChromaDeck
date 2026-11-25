@@ -60,9 +60,9 @@ export function validatePreset(input: Partial<PresetInput>): ValidationErrors {
     if (
       !Array.isArray(input.rgb_gains) ||
       input.rgb_gains.length !== 3 ||
-      input.rgb_gains.some((v) => typeof v !== "number" || v < 0)
+      input.rgb_gains.some((v) => typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 10)
     ) {
-      errors.rgb_gains = "RGB gains must be non-negative values";
+      errors.rgb_gains = "RGB gains must be between 0 and 10";
     }
   }
 

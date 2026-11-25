@@ -52,6 +52,8 @@ export interface Preset {
 export interface PresetInput {
   name: string;
   icc_path?: string;
+  /** When true, update_preset removes any existing ICC profile from the preset. */
+  clear_icc?: boolean;
   brightness: number;
   contrast: number;
   rgb_gains: [number, number, number];

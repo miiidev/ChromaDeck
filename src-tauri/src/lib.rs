@@ -14,7 +14,10 @@ mod store;
 mod updater;
 
 use capabilities::get_display_capabilities;
-use color::{apply_preset_cmd, probe_monitor_cmd, reset_all_monitors_cmd, reset_monitor_cmd};
+use color::{
+    apply_preset_cmd, preview_preset_cmd, probe_monitor_cmd, reset_all_monitors_cmd,
+    reset_monitor_cmd, restore_preview_cmd,
+};
 use enforce::reapply_now_cmd;
 use identify::{identify_info_cmd, identify_monitors_cmd};
 use monitor::list_monitors_cmd;
@@ -178,6 +181,8 @@ pub fn run() {
             delete_preset_cmd,
             import_icc_cmd,
             apply_preset_cmd,
+            preview_preset_cmd,
+            restore_preview_cmd,
             vibrance_supported_cmd,
             reset_monitor_cmd,
             reset_all_monitors_cmd,
