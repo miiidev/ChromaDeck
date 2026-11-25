@@ -1,0 +1,161 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Verify version files match tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $tagVersion = "${{ github.ref_name }}" -replace "^v", ""
+          $pkgVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $tauriVersion = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $cargoText = Get-Content src-tauri/Cargo.toml -Raw
+          $cargoVersion = ([regex]::Match($cargoText, '(?ms)\[package\].*?^version\s*=\s*"([^"]+)"')).Groups[1].Value
+
+          Write-Host "Tag:        $tagVersion"
+          Write-Host "package:    $pkgVersion"
+          Write-Host "tauri.conf: $tauriVersion"
+          Write-Host "Cargo.toml: $cargoVersion"
+
+          if ($pkgVersion -ne $tagVersion -or $tauriVersion -ne $tagVersion -or $cargoVersion -ne $tagVersion) {
+            throw "Version mismatch! Run 'npm run bump -- $tagVersion' so all three files match $tagVersion."
+          }
+
+      - name: Run typecheck, frontend tests, and Rust tests
+        shell: pwsh
+        run: |
+          npx tsc --noEmit
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --manifest-path src-tauri/Cargo.toml
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Generate release notes from git log
+        id: notes
+        shell: pwsh
+        run: |
+          $prevTag = git describe --tags --abbrev=0 "HEAD^" 2>$null
+          if ($prevTag) {
+            $commits = git log "$prevTag..HEAD" --no-merges --pretty=format:"- %s"
+            $header = "Changes since $prevTag:"
+          } else {
+            $commits = git log -n 20 --no-merges --pretty=format:"- %s"
+            $header = "Changes in this release:"
+          }
+          $body = @(
+            $header
+            ""
+            $commits
+            ""
+            "### Downloads (Windows 10/11 x64)"
+            "- **MSI installer (`.msi`)** — recommended standard Windows installer"
+            "- **Setup wizard (`-setup.exe`)** — NSIS installer"
+            "- **Portable ZIP (`-portable.zip`)** — unzip and run; stores data locally in `./data`"
+          ) -join "`n"
+
+          $eof = "RELEASE_NOTES_EOF"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "body<<$eof"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value $body
+          Add-Content -Path $env:GITHUB_OUTPUT -Value $eof
+
+      - name: Build & sign Tauri release (draft first so portable ZIP is included atomically)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: v__VERSION__
+          releaseName: ChromaDeck v__VERSION__
+          releaseBody: ${{ steps.notes.outputs.body }}
+          releaseDraft: true
+          prerelease: false
+          includeUpdaterJson: true
+
+      - name: Build Tauri bundles (manual dry-run without publishing)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npm run tauri build
+
+      - name: Build portable ZIP bundle
+        shell: pwsh
+        run: npm run bundle:portable
+
+      - name: Upload portable ZIP and publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem "src-tauri/target/release/bundle/portable/ChromaDeck_*_x64-portable.zip" | Select-Object -First 1
+          if (-not $zip) {
+            throw "Portable ZIP not found."
+          }
+          gh release upload "${{ github.ref_name }}" $zip.FullName --clobber
+          gh release edit "${{ github.ref_name }}" --draft=false
+
+      - name: Print legacy update-manifest.json bridge snippet
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}" -replace "^v", ""
+          $msiSig = Get-ChildItem "src-tauri/target/release/bundle/msi/*.msi.sig" -ErrorAction SilentlyContinue | Select-Object -First 1
+          $msi = Get-ChildItem "src-tauri/target/release/bundle/msi/*.msi" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($msiSig -and $msi) {
+            $sig = (Get-Content $msiSig.FullName -Raw).Trim()
+            $pubDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+            $manifest = [ordered]@{
+              version = $version
+              notes = "ChromaDeck v$version"
+              pub_date = $pubDate
+              url = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/$($msi.Name)"
+              signature = $sig
+            } | ConvertTo-Json
+            @(
+              "## Legacy `chromadeck.github.io/update-manifest.json` Bridge"
+              ""
+              "Existing v0.9.3–v0.9.5 installs still check ``https://chromadeck.github.io/update-manifest.json``."
+              "Paste this once so older installs upgrade onto GitHub Releases ``latest.json`` automatically:"
+              ""
+              '```json'
+              $manifest
+              '```'
+            ) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          }
