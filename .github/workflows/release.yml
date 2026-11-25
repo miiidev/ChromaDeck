@@ -70,24 +70,25 @@ jobs:
         run: |
           $prevTag = git describe --tags --abbrev=0 "HEAD^" 2>$null
           if ($prevTag) {
-            $commits = git log "$prevTag..HEAD" --no-merges --pretty=format:"- %s"
-            $header = "Changes since $prevTag:"
+            $commits = @(git log "$prevTag..HEAD" --no-merges --pretty=format:"- %s")
+            $header = "Changes since ${prevTag}:"
           } else {
-            $commits = git log -n 20 --no-merges --pretty=format:"- %s"
-            $header = "Changes in this release:"
+            $commits = @(git log -n 20 --no-merges --pretty=format:"- %s")
+            $header = 'Changes in this release:'
           }
-          $body = @(
+          $lines = @(
             $header
-            ""
-            $commits
-            ""
-            "### Downloads (Windows 10/11 x64)"
-            "- **MSI installer (`.msi`)** — recommended standard Windows installer"
-            "- **Setup wizard (`-setup.exe`)** — NSIS installer"
-            "- **Portable ZIP (`-portable.zip`)** — unzip and run; stores data locally in `./data`"
-          ) -join "`n"
+            ''
+          ) + $commits + @(
+            ''
+            '### Downloads (Windows 10/11 x64)'
+            '- **MSI installer (`.msi`)** — recommended standard Windows installer'
+            '- **Setup wizard (`-setup.exe`)** — NSIS installer'
+            '- **Portable ZIP (`-portable.zip`)** — unzip and run; stores data locally in `./data`'
+          )
+          $body = $lines -join "`n"
 
-          $eof = "RELEASE_NOTES_EOF"
+          $eof = 'RELEASE_NOTES_EOF'
           Add-Content -Path $env:GITHUB_OUTPUT -Value "body<<$eof"
           Add-Content -Path $env:GITHUB_OUTPUT -Value $body
           Add-Content -Path $env:GITHUB_OUTPUT -Value $eof
@@ -149,11 +150,11 @@ jobs:
               signature = $sig
             } | ConvertTo-Json
             @(
-              "## Legacy `chromadeck.github.io/update-manifest.json` Bridge"
-              ""
-              "Existing v0.9.3–v0.9.5 installs still check ``https://chromadeck.github.io/update-manifest.json``."
-              "Paste this once so older installs upgrade onto GitHub Releases ``latest.json`` automatically:"
-              ""
+              '## Legacy `chromadeck.github.io/update-manifest.json` Bridge'
+              ''
+              'Existing v0.9.3–v0.9.5 installs still check `https://chromadeck.github.io/update-manifest.json`.'
+              'Paste this once so older installs upgrade onto GitHub Releases `latest.json` automatically:'
+              ''
               '```json'
               $manifest
               '```'
