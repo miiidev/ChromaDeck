@@ -6,7 +6,7 @@ import "@fontsource/geist/600.css";
 import "@fontsource/geist/700.css";
 import "@fontsource/jetbrains-mono/500.css";
 import "@fontsource/jetbrains-mono/700.css";
-import { listMonitors, listPresets, listPins, listApplied, reapplyNow, getAutoApplyEnabled, setAutoApplyEnabled, listAutoApplied, checkForUpdate, downloadAndInstallUpdate, type AutoApplyEvent } from "./lib/tauri";
+import { listMonitors, listPresets, listPins, listApplied, reapplyNow, getAutoApplyEnabled, setAutoApplyEnabled, listAutoApplied, checkForUpdate, downloadAndInstallUpdate, type AutoApplyEvent, type HotkeyEvent } from "./lib/tauri";
 import { version as appVersion } from "../package.json";
 import type { Monitor, Preset, EnforceEvent } from "./lib/types";
 import { applyAutoEvent, type AutoMap } from "./lib/autoApplyState";
@@ -346,13 +346,23 @@ function App() {
     const enabled = listen<boolean>("auto-apply://enabled", (event) => {
       setAutoEnabled(event.payload);
     });
+    const storeChanged = listen("store://changed", () => {
+      void fetchData(true);
+    });
+    const hotkeyTriggered = listen<HotkeyEvent>("hotkey://triggered", (event) => {
+      const p = event.payload;
+      showReapplyMsg(p.error ? `${p.message}: ${p.error}` : p.message);
+      void fetchData(true);
+    });
 
     return () => {
       mounted = false;
       outcome.then((unlisten) => unlisten()).catch(() => {});
       enabled.then((unlisten) => unlisten()).catch(() => {});
+      storeChanged.then((unlisten) => unlisten()).catch(() => {});
+      hotkeyTriggered.then((unlisten) => unlisten()).catch(() => {});
     };
-  }, []);
+  }, [fetchData]);
 
   // ── Auto-updater: check on startup + follow progress events ───────────
   const updateInFlight = useRef(false);

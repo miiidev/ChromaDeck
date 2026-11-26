@@ -358,6 +358,15 @@ export default function PresetCard({
                   ICC
                 </span>
               )}
+              {preset.shortcut && (
+                <span
+                  data-slot="shortcut-badge"
+                  title={`Global shortcut: ${preset.shortcut}`}
+                  className="pop-in inline-flex shrink-0 items-center whitespace-nowrap rounded-[8px] border border-border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground"
+                >
+                  {preset.shortcut}
+                </span>
+              )}
               {isActive && (
                 <span
                   className="pop-in inline-flex shrink-0 items-center whitespace-nowrap rounded-[8px] border border-primary bg-primary-subtle px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em] text-primary"

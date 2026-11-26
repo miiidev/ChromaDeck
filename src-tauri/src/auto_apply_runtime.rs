@@ -38,6 +38,22 @@ pub fn relinquish_manual(app: &AppHandle, edid_id: &str) {
     emit_cleared(app, edid_id);
 }
 
+/// Drain and return all monitor EDIDs currently coloured by in-memory
+/// auto-apply so tray-quit shutdown restores them too.
+pub fn take_active_edids(app: &AppHandle) -> Vec<String> {
+    let Some(state) = app.try_state::<AutoState>() else {
+        return Vec::new();
+    };
+    let Ok(mut runtime) = state.runtime.lock() else {
+        return Vec::new();
+    };
+    runtime
+        .drain_sorted()
+        .into_iter()
+        .map(|a| a.edid_id)
+        .collect()
+}
+
 /// Emitted for every applied / reverted / skipped / errored / cleared change.
 pub const OUTCOME_EVENT: &str = "auto-apply://outcome";
 /// Emitted when the master switch changes (footer toggle ↔ tray checkbox).

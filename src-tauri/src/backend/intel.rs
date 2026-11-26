@@ -2200,6 +2200,7 @@ mod backend_tests {
             color_tag: None,
             tag_shape: None,
             attached_programs: Vec::new(),
+            shortcut: None,
         }
     }
 
@@ -3275,6 +3276,7 @@ mod hw_verify {
             color_tag: None,
             tag_shape: None,
             attached_programs: Vec::new(),
+            shortcut: None,
         }
     }
 

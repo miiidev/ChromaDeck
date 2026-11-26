@@ -131,42 +131,44 @@
 
 ## Phase 3: Zero-Friction Mid-Game Switching (Tray, CLI, Global Hotkeys)
 
+**Status:** COMPLETE (verified: 301 cargo tests, 218 vitest tests, `npm run build`, 7 Playwright E2E tests + Visual QA screenshot).
+
 **Goal:** Allow users to switch presets, reset monitors, and trigger reapply mid-game or via Stream Deck / scripts without opening the main window.
 
 ### Task 3.1: Dynamic Per-Monitor Preset Submenus in System Tray
 **Files:**
-- Modify: `src-tauri/src/lib.rs` (extract `tray.rs` module if `lib.rs` exceeds ~300 lines)
-- Modify: `src-tauri/src/store.rs` (trigger tray menu rebuild on preset/pin/alias mutations)
+- Create: `src-tauri/src/tray.rs` (extracted from `src-tauri/src/lib.rs`)
+- Modify: `src-tauri/src/store.rs`, `src-tauri/src/color.rs` (trigger `tray::refresh_tray` on preset/pin/apply/reset/alias mutations)
 
-- [ ] **Step 1:** Create `src-tauri/src/tray.rs` with `rebuild_tray_menu(app: &AppHandle)`:
-  - Top items: `Show` | per-connected-monitor `Submenu` (`{alias_or_model}` ▸ check/radio items for each `Preset` + separator + `Pin current` + `Reset monitor`) | separator | `Reapply now` | `Auto-apply` check item | separator | `Quit`.
-- [ ] **Step 2:** Handle menu event IDs (`tray-apply:{edid_id}:{preset_id}`, `tray-reset:{edid_id}`), acquiring `DISPLAY_OPERATION`, updating `applied.json`, relinquishing auto-apply on that monitor, and emitting a `store://changed` event so the main window stays live if open.
-- [ ] **Step 3:** Rebuild the tray menu whenever presets, pins, monitor names, or connected monitor sets change.
+- [x] **Step 1:** Create `src-tauri/src/tray.rs` with `build_tray` and `refresh_tray(app: &AppHandle)`:
+  - Top items: `Show ChromaDeck` | per-connected-monitor `Submenu` (`{alias_or_model}` ▸ `CheckMenuItem` per `Preset` showing shortcut hint + separator + `Reset to default`) | separator | `Reapply now` | `Auto-apply` check item | separator | `Quit`.
+- [x] **Step 2:** Handle menu event IDs (`tray-apply::{edid_id}::{preset_id}`, `tray-reset::{edid_id}`), acquiring `DISPLAY_OPERATION`, updating `applied.json`, relinquishing auto-apply on that monitor, and emitting `store://changed` so the main window stays live if open.
+- [x] **Step 3:** Rebuild the tray menu whenever presets, pins, applied records, or monitor names change.
 
 ### Task 3.2: CLI Flags via Single-Instance Hook (`Stream Deck / Scripting`)
 **Files:**
 - Create: `src-tauri/src/cli.rs`
 - Modify: `src-tauri/src/lib.rs`
 
-- [ ] **Step 1:** Implement pure argument parser `parse_cli_args(args: &[String]) -> Option<CliCommand>` in `cli.rs` with full unit tests (no heavy crate needed — pure `std` slice parser):
-  - `--apply <preset-name-or-id> [--monitor <1-based-index | alias | edid_id | all>] [--pin]`
-  - `--reset [--monitor <1-based-index | alias | edid_id | all>]`
+- [x] **Step 1:** Implement pure argument parser `parse_cli_args(args: &[String]) -> ParsedCli` in `cli.rs` with full unit tests (pure `std` slice parser):
+  - `--apply <preset-name-or-id> [--monitor|-m <1-based-index | alias | edid_id | all>] [--pin]`
+  - `--reset [--monitor|-m <1-based-index | alias | edid_id | all>] [--clear-icc]` / `--reset-all`
   - `--reapply`
   - `--auto-apply <on|off|toggle>`
-  - `--quiet` / `--headless` (start hidden in tray on cold boot without showing main window; also useful for Autostart!).
-- [ ] **Step 2:** Wire `cli::execute` into `tauri_plugin_single_instance::init(|app, argv, _cwd| ...)` so running `chromadeck.exe --apply "Warm" --monitor 1` while ChromaDeck is in the tray executes silently **without** popping the main window forward over a fullscreen game! Only call `show_main_window(app)` when `argv` carries no CLI action.
-- [ ] **Step 3:** Also support cold-start CLI execution in `.setup(...)` when ChromaDeck was not yet running.
+  - `--headless` / `--quiet` (start hidden in tray on cold boot without showing main window).
+- [x] **Step 2:** Wire `cli::execute_cli` into `tauri_plugin_single_instance::init(|app, argv, _cwd| ...)` so running `chromadeck.exe --apply "Warm" --monitor 1` while ChromaDeck is in the tray executes silently **without** popping the main window forward over a fullscreen game.
+- [x] **Step 3:** Support cold-start CLI execution & `--headless` in `.setup(...)`.
 
-### Task 3.3: Global Hotkeys (`tauri-plugin-global-shortcut`)
+### Task 3.3: Global Hotkeys (Native Win32 `RegisterHotKey`)
 **Files:**
-- Modify: `src-tauri/Cargo.toml`, `package.json`, `src-tauri/capabilities/default.json`
-- Create: `src-tauri/src/hotkeys.rs`
-- Modify: `src-tauri/src/store.rs` (`Preset.shortcut: Option<String>`, `Settings.reapply_shortcut`, `Settings.cycle_shortcut`), `src/lib/types.ts`, `src/components/PresetEditor.tsx`
+- Modify: `src-tauri/Cargo.toml` (enable `Win32_UI_Input_KeyboardAndMouse` on existing `windows` crate — zero new crates)
+- Create: `src-tauri/src/hotkeys.rs`, `src/lib/shortcut.ts`, `src/lib/shortcut.test.ts`
+- Modify: `src-tauri/src/store.rs` (`Preset.shortcut`, `Settings.reapply_shortcut`, `Settings.cycle_shortcut`), `src/lib/types.ts`, `src/lib/presetForm.ts`, `src/lib/tauri.ts`, `src/components/PresetEditor.tsx`, `src/components/PresetCard.tsx`, `src/App.tsx`
 
-- [ ] **Step 1:** Add `tauri-plugin-global-shortcut = "2"` in `Cargo.toml` and `@tauri-apps/plugin-global-shortcut` in `package.json` (only if frontend needs direct types; prefer owning registration in Rust `hotkeys.rs` so shortcuts work while window is hidden in tray).
-- [ ] **Step 2:** Add `#[serde(default)] pub shortcut: Option<String>` to `Preset` / `PresetInput` with uniqueness validation in `Store` (two presets cannot claim the same chord). Target resolution for preset hotkeys: apply to the monitor holding the current foreground window (`foreground::foreground_window()`), falling back to primary connected monitor.
-- [ ] **Step 3:** Add a key-chord recorder input in `PresetEditor.tsx` (`Press shortcut…` + `Clear`), suspending global shortcuts while recording so pressing an existing hotkey records it instead of firing it.
-- [ ] **Step 4:** Run Phase 3 verification gates and commit.
+- [x] **Step 1:** Implement dedicated native Win32 `RegisterHotKey` / `WM_HOTKEY` worker thread in `hotkeys.rs` so shortcuts fire reliably even while hidden in tray or behind fullscreen games.
+- [x] **Step 2:** Add `#[serde(default)] pub shortcut: Option<String>` to `Preset` / `PresetInput` with canonical normalization (`Ctrl+Alt+F1`) and uniqueness validation across presets and global shortcuts (`reapply_shortcut`, `cycle_shortcut`) in `Store`. Target resolution applies to the monitor holding the current foreground window (falling back to primary connected monitor).
+- [x] **Step 3:** Add a key-chord recorder input in `PresetEditor.tsx` (`Click to record…` + `Clear`), suspending global shortcuts via `set_hotkeys_suspended_cmd` while recording, and show shortcut badges on `PresetCard.tsx`.
+- [x] **Step 4:** Run Phase 3 verification gates (`cargo test`, `npm test`, `npm run build`, Playwright E2E + Visual QA).
 
 ---
 

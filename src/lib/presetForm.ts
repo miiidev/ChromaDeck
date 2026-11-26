@@ -21,6 +21,7 @@ export const DEFAULT_PRESET_INPUT: PresetInput = {
   color_tag: "",
   tag_shape: "pill",
   attached_programs: [],
+  shortcut: "",
 };
 
 export function withSelectedIcc(form: PresetInput, path: string): PresetInput {
@@ -47,6 +48,7 @@ export function presetToFormValues(preset: Preset): PresetInput {
     color_tag: preset.color_tag ?? "",
     tag_shape: preset.tag_shape ?? "pill",
     attached_programs: preset.attached_programs ?? [],
+    shortcut: preset.shortcut ?? "",
   };
 }
 

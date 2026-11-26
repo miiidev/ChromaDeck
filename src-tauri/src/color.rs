@@ -860,6 +860,8 @@ pub fn reset_all_monitors_cmd(
         // Unconditional: reset-all is a full tear-down of enforcement
         // intent; otherwise the enforcer would repaint within one tick.
         let pins_removed = store.clear_all_pins().map_err(|e| e.to_string())?;
+        drop(store);
+        crate::tray::refresh_tray(&app);
         Ok(ResetAllOutcome {
             results: results
                 .into_iter()
@@ -919,7 +921,7 @@ pub fn reset_monitor_with_icc(
 }
 
 /// Collect full paths of ChromaDeck-managed `.icc`/`.icm` files in `profiles_dir`.
-fn managed_icc_paths(profiles_dir: &std::path::Path) -> Vec<String> {
+pub(crate) fn managed_icc_paths(profiles_dir: &std::path::Path) -> Vec<String> {
     let Ok(entries) = std::fs::read_dir(profiles_dir) else {
         return Vec::new();
     };
@@ -982,6 +984,7 @@ pub fn ephemeral_preset_from_input(
         color_tag: None,
         tag_shape: None,
         attached_programs: Vec::new(),
+        shortcut: None,
     })
 }
 
@@ -1177,6 +1180,7 @@ pub fn apply_preset_cmd(
         };
     }
 
+    crate::tray::refresh_tray(&app);
     outcome
 }
 
@@ -1355,6 +1359,7 @@ pub fn reset_monitor_cmd(
         };
     }
 
+    crate::tray::refresh_tray(&app);
     result
 }
 
@@ -1390,6 +1395,7 @@ mod tests {
             color_tag: None,
             tag_shape: None,
             attached_programs: Vec::new(),
+            shortcut: None,
         }
     }
 
@@ -1989,6 +1995,7 @@ mod tests {
             color_tag: None,
             tag_shape: None,
             attached_programs: Vec::new(),
+            shortcut: None,
         }
     }
 
@@ -2163,6 +2170,7 @@ mod tests {
             color_tag: None,
             tag_shape: None,
             attached_programs: vec![],
+            shortcut: None,
         };
         let outcome = preview_preset(&color, &nv, &input, "EDID-001");
         assert!(outcome.result.gamma_applied);
@@ -2190,6 +2198,7 @@ mod tests {
             color_tag: None,
             tag_shape: None,
             attached_programs: vec![],
+            shortcut: None,
         };
         let outcome = preview_preset(&color, &nv, &input, "EDID-001");
         assert!(!outcome.result.gamma_applied);

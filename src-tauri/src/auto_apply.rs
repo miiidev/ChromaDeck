@@ -273,6 +273,7 @@ mod tests {
             color_tag: None,
             tag_shape: None,
             attached_programs: programs.iter().map(|p| p.to_string()).collect(),
+            shortcut: None,
         }
     }
 

@@ -298,6 +298,39 @@ export async function listRunningPrograms(): Promise<string[]> {
   return invoke<string[]>("list_running_programs_cmd");
 }
 
+// ── Global hotkeys ──────────────────────────────────────────────────────────
+
+export interface GlobalHotkeySettings {
+  reapply_shortcut?: string | null;
+  cycle_shortcut?: string | null;
+}
+
+export interface HotkeyEvent {
+  action: string;
+  message: string;
+  error?: string | null;
+}
+
+/** Temporarily suspend OS global hotkeys while recording a new chord. */
+export async function setHotkeysSuspended(suspended: boolean): Promise<void> {
+  if (isBrowserPreview()) return;
+  return invoke<void>("set_hotkeys_suspended_cmd", { suspended });
+}
+
+/** Fetch persisted global hotkey bindings (Reapply / Cycle preset). */
+export async function getGlobalHotkeys(): Promise<GlobalHotkeySettings> {
+  if (isBrowserPreview()) return { reapply_shortcut: null, cycle_shortcut: null };
+  return invoke<GlobalHotkeySettings>("get_global_hotkeys_cmd");
+}
+
+/** Persist and re-register global hotkey bindings. */
+export async function setGlobalHotkeys(
+  hotkeys: GlobalHotkeySettings,
+): Promise<GlobalHotkeySettings> {
+  if (isBrowserPreview()) return hotkeys;
+  return invoke<GlobalHotkeySettings>("set_global_hotkeys_cmd", { hotkeys });
+}
+
 /**
  * One auto-apply outcome. `kind` is applied | reverted | skipped | error |
  * cleared; `error` carries the skip reason or failure text.

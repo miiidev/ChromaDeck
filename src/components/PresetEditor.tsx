@@ -9,8 +9,10 @@ import {
   listRunningPrograms,
   previewPreset,
   restorePreview,
+  setHotkeysSuspended,
   updatePreset,
 } from "../lib/tauri";
+import { findShortcutConflict, shortcutFromKeyEvent } from "../lib/shortcut";
 import { validatePresetForm, type ValidationErrors } from "../lib/validation";
 import {
   DEFAULT_PRESET_INPUT,
@@ -35,7 +37,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { PresetTag } from "@/components/ui/preset-tag";
-import { Check, ChevronDown, Download, Eye, RefreshCw, RotateCcw, Upload, X } from "lucide-react";
+import { Check, ChevronDown, Download, Eye, Keyboard, RefreshCw, RotateCcw, Upload, X } from "lucide-react";
 import { cn } from "cn";
 
 interface Props {
@@ -171,6 +173,15 @@ export default function PresetEditor({ presets, monitors = [], editPreset, onClo
   const [programError, setProgramError] = useState<string | null>(null);
   const [runningPrograms, setRunningPrograms] = useState<string[]>([]);
   const [loadingPrograms, setLoadingPrograms] = useState(false);
+  const [recordingShortcut, setRecordingShortcut] = useState(false);
+  const [shortcutError, setShortcutError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void setHotkeysSuspended(recordingShortcut);
+    return () => {
+      if (recordingShortcut) void setHotkeysSuspended(false);
+    };
+  }, [recordingShortcut]);
 
   const refreshRunningPrograms = () => {
     setLoadingPrograms(true);
@@ -345,6 +356,8 @@ export default function PresetEditor({ presets, monitors = [], editPreset, onClo
     setIccImporting(false);
     setProgramInput("");
     setProgramError(null);
+    setRecordingShortcut(false);
+    setShortcutError(null);
     setCaptureNote(null);
     setPreviewError(null);
   }, [editPreset]);
@@ -797,6 +810,93 @@ export default function PresetEditor({ presets, monitors = [], editPreset, onClo
             </div>
             {programError && (
               <p className="mono text-[10px] text-destructive-text validation-slide">{programError}</p>
+            )}
+          </div>
+
+          {/* ── Global shortcut ──────────────────────────────────── */}
+          <div className="flex flex-col gap-2" data-slot="shortcut-recorder">
+            <div className="flex items-center justify-between gap-3">
+              <span className="font-body text-[12px] uppercase tracking-[0.4px] text-muted-foreground">
+                Global shortcut
+              </span>
+              <span className="mono text-[10px] text-muted-foreground">
+                Applies to active monitor · works mid-game
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                aria-label={recordingShortcut ? "Recording shortcut" : "Record global shortcut"}
+                onClick={() => {
+                  setShortcutError(null);
+                  setRecordingShortcut((prev) => !prev);
+                }}
+                onBlur={() => setRecordingShortcut(false)}
+                onKeyDown={(e) => {
+                  if (!recordingShortcut) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (e.key === "Escape") {
+                    setRecordingShortcut(false);
+                    return;
+                  }
+                  if (
+                    (e.key === "Backspace" || e.key === "Delete") &&
+                    !(e.ctrlKey || e.altKey || e.shiftKey || e.metaKey)
+                  ) {
+                    updateField("shortcut", "");
+                    setShortcutError(null);
+                    setRecordingShortcut(false);
+                    return;
+                  }
+                  const chord = shortcutFromKeyEvent(e);
+                  if (!chord) {
+                    if (!["Control", "Alt", "Shift", "Meta", "OS"].includes(e.key)) {
+                      setShortcutError("Include Ctrl, Alt, Shift, or Win with a key (e.g. Ctrl+Alt+F1)");
+                    }
+                    return;
+                  }
+                  const conflict = findShortcutConflict(chord, presets, editPreset?.id);
+                  if (conflict) {
+                    setShortcutError(conflict);
+                    return;
+                  }
+                  updateField("shortcut", chord);
+                  setShortcutError(null);
+                  setRecordingShortcut(false);
+                }}
+                className={cn(
+                  "flex h-10 flex-1 items-center gap-2 rounded-[8px] border px-3 text-left font-mono text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring",
+                  recordingShortcut
+                    ? "border-primary bg-primary-subtle text-primary"
+                    : "border-border bg-surface text-foreground hover:border-border-hover",
+                )}
+              >
+                <Keyboard className="size-3.5 shrink-0 text-muted-foreground" strokeWidth={1.5} />
+                <span className={cn("truncate", !form.shortcut && !recordingShortcut && "text-muted-foreground")}>
+                  {recordingShortcut
+                    ? "Press modifier + key (Esc to cancel)…"
+                    : form.shortcut || "None — click to record (e.g. Ctrl+Alt+F1)"}
+                </span>
+              </button>
+              {form.shortcut && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    updateField("shortcut", "");
+                    setShortcutError(null);
+                    setRecordingShortcut(false);
+                  }}
+                  aria-label="Clear global shortcut"
+                  className="inline-flex h-10 shrink-0 items-center gap-1 rounded-[8px] border border-border px-2.5 font-mono text-[11px] uppercase tracking-[0.1em] text-muted-foreground transition-colors hover:border-border-hover hover:text-destructive-text focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring"
+                >
+                  <X className="size-3" strokeWidth={1.5} />
+                  Clear
+                </button>
+              )}
+            </div>
+            {shortcutError && (
+              <p className="mono text-[10px] text-destructive-text validation-slide">{shortcutError}</p>
             )}
           </div>
 

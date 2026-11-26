@@ -271,11 +271,9 @@ pub fn reapply_now_cmd(state: tauri::State<'_, crate::store::AppStore>) -> Vec<E
 
 // ── Lifecycle: startup reassertion + exit semantics ──────────────────────────
 //
-// ChromaDeck's documented promise (README "Pin & enforce", PRODUCT "enforcement
-// just holds", and the driver-registry persistence feature) is that applied
-// colour SURVIVES a clean exit and is reasserted on the next launch. The app
-// has never promised to wipe displays on quit; "Reset" is the explicit action
-// that does that. Phase F therefore:
+// Startup reasserts saved display presets; quitting ChromaDeck restores
+// affected displays to defaults while preserving saved pins and applied
+// records so reopening ChromaDeck re-applies them automatically:
 //
 //   STARTUP — every connected display with a pin OR an applied record is
 //   re-applied through the backend registry. If the recorded preset no longer
@@ -283,16 +281,15 @@ pub fn reapply_now_cmd(state: tauri::State<'_, crate::store::AppStore>) -> Vec<E
 //   the same backend path `reset_monitor` uses, and the stale records are
 //   cleared. Disconnected displays are skipped untouched.
 //
-//   EXIT — policy is `KeepApplied` (see `ExitPolicy`). Per backend:
-//     • nvapi — NVCP registry persistence is the documented feature; quitting
-//       must not erase it.
-//     • gdi   — the OS gamma ramp is session state; Windows clears it on
-//       logoff/reboot. Nothing to do.
-//     • intel — the pixtx pipeline is driver state and its unattended reset is
-//       best-effort only (`ctlDisplayFeatureReset` is not exported on this
-//       driver), so the exit path never claims a restore it cannot verify.
-//   A `Restore` policy exists as a tested seam for an explicit
-//   "quit and reset" flow, but the tray does NOT use it today.
+//   EXIT — policy is `Restore` (see `ExitPolicy`). Every connected display
+//   with a pin, an applied record, or an active auto-applied preset is
+//   restored through its backend while keeping saved pins/applied intact:
+//     • nvapi — resets NVCP registry + gamma/vibrance/hue back to neutral so
+//       a preset never lingers across exit or reboot.
+//     • intel — restores the IGCL pixtx LUT/CSC pipeline to identity.
+//     • gdi   — resets the Windows gamma ramp to linear identity.
+//   A `KeepApplied` policy remains as a tested seam if an opt-in setting is
+//   ever exposed.
 //
 // Shutdown never panics on a disconnected display: connectivity is checked
 // first and a disconnected target is reported as skipped, with no write.
@@ -517,15 +514,15 @@ pub fn startup_reapply(app: &tauri::AppHandle) {
     }
 }
 
-/// Quit policy. `KeepApplied` is the documented behaviour; `Restore` is the
-/// tested seam for an explicit "quit and reset" flow and is not wired to the
-/// tray today.
+/// Quit policy. `Restore` is the default on tray Quit (restores hardware while
+/// preserving saved pins/applied for next launch); `KeepApplied` remains a
+/// tested seam.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExitPolicy {
-    /// Leave applied colour in place (documented: enforcement persists).
-    KeepApplied,
-    /// Explicitly restore every connected target through its backend.
+    /// Leave applied colour in place.
     #[allow(dead_code)]
+    KeepApplied,
+    /// Restore every connected target through its backend.
     Restore,
 }
 
@@ -628,18 +625,45 @@ pub fn run_exit(
     outcomes
 }
 
-/// Tray-quit entry point. Documents the chosen policy in the log and never
-/// writes to hardware; safe when a display disconnects mid-shutdown.
+/// Build the deduplicated, sorted list of monitors to restore on tray Quit:
+/// pinned displays, manually applied displays, plus any in-memory auto-applied
+/// displays. Saved pins/applied stay persisted on disk so reopening ChromaDeck
+/// re-applies them via `startup_reapply`.
+pub fn shutdown_targets(
+    pins: &HashMap<String, String>,
+    applied: &HashMap<String, String>,
+    auto_edids: &[String],
+) -> Vec<(String, String)> {
+    let mut targets = lifecycle_targets(pins, applied);
+    for edid in auto_edids {
+        if !targets.iter().any(|(existing, _)| existing == edid) {
+            targets.push((edid.clone(), String::new()));
+        }
+    }
+    targets.sort_by(|a, b| a.0.cmp(&b.0));
+    targets
+}
+
+/// Tray-quit entry point. Restores every connected ChromaDeck-controlled
+/// display (pinned, applied, and active auto-applied) back to system defaults
+/// (including neutral NVCP registry persistence so presets do not survive a
+/// reboot), while keeping saved pins/applied on disk for next launch.
+/// Safe when a display disconnects mid-shutdown.
 pub fn shutdown_sweep(app: &tauri::AppHandle) {
     use tauri::Manager;
+    let _operation = crate::auto_apply_runtime::DISPLAY_OPERATION
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let state = match app.try_state::<crate::store::AppStore>() {
         Some(s) => s,
         None => return,
     };
-    let targets = match state.0.lock() {
-        Ok(store) => lifecycle_targets(&store.list_pins(), &store.list_applied()),
+    let (pins, applied) = match state.0.lock() {
+        Ok(store) => (store.list_pins(), store.list_applied()),
         Err(_) => return,
     };
+    let auto_edids = crate::auto_apply_runtime::take_active_edids(app);
+    let targets = shutdown_targets(&pins, &applied, &auto_edids);
     if targets.is_empty() {
         return;
     }
@@ -648,7 +672,7 @@ pub fn shutdown_sweep(app: &tauri::AppHandle) {
     let api = crate::color::RealColorApi;
     let nv = crate::nvapi::RealNvapi;
     let outcomes = run_exit(
-        ExitPolicy::KeepApplied,
+        ExitPolicy::Restore,
         &selector,
         &api,
         &nv,
@@ -747,6 +771,7 @@ mod tests {
             color_tag: None,
             tag_shape: None,
             attached_programs: Vec::new(),
+            shortcut: None,
         }
     }
 
@@ -1588,5 +1613,24 @@ mod tests {
         assert!(!outcomes[0].restored);
         assert!(outcomes[0].detail.contains("best-effort"));
         assert!(!outcomes[0].detail.contains("restored"));
+    }
+
+    #[test]
+    fn shutdown_targets_unions_pins_applied_and_active_auto_without_duplicates() {
+        let mut pins = HashMap::new();
+        pins.insert("D1".into(), "p1".into());
+        let mut applied = HashMap::new();
+        applied.insert("D2".into(), "p2".into());
+        let auto = vec!["D2".to_string(), "D3".to_string()];
+
+        let targets = shutdown_targets(&pins, &applied, &auto);
+        assert_eq!(
+            targets,
+            vec![
+                ("D1".to_string(), "p1".to_string()),
+                ("D2".to_string(), "p2".to_string()),
+                ("D3".to_string(), String::new()),
+            ]
+        );
     }
 }

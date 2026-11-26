@@ -60,6 +60,7 @@ describe("preset editor saturation round-trip", () => {
       color_tag: PRESET.color_tag,
       tag_shape: PRESET.tag_shape,
       attached_programs: [],
+      shortcut: "",
     });
   });
 

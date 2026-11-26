@@ -2,15 +2,18 @@ mod auto_apply;
 mod auto_apply_runtime;
 mod backend;
 mod capabilities;
+mod cli;
 mod color;
 mod diagnostics;
 mod enforce;
 mod foreground;
+mod hotkeys;
 mod identify;
 mod monitor;
 mod nvapi;
 mod nvgamma;
 mod store;
+mod tray;
 mod updater;
 
 use capabilities::get_display_capabilities;
@@ -28,110 +31,14 @@ use store::{
     list_applied_cmd, list_pins_cmd, list_presets_cmd, pin_preset_cmd, set_auto_apply_enabled_cmd,
     set_monitor_name_cmd, unpin_monitor_cmd, update_preset_cmd, AppStore,
 };
-use tauri::{
-    menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
-    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Emitter, Manager, WindowEvent,
-};
+use tauri::{Emitter, Manager, WindowEvent};
 use updater::{check_for_update_cmd, download_and_install_cmd};
-
-// ── System tray ──────────────────────────────────────────────────────────────
-
-fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
-    let show = MenuItem::with_id(app, "tray-show", "Show", true, None::<&str>)?;
-    let reapply = MenuItem::with_id(app, "tray-reapply", "Reapply now", true, None::<&str>)?;
-    let auto_checked = app
-        .try_state::<AppStore>()
-        .and_then(|s| s.0.lock().ok().map(|s| s.auto_apply_enabled()))
-        .unwrap_or(false);
-    let auto_apply = CheckMenuItem::with_id(
-        app,
-        auto_apply_runtime::TRAY_CHECK_ID,
-        "Auto-apply",
-        true,
-        auto_checked,
-        None::<&str>,
-    )?;
-    // Keep a handle so the footer toggle can sync the checkbox.
-    if let Some(state) = app.try_state::<auto_apply_runtime::AutoState>() {
-        if let Ok(mut item) = state.check_item.lock() {
-            *item = Some(auto_apply.clone());
-        }
-    }
-    let quit = MenuItem::with_id(app, "tray-quit", "Quit", true, None::<&str>)?;
-    let menu = Menu::with_items(
-        app,
-        &[
-            &show,
-            &reapply,
-            &auto_apply,
-            &PredefinedMenuItem::separator(app)?,
-            &quit,
-        ],
-    )?;
-    // Reuse the app/window icon for the tray so the title bar, taskbar and
-    // tray stay consistent. The icon comes from `bundle.icon` in
-    // tauri.conf.json via `app.default_window_icon()`.
-    let mut tray = TrayIconBuilder::new().menu(&menu).tooltip("ChromaDeck");
-    if let Some(icon) = app.default_window_icon().cloned() {
-        tray = tray.icon(icon);
-    }
-    tray.on_menu_event(|app, event| match event.id.as_ref() {
-        "tray-quit" => {
-            // Defined exit semantics (see enforce.rs): applied colour is
-            // intentionally kept — quitting never wipes displays. The sweep
-            // only classifies/logs per-backend outcomes and is safe when a
-            // display disconnected during shutdown.
-            crate::enforce::shutdown_sweep(app);
-            app.exit(0);
-        }
-        "tray-show" => {
-            show_main_window(app);
-        }
-        auto_apply_runtime::TRAY_CHECK_ID => {
-            // The check item has already toggled visually; persist the
-            // inverse of the last known value and sync the checkbox.
-            let current = app
-                .try_state::<AppStore>()
-                .and_then(|s| s.0.lock().ok().map(|s| s.auto_apply_enabled()))
-                .unwrap_or(false);
-            let _ = auto_apply_runtime::set_auto_apply(app, !current);
-        }
-        "tray-reapply" => {
-            use tauri::Manager;
-            if let Some(store) = app.try_state::<AppStore>() {
-                if let Ok(s) = store.0.lock() {
-                    let (pins, presets) = (s.list_pins(), s.list_presets());
-                    drop(s);
-                    let api = crate::color::RealColorApi;
-                    let nv = crate::nvapi::RealNvapi;
-                    let reader = crate::enforce::RealStateReader;
-                    let _ = crate::enforce::check_once(&api, &nv, &reader, &pins, &presets, true);
-                }
-            }
-        }
-        _ => {}
-    })
-    .on_tray_icon_event(|tray, event| {
-        if let TrayIconEvent::Click {
-            button: MouseButton::Left,
-            button_state: MouseButtonState::Up,
-            ..
-        } = event
-        {
-            let app = tray.app_handle();
-            show_main_window(app);
-        }
-    })
-    .build(app)?;
-    Ok(())
-}
 
 /// Show + focus the main window and notify the frontend so it replays its
 /// entrance animation. The main window is hidden (not destroyed) on close,
 /// so without the emit the staged load animation would only play once per
 /// app lifetime instead of on every open.
-fn show_main_window(app: &tauri::AppHandle) {
+pub(crate) fn show_main_window(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
         let _ = w.set_focus();
@@ -155,11 +62,28 @@ pub fn run() {
     ));
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            show_main_window(app);
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            let parsed = cli::parse_cli_args(&argv);
+            if let Some(err) = parsed.error {
+                eprintln!("ChromaDeck CLI error: {err}");
+                return;
+            }
+            if let Some(cmd) = parsed.command {
+                let handle = app.clone();
+                tauri::async_runtime::spawn_blocking(move || {
+                    if let Err(err) = cli::execute_cli(&handle, cmd) {
+                        eprintln!("ChromaDeck CLI failed: {err}");
+                    }
+                });
+                return;
+            }
+            if !parsed.headless {
+                show_main_window(app);
+            }
         }))
         .manage(app_store)
         .manage(auto_apply_runtime::AutoState::new(store_path))
+        .manage(hotkeys::HotkeyState::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(
@@ -195,13 +119,36 @@ pub fn run() {
             set_auto_apply_enabled_cmd,
             auto_apply_runtime::list_auto_applied_cmd,
             foreground::list_running_programs_cmd,
+            hotkeys::set_hotkeys_suspended_cmd,
+            hotkeys::get_global_hotkeys_cmd,
+            hotkeys::set_global_hotkeys_cmd,
             reapply_now_cmd,
             capture_nvcp_cmd,
             set_monitor_name_cmd,
             get_display_capabilities,
         ])
         .setup(|app| {
-            build_tray(app.handle())?;
+            tray::build_tray(app.handle())?;
+            hotkeys::start_hotkey_thread(app.handle().clone());
+
+            // Cold-start CLI handling (`--headless` hides main window to tray;
+            // explicit CLI actions run without popping the UI).
+            let startup_args: Vec<String> = std::env::args().collect();
+            let parsed = cli::parse_cli_args(&startup_args);
+            if parsed.headless || parsed.command.is_some() {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.hide();
+                }
+            }
+            if let Some(cmd) = parsed.command {
+                let cli_handle = app.handle().clone();
+                tauri::async_runtime::spawn_blocking(move || {
+                    if let Err(err) = cli::execute_cli(&cli_handle, cmd) {
+                        eprintln!("ChromaDeck CLI failed: {err}");
+                    }
+                });
+            }
+
             let handle = app.handle().clone();
             let auto_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {

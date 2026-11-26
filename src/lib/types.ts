@@ -47,6 +47,8 @@ export interface Preset {
   tag_shape?: TagShape | null; // marker shape; backend may send null = pill
   /** Executable base names (lowercase) that auto-apply this preset. */
   attached_programs?: string[];
+  /** Optional global hotkey chord (e.g. "Ctrl+Alt+F1"). */
+  shortcut?: string | null;
 }
 
 export interface PresetInput {
@@ -65,6 +67,8 @@ export interface PresetInput {
   tag_shape?: TagShape; // marker shape; empty = pill
   /** Executable base names (lowercase) that auto-apply this preset. */
   attached_programs: string[];
+  /** Optional global hotkey chord (empty/undefined clears). */
+  shortcut?: string;
 }
 
 export type AdjustmentStatus = "applied" | "skipped" | "failed";

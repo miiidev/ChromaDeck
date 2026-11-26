@@ -137,6 +137,9 @@ pub struct Preset {
     /// they become the foreground window. One preset may map many programs.
     #[serde(default)]
     pub attached_programs: Vec<String>,
+    /// Optional global hotkey chord (canonical form e.g. `"Ctrl+Alt+F1"`).
+    #[serde(default)]
+    pub shortcut: Option<String>,
 }
 
 /// Input data for creating or updating a preset.
@@ -160,6 +163,8 @@ pub struct PresetInput {
     pub tag_shape: Option<String>,
     #[serde(default)]
     pub attached_programs: Vec<String>,
+    #[serde(default)]
+    pub shortcut: Option<String>,
 }
 
 /// Persisted user settings (`settings.json`). Additive fields default so a
@@ -168,6 +173,10 @@ pub struct PresetInput {
 struct Settings {
     #[serde(default)]
     auto_apply_enabled: bool,
+    #[serde(default)]
+    reapply_shortcut: Option<String>,
+    #[serde(default)]
+    cycle_shortcut: Option<String>,
 }
 
 // ── Store errors ───────────────────────────────────────────────────────────
@@ -290,6 +299,8 @@ pub struct Store {
     monitor_names: HashMap<String, String>, // edid_id -> user alias
     settings_path: PathBuf,
     auto_apply_enabled: bool, // persisted master switch; default false
+    reapply_shortcut: Option<String>,
+    cycle_shortcut: Option<String>,
     faults: LoadFaults,
 }
 
@@ -346,6 +357,8 @@ impl Store {
             monitor_names,
             settings_path,
             auto_apply_enabled: settings.auto_apply_enabled,
+            reapply_shortcut: settings.reapply_shortcut,
+            cycle_shortcut: settings.cycle_shortcut,
             faults,
         };
 
@@ -482,6 +495,94 @@ impl Store {
         Ok(out)
     }
 
+    /// Normalize and validate an optional preset shortcut, checking uniqueness
+    /// across other presets and global hotkeys.
+    fn normalize_and_validate_shortcut(
+        &self,
+        raw: Option<&str>,
+        exclude_preset_id: Option<&str>,
+    ) -> Result<Option<String>, StoreError> {
+        let Some(trimmed) = raw.map(str::trim).filter(|s| !s.is_empty()) else {
+            return Ok(None);
+        };
+        let canonical =
+            crate::hotkeys::normalize_shortcut(trimmed).map_err(StoreError::InvalidInput)?;
+
+        if let Some(owner) = self.presets.iter().find(|p| {
+            exclude_preset_id.is_none_or(|id| p.id != id)
+                && p.shortcut.as_deref() == Some(canonical.as_str())
+        }) {
+            return Err(StoreError::InvalidInput(format!(
+                "{canonical} is already bound to \"{}\"",
+                owner.name
+            )));
+        }
+        if self.reapply_shortcut.as_deref() == Some(canonical.as_str()) {
+            return Err(StoreError::InvalidInput(format!(
+                "{canonical} is already bound to global Reapply"
+            )));
+        }
+        if self.cycle_shortcut.as_deref() == Some(canonical.as_str()) {
+            return Err(StoreError::InvalidInput(format!(
+                "{canonical} is already bound to global Cycle preset"
+            )));
+        }
+        Ok(Some(canonical))
+    }
+
+    /// Current persisted global hotkey settings.
+    pub fn global_hotkeys(&self) -> crate::hotkeys::GlobalHotkeySettings {
+        crate::hotkeys::GlobalHotkeySettings {
+            reapply_shortcut: self.reapply_shortcut.clone(),
+            cycle_shortcut: self.cycle_shortcut.clone(),
+        }
+    }
+
+    /// Validate and persist global hotkey bindings (`reapply_shortcut`, `cycle_shortcut`).
+    pub fn set_global_hotkeys(
+        &mut self,
+        input: crate::hotkeys::GlobalHotkeySettings,
+    ) -> Result<crate::hotkeys::GlobalHotkeySettings, StoreError> {
+        self.ensure_writable()?;
+        let normalize = |raw: Option<&str>| -> Result<Option<String>, StoreError> {
+            match raw.map(str::trim).filter(|s| !s.is_empty()) {
+                None => Ok(None),
+                Some(s) => crate::hotkeys::normalize_shortcut(s)
+                    .map(Some)
+                    .map_err(StoreError::InvalidInput),
+            }
+        };
+        let reapply = normalize(input.reapply_shortcut.as_deref())?;
+        let cycle = normalize(input.cycle_shortcut.as_deref())?;
+
+        if reapply.is_some() && reapply == cycle {
+            return Err(StoreError::InvalidInput(
+                "Reapply and Cycle cannot share the same shortcut".into(),
+            ));
+        }
+        for candidate in [&reapply, &cycle].into_iter().flatten() {
+            if let Some(owner) = self
+                .presets
+                .iter()
+                .find(|p| p.shortcut.as_deref() == Some(candidate.as_str()))
+            {
+                return Err(StoreError::InvalidInput(format!(
+                    "{candidate} is already bound to \"{}\"",
+                    owner.name
+                )));
+            }
+        }
+
+        let prev_reapply = std::mem::replace(&mut self.reapply_shortcut, reapply);
+        let prev_cycle = std::mem::replace(&mut self.cycle_shortcut, cycle);
+        if let Err(err) = self.flush_settings() {
+            self.reapply_shortcut = prev_reapply;
+            self.cycle_shortcut = prev_cycle;
+            return Err(err);
+        }
+        Ok(self.global_hotkeys())
+    }
+
     /// Create a new preset from `input`.  Returns the created `Preset`.
     pub fn create_preset(&mut self, input: PresetInput) -> Result<Preset, StoreError> {
         self.ensure_writable()?;
@@ -490,6 +591,7 @@ impl Store {
             return Err(StoreError::InvalidInput("name cannot be empty".into()));
         }
         let attached_programs = self.normalize_program_list(&input.attached_programs, None)?;
+        let shortcut = self.normalize_and_validate_shortcut(input.shortcut.as_deref(), None)?;
         if !(0.0..=100.0).contains(&input.brightness) {
             return Err(StoreError::InvalidInput(
                 "brightness must be in 0.0..=100.0".into(),
@@ -572,6 +674,7 @@ impl Store {
             color_tag: input.color_tag.filter(|tag| !tag.is_empty()),
             tag_shape: normalise_tag_shape(input.tag_shape),
             attached_programs,
+            shortcut,
         };
 
         self.presets.push(preset.clone());
@@ -633,6 +736,7 @@ impl Store {
         }
 
         let attached_programs = self.normalize_program_list(&input.attached_programs, Some(id))?;
+        let shortcut = self.normalize_and_validate_shortcut(input.shortcut.as_deref(), Some(id))?;
 
         // Validate color_tag
         if let Some(ref tag) = input.color_tag {
@@ -687,6 +791,7 @@ impl Store {
             color_tag: input.color_tag.filter(|tag| !tag.is_empty()),
             tag_shape: normalise_tag_shape(input.tag_shape),
             attached_programs,
+            shortcut,
         };
 
         let previous = std::mem::replace(&mut self.presets[idx], updated.clone());
@@ -996,6 +1101,8 @@ impl Store {
         self.ensure_writable()?;
         let settings = Settings {
             auto_apply_enabled: self.auto_apply_enabled,
+            reapply_shortcut: self.reapply_shortcut.clone(),
+            cycle_shortcut: self.cycle_shortcut.clone(),
         };
         let json = serde_json::to_string_pretty(&settings)?;
         let tmp = self.data_dir.join("settings.json.tmp");
@@ -1061,21 +1168,33 @@ pub fn list_presets_cmd(state: tauri::State<'_, AppStore>) -> Result<Vec<Preset>
 
 #[tauri::command]
 pub fn create_preset_cmd(
+    app: tauri::AppHandle,
     state: tauri::State<'_, AppStore>,
     input: PresetInput,
 ) -> Result<Preset, String> {
-    let mut store = state.0.lock().map_err(|e| e.to_string())?;
-    store.create_preset(input).map_err(|e| e.to_string())
+    let created = {
+        let mut store = state.0.lock().map_err(|e| e.to_string())?;
+        store.create_preset(input).map_err(|e| e.to_string())?
+    };
+    crate::tray::refresh_tray(&app);
+    crate::hotkeys::sync_hotkeys(&app);
+    Ok(created)
 }
 
 #[tauri::command]
 pub fn update_preset_cmd(
+    app: tauri::AppHandle,
     state: tauri::State<'_, AppStore>,
     id: String,
     input: PresetInput,
 ) -> Result<Preset, String> {
-    let mut store = state.0.lock().map_err(|e| e.to_string())?;
-    store.update_preset(&id, input).map_err(|e| e.to_string())
+    let updated = {
+        let mut store = state.0.lock().map_err(|e| e.to_string())?;
+        store.update_preset(&id, input).map_err(|e| e.to_string())?
+    };
+    crate::tray::refresh_tray(&app);
+    crate::hotkeys::sync_hotkeys(&app);
+    Ok(updated)
 }
 
 #[tauri::command]
@@ -1114,6 +1233,8 @@ pub fn delete_preset_cmd(
         }
     }
 
+    crate::tray::refresh_tray(&app);
+    crate::hotkeys::sync_hotkeys(&app);
     Ok(removed)
 }
 
@@ -1142,16 +1263,25 @@ pub fn pin_preset_cmd(
         .map_err(|e| e.to_string())?;
     drop(store);
     crate::auto_apply_runtime::relinquish_manual(&app, &edid_id);
+    crate::tray::refresh_tray(&app);
     Ok(())
 }
 
 #[tauri::command]
-pub fn unpin_monitor_cmd(state: tauri::State<'_, AppStore>, edid_id: String) -> Result<(), String> {
+pub fn unpin_monitor_cmd(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppStore>,
+    edid_id: String,
+) -> Result<(), String> {
     let _operation = crate::auto_apply_runtime::DISPLAY_OPERATION
         .lock()
         .map_err(|e| e.to_string())?;
-    let mut store = state.0.lock().map_err(|e| e.to_string())?;
-    store.unpin_monitor(&edid_id).map_err(|e| e.to_string())
+    {
+        let mut store = state.0.lock().map_err(|e| e.to_string())?;
+        store.unpin_monitor(&edid_id).map_err(|e| e.to_string())?;
+    }
+    crate::tray::refresh_tray(&app);
+    Ok(())
 }
 
 #[tauri::command]
@@ -1181,14 +1311,19 @@ pub fn set_auto_apply_enabled_cmd(app: tauri::AppHandle, enabled: bool) -> Resul
 
 #[tauri::command]
 pub fn set_monitor_name_cmd(
+    app: tauri::AppHandle,
     state: tauri::State<'_, AppStore>,
     edid_id: String,
     alias: String,
 ) -> Result<(), String> {
-    let mut store = state.0.lock().map_err(|e| e.to_string())?;
-    store
-        .set_monitor_name(&edid_id, &alias)
-        .map_err(|e| e.to_string())
+    {
+        let mut store = state.0.lock().map_err(|e| e.to_string())?;
+        store
+            .set_monitor_name(&edid_id, &alias)
+            .map_err(|e| e.to_string())?;
+    }
+    crate::tray::refresh_tray(&app);
+    Ok(())
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────
@@ -1236,6 +1371,7 @@ mod tests {
             color_tag: None,
             tag_shape: None,
             attached_programs: vec![],
+            shortcut: None,
         }
     }
 
@@ -1438,6 +1574,7 @@ mod tests {
                     color_tag: None,
                     tag_shape: None,
                     attached_programs: vec![],
+                    shortcut: None,
                 },
             )
             .unwrap();
@@ -1552,6 +1689,7 @@ mod tests {
                     color_tag: None,
                     tag_shape: None,
                     attached_programs: vec![],
+                    shortcut: None,
                 })
                 .unwrap();
             assert_eq!(store.list_presets().len(), 2);
@@ -1840,6 +1978,7 @@ mod tests {
                     color_tag: Some("#ef4444".into()),
                     tag_shape: None,
                     attached_programs: vec![],
+                    shortcut: None,
                 },
             )
             .unwrap();
@@ -1871,6 +2010,7 @@ mod tests {
                     color_tag: Some("".into()),
                     tag_shape: None,
                     attached_programs: vec![],
+                    shortcut: None,
                 },
             )
             .unwrap();
@@ -1902,6 +2042,7 @@ mod tests {
                     color_tag: Some("invalid".into()),
                     tag_shape: None,
                     attached_programs: vec![],
+                    shortcut: None,
                 },
             )
             .unwrap_err();
@@ -2567,5 +2708,58 @@ mod tests {
         let json = r#"{"name":"Legacy","icc_path":null,"brightness":50.0,"contrast":50.0,"rgb_gains":[1.0,1.0,1.0],"gamma":1.0,"vibrance":50.0,"hue_deg":0.0}"#;
         let input: PresetInput = serde_json::from_str(json).unwrap();
         assert!(!input.clear_icc);
+    }
+
+    // ── Phase 3: preset & global shortcuts ───────────────────────────────
+
+    #[test]
+    fn preset_shortcuts_normalize_persist_and_reject_duplicates() {
+        let dir = test_store_dir_unique();
+        let mut store = test_store_at(dir.clone());
+
+        let mut first = minimal_input();
+        first.shortcut = Some("alt+ctrl+f1".into());
+        let p1 = store.create_preset(first).unwrap();
+        assert_eq!(p1.shortcut.as_deref(), Some("Ctrl+Alt+F1"));
+
+        let mut dup = minimal_input();
+        dup.name = "Second".into();
+        dup.shortcut = Some("Ctrl+Alt+F1".into());
+        let err = store.create_preset(dup).unwrap_err();
+        assert!(err.to_string().contains("already bound"), "{err}");
+
+        // Updating the same preset with its own shortcut succeeds
+        let mut upd = minimal_input();
+        upd.shortcut = Some("Ctrl+Alt+F1".into());
+        let p1_updated = store.update_preset(&p1.id, upd).unwrap();
+        assert_eq!(p1_updated.shortcut.as_deref(), Some("Ctrl+Alt+F1"));
+
+        // Global hotkey collides with preset shortcut -> rejected
+        let gerr = store
+            .set_global_hotkeys(crate::hotkeys::GlobalHotkeySettings {
+                reapply_shortcut: Some("Ctrl+Alt+F1".into()),
+                cycle_shortcut: None,
+            })
+            .unwrap_err();
+        assert!(gerr.to_string().contains("already bound"), "{gerr}");
+
+        // Distinct global hotkeys persist across reload
+        let saved = store
+            .set_global_hotkeys(crate::hotkeys::GlobalHotkeySettings {
+                reapply_shortcut: Some("ctrl+alt+r".into()),
+                cycle_shortcut: Some("ctrl+alt+c".into()),
+            })
+            .unwrap();
+        assert_eq!(saved.reapply_shortcut.as_deref(), Some("Ctrl+Alt+R"));
+        assert_eq!(saved.cycle_shortcut.as_deref(), Some("Ctrl+Alt+C"));
+
+        let reopened = Store::new(dir.clone()).unwrap();
+        assert_eq!(reopened.global_hotkeys(), saved);
+        assert_eq!(
+            reopened.list_presets()[0].shortcut.as_deref(),
+            Some("Ctrl+Alt+F1")
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
