@@ -7,7 +7,20 @@ import { DEMO_APPLIED, DEMO_MONITORS, DEMO_PINS, DEMO_PRESETS } from "./demoData
 
 /** Browser preview only: no Tauri IPC available. */
 const isBrowserPreview = () => !isTauri();
-import type { ApplyResult, CapturedState, DisplayCapabilities, EnforceEvent, Monitor, MonitorProbe, Preset, PresetInput } from "./types";
+import type {
+  ApplyResult,
+  CapturedState,
+  DiagnosticsExportSummary,
+  DisplayCapabilities,
+  EnforceEvent,
+  ExportSummary,
+  ImportSummary,
+  Monitor,
+  MonitorProbe,
+  Preset,
+  PresetInput,
+  ScheduleRule,
+} from "./types";
 
 /** Fetch the list of connected monitors with their EDID identifiers. */
 export async function listMonitors(): Promise<Monitor[]> {
@@ -391,4 +404,84 @@ export function onUpdateProgress(
     callback(event.payload);
   });
   return () => unlisten.then((fn) => fn());
+}
+
+// ── Preset bundles (.chromadeck.json) ───────────────────────────────────────
+
+/** Export selected presets (or all presets when `ids` is null) to a bundle file. */
+export async function exportPresets(
+  ids: string[] | null,
+  destPath: string,
+): Promise<ExportSummary> {
+  if (isBrowserPreview()) {
+    const count = ids ? ids.length : DEMO_PRESETS.length;
+    return { exported_count: count, icc_count: 0, dest_path: destPath };
+  }
+  return invoke<ExportSummary>("export_presets_cmd", { ids, destPath });
+}
+
+/** Import presets and embedded ICC blobs from a `.chromadeck.json` bundle. */
+export async function importPresets(srcPath: string): Promise<ImportSummary> {
+  if (isBrowserPreview()) {
+    return {
+      imported_count: 1,
+      icc_imported_count: 0,
+      renamed_collisions: [],
+      stripped_conflicting_programs: [],
+      stripped_conflicting_shortcuts: [],
+    };
+  }
+  return invoke<ImportSummary>("import_presets_cmd", { srcPath });
+}
+
+// ── Time-of-day schedules ───────────────────────────────────────────────────
+
+const PREVIEW_SCHEDULES_KEY = "chromadeck.previewSchedules";
+
+/** Fetch persisted per-monitor schedule rules. */
+export async function listSchedules(): Promise<ScheduleRule[]> {
+  if (isBrowserPreview()) {
+    try {
+      const raw = localStorage.getItem(PREVIEW_SCHEDULES_KEY);
+      return raw ? (JSON.parse(raw) as ScheduleRule[]) : [];
+    } catch {
+      return [];
+    }
+  }
+  return invoke<ScheduleRule[]>("list_schedules_cmd");
+}
+
+/** Validate and save per-monitor schedule rules. */
+export async function saveSchedules(
+  schedules: ScheduleRule[],
+): Promise<ScheduleRule[]> {
+  if (isBrowserPreview()) {
+    const normalized = schedules.map((s, idx) => ({
+      ...s,
+      id: s.id || `preview-sched-${Date.now()}-${idx}`,
+    }));
+    try {
+      localStorage.setItem(PREVIEW_SCHEDULES_KEY, JSON.stringify(normalized));
+    } catch {
+      // ignore storage failures in private contexts
+    }
+    return normalized;
+  }
+  return invoke<ScheduleRule[]>("save_schedules_cmd", { schedules });
+}
+
+// ── Diagnostics report export ───────────────────────────────────────────────
+
+/** Export a redacted hardware + log diagnostics report to `destPath`. */
+export async function exportDiagnostics(
+  destPath: string,
+): Promise<DiagnosticsExportSummary> {
+  if (isBrowserPreview()) {
+    return {
+      dest_path: destPath,
+      bytes_written: 2048,
+      monitors_count: DEMO_MONITORS.length,
+    };
+  }
+  return invoke<DiagnosticsExportSummary>("export_diagnostics_cmd", { destPath });
 }

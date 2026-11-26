@@ -38,6 +38,18 @@ pub fn relinquish_manual(app: &AppHandle, edid_id: &str) {
     emit_cleared(app, edid_id);
 }
 
+/// Read-only snapshot of monitor EDIDs currently coloured by in-memory
+/// auto-apply (used by the schedule engine to enforce precedence).
+pub fn active_edids(app: &AppHandle) -> std::collections::HashSet<String> {
+    let Some(state) = app.try_state::<AutoState>() else {
+        return std::collections::HashSet::new();
+    };
+    let Ok(runtime) = state.runtime.lock() else {
+        return std::collections::HashSet::new();
+    };
+    runtime.active.keys().cloned().collect()
+}
+
 /// Drain and return all monitor EDIDs currently coloured by in-memory
 /// auto-apply so tray-quit shutdown restores them too.
 pub fn take_active_edids(app: &AppHandle) -> Vec<String> {

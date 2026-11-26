@@ -136,3 +136,42 @@ export interface MonitorProbe {
   // Whether that ramp/LUT is linear identity. Intel reports its pixtx 1D LUT.
   ramp_identity: boolean | null;
 }
+
+export interface ExportSummary {
+  exported_count: number;
+  icc_count: number;
+  dest_path: string;
+}
+
+export interface ImportSummary {
+  imported_count: number;
+  icc_imported_count: number;
+  renamed_collisions: string[];
+  stripped_conflicting_programs: string[];
+  stripped_conflicting_shortcuts: string[];
+}
+
+export interface ScheduleRule {
+  id: string;
+  edid_id: string;
+  preset_id: string;
+  start_time: string; // "HH:MM" 24h
+  end_time: string;   // "HH:MM" 24h
+  enabled: boolean;
+}
+
+export interface ScheduleOutcomeEvent {
+  kind: "applied" | "reverted" | "error";
+  edid_id: string;
+  monitor_name: string;
+  preset_id: string;
+  preset_name: string;
+  restored_preset_name?: string | null;
+  error?: string | null;
+}
+
+export interface DiagnosticsExportSummary {
+  dest_path: string;
+  bytes_written: number;
+  monitors_count: number;
+}

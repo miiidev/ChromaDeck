@@ -172,7 +172,7 @@
 
 ---
 
-## Phase 4: Preset Portability, Scheduling & Diagnostics Export
+## Phase 4: Preset Portability, Scheduling & Diagnostics Export — COMPLETE
 
 **Goal:** Let users back up/share presets (with ICC files intact), schedule automatic day/night display looks, and export one-click hardware diagnostics.
 
@@ -180,11 +180,11 @@
 **Files:**
 - Create: `src-tauri/src/bundle.rs`
 - Modify: `src-tauri/src/store.rs`, `src-tauri/src/lib.rs`, `src/lib/tauri.ts`
-- Modify: `src/components/MonitorSidebar.tsx` (library toolbar Import/Export), `src/components/PresetCard.tsx` (single-preset export action)
+- Modify: `src/components/MonitorList.tsx` (library toolbar Import/Export), `src/components/PresetCard.tsx` (single-preset export action)
 
-- [ ] **Step 1:** Design self-contained `.chromadeck.json` schema (`schema_version: 1`, `exported_at`, `presets: Vec<ExportedPreset>`, `icc_blobs: HashMap<String, String>` hex/base64-encoded `.icc` bytes keyed by `sha256` hash). Zero extra zip C-dependencies required, human-inspectable, and verifies SHA-256 of every embedded ICC blob before writing to `profiles/{hash}.icc`!
-- [ ] **Step 2:** Implement `export_presets_cmd(ids: Option<Vec<String>>, dest_path: String)` and `import_presets_cmd(src_path: String) -> ImportSummary` (`imported_count`, `renamed_collisions`, `stripped_conflicting_programs` reported honestly when a program is already mapped locally).
-- [ ] **Step 3:** Wire `Export` and `Import` buttons via `@tauri-apps/plugin-dialog` `save` / `open` in the library toolbar (and single-card export), with Vitest + Rust round-trip tests (including corrupted ICC hash rejection).
+- [x] **Step 1:** Design self-contained `.chromadeck.json` schema (`schema_version: 1`, `exported_at`, `presets: Vec<ExportedPreset>`, `icc_blobs: HashMap<String, String>` hex/base64-encoded `.icc` bytes keyed by `sha256` hash). Zero extra zip C-dependencies required, human-inspectable, and verifies SHA-256 of every embedded ICC blob before writing to `profiles/{hash}.icc`!
+- [x] **Step 2:** Implement `export_presets_cmd(ids: Option<Vec<String>>, dest_path: String)` and `import_presets_cmd(src_path: String) -> ImportSummary` (`imported_count`, `renamed_collisions`, `stripped_conflicting_programs` reported honestly when a program is already mapped locally).
+- [x] **Step 3:** Wire `Export` and `Import` buttons via `@tauri-apps/plugin-dialog` `save` / `open` in the library toolbar (and single-card export), with Vitest + Rust round-trip tests (including corrupted ICC hash rejection).
 
 ### Task 4.2: Time-of-Day Per-Monitor Schedule Rules
 **Files:**
@@ -192,18 +192,18 @@
 - Modify: `src-tauri/src/store.rs` (`Settings.schedules: Vec<ScheduleRule>`), `src-tauri/src/lib.rs`, `src/lib/tauri.ts`
 - Create: `src/components/ScheduleDialog.tsx`, Modify: `src/App.tsx` (footer toggle/button)
 
-- [ ] **Step 1:** Implement pure `schedule.rs` evaluation engine (unit-tested across midnight wrap-around, e.g., `21:00` → `07:00`):
+- [x] **Step 1:** Implement pure `schedule.rs` evaluation engine (unit-tested across midnight wrap-around, e.g., `21:00` → `07:00`):
   - Precedence law: **Pinned monitor > Active Foreground Auto-Apply > Active Schedule Rule > Manual Default**.
   - Evaluates once per minute and on wake/startup; only applies on schedule window transitions so manual overrides within a window are respected until the next transition.
-- [ ] **Step 2:** Build a compact `ScheduleDialog.tsx` following `DESIGN.md` (`surface-raised`, `rounded-[8px]`, `1px` borders, `JetBrains Mono` `HH:MM` inputs) accessible from the footer bar.
+- [x] **Step 2:** Build a compact `ScheduleDialog.tsx` following `DESIGN.md` (`surface-raised`, `rounded-[8px]`, `1px` borders, `JetBrains Mono` `HH:MM` inputs) accessible from the footer bar.
 
 ### Task 4.3: One-Click Diagnostics Report Export
 **Files:**
 - Modify: `src-tauri/src/diagnostics.rs` (`export_diagnostics_cmd(dest_path: String) -> Result<(), String>`)
 - Modify: `src-tauri/src/lib.rs`, `src/lib/tauri.ts`, `src/App.tsx`
 
-- [ ] **Step 1:** Gather ChromaDeck version, OS build, adapter/monitor enumeration tree, per-monitor `probe_monitor` + `get_display_capabilities` JSON, tail of `diagnostics.log`, and tail of `auto-apply.log` (redacting user home path usernames to `<USER>`) into a single structured `.txt`/`.log` report saved via file dialog.
-- [ ] **Step 2:** Run Phase 4 verification gates and commit.
+- [x] **Step 1:** Gather ChromaDeck version, OS build, adapter/monitor enumeration tree, per-monitor `probe_monitor` + `get_display_capabilities` JSON, tail of `diagnostics.log`, and tail of `auto-apply.log` (redacting user home path usernames to `<USER>`) into a single structured `.txt`/`.log` report saved via file dialog.
+- [x] **Step 2:** Run Phase 4 verification gates and commit.
 
 ---
 

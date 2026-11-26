@@ -7,7 +7,11 @@ import { Button } from "@/components/ui/button";
 import { ArrowLeftGlyph, ArrowRightGlyph } from "@/components/ui/icons";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Search, X } from "lucide-react";
+import { Download, Plus, Search, Upload, X } from "lucide-react";
+import { isTauri } from "@tauri-apps/api/core";
+import { open, save } from "@tauri-apps/plugin-dialog";
+import { exportPresets, importPresets } from "../lib/tauri";
+import { formatImportSummary } from "../lib/schedule";
 import { consumeStagger } from "../lib/motion";
 import { cn } from "cn";
 import {
@@ -34,6 +38,7 @@ interface Props {
   onPresetDuplicated?: (preset: Preset) => void;
   onPresetDeleted?: (id: string) => void;
   lastAddedId?: string | null;
+  onStatusMessage?: (message: string) => void;
 }
 
 /** Loading skeleton */
@@ -72,11 +77,59 @@ function EmptyState({ onCreateNew }: { onCreateNew: () => void }) {
   );
 }
 
-export default function MonitorList({ monitors, presets, loading, onEdit, onRefresh, onCreateNew, pins, onPinChange, onApply, appliedMap, autoMap, onPresetDuplicated, onPresetDeleted, lastAddedId }: Props) {
+export default function MonitorList({ monitors, presets, loading, onEdit, onRefresh, onCreateNew, pins, onPinChange, onApply, appliedMap, autoMap, onPresetDuplicated, onPresetDeleted, lastAddedId, onStatusMessage }: Props) {
   const carouselRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
+  const [bundleBusy, setBundleBusy] = useState(false);
+
+  const handleImportBundle = async () => {
+    if (bundleBusy) return;
+    setBundleBusy(true);
+    try {
+      const selected = isTauri()
+        ? await open({
+            title: "Import ChromaDeck Preset Bundle",
+            multiple: false,
+            filters: [{ name: "ChromaDeck Bundle", extensions: ["chromadeck.json", "json"] }],
+          })
+        : "demo-bundle.chromadeck.json";
+      const srcPath = typeof selected === "string" ? selected : null;
+      if (!srcPath) return;
+      const summary = await importPresets(srcPath);
+      onStatusMessage?.(formatImportSummary(summary));
+      onRefresh();
+    } catch (err) {
+      onStatusMessage?.(`Import failed: ${String(err)}`);
+    } finally {
+      setBundleBusy(false);
+    }
+  };
+
+  const handleExportLibrary = async () => {
+    if (bundleBusy || presets.length === 0) return;
+    setBundleBusy(true);
+    try {
+      const defaultFile = "chromadeck-presets.chromadeck.json";
+      const destPath = isTauri()
+        ? await save({
+            title: "Export ChromaDeck Preset Library",
+            defaultPath: defaultFile,
+            filters: [{ name: "ChromaDeck Bundle", extensions: ["chromadeck.json", "json"] }],
+          })
+        : defaultFile;
+      if (!destPath) return;
+      const summary = await exportPresets(null, destPath);
+      onStatusMessage?.(
+        `Exported ${summary.exported_count} preset${summary.exported_count === 1 ? "" : "s"}${summary.icc_count > 0 ? ` · ${summary.icc_count} ICC` : ""}`,
+      );
+    } catch (err) {
+      onStatusMessage?.(`Export failed: ${String(err)}`);
+    } finally {
+      setBundleBusy(false);
+    }
+  };
   const [query, setQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>(ALL_CATEGORIES);
   const [libraryView, setLibraryView] = useState<"grid" | "carousel">(() => {
@@ -273,6 +326,7 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
         staggerMs={Math.min(i, 5) * 60}
         onDuplicated={onPresetDuplicated}
         onDeleted={onPresetDeleted}
+        onStatusMessage={onStatusMessage}
         highlightEnter={!isStagger && lastAddedId === preset.id}
         className="min-w-[288px] shrink-0 snap-start"
         onDragStart={onDragStart}
@@ -373,6 +427,7 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
             staggerMs={Math.min(i, 3) * 40}
             onDuplicated={onPresetDuplicated}
             onDeleted={onPresetDeleted}
+            onStatusMessage={onStatusMessage}
             highlightEnter={!isStagger && lastAddedId === preset.id}
             onDragStart={onDragStart}
             onDragEnd={onDragEnd}
@@ -414,14 +469,27 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
           <span className="mono text-[12px] uppercase tracking-[0.14em] text-muted-foreground">
             Presets (0)
           </span>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => onCreateNew()}
-          >
-            <Plus className="size-3.5" />
-            Create preset
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void handleImportBundle()}
+              disabled={bundleBusy}
+              title="Import presets from a .chromadeck.json bundle"
+              aria-label="Import presets"
+            >
+              <Upload className="size-3.5" />
+              Import
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => onCreateNew()}
+            >
+              <Plus className="size-3.5" />
+              Create preset
+            </Button>
+          </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto overflow-x-clip pt-4">
           <EmptyState onCreateNew={onCreateNew} />
@@ -518,6 +586,28 @@ export default function MonitorList({ monitors, presets, loading, onEdit, onRefr
                   </button>
                 )}
               </div>
+              <button
+                type="button"
+                onClick={() => void handleImportBundle()}
+                disabled={bundleBusy}
+                title="Import presets from a .chromadeck.json bundle"
+                aria-label="Import presets"
+                className="inline-flex h-8 items-center gap-1.5 rounded-[8px] border border-border bg-transparent px-2 text-muted-foreground transition-colors hover:border-border-hover hover:bg-surface-hover hover:text-foreground focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring disabled:opacity-50"
+              >
+                <Upload className="size-3.5 shrink-0" />
+                <span className="hidden font-body text-[12px] leading-none min-[1060px]:inline">Import</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleExportLibrary()}
+                disabled={bundleBusy || presets.length === 0}
+                title="Export all presets to a .chromadeck.json bundle"
+                aria-label="Export all presets"
+                className="inline-flex h-8 items-center gap-1.5 rounded-[8px] border border-border bg-transparent px-2 text-muted-foreground transition-colors hover:border-border-hover hover:bg-surface-hover hover:text-foreground focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring disabled:opacity-50"
+              >
+                <Download className="size-3.5 shrink-0" />
+                <span className="hidden font-body text-[12px] leading-none min-[1060px]:inline">Export</span>
+              </button>
               <Button variant="secondary" size="sm" onClick={() => onCreateNew()}>
                 <Plus className="size-3.5" />
                 Create preset

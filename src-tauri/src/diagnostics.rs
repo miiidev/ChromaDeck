@@ -149,7 +149,7 @@ fn trim_if_huge(path: &Path) -> io::Result<()> {
 }
 
 /// UTC RFC3339 timestamp for the current instant.
-fn timestamp_now_utc() -> String {
+pub fn timestamp_now_utc() -> String {
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
@@ -175,6 +175,303 @@ fn timestamp_from_epoch(secs: i64) -> String {
     let mo = if mp < 10 { mp + 3 } else { mp - 9 };
     let year = if mo <= 2 { y + 1 } else { y };
     format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", year, mo, d, h, m, s)
+}
+
+// ── One-click diagnostics report export ─────────────────────────────────────
+
+/// Returned by `export_diagnostics_cmd`.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DiagnosticsExportSummary {
+    pub dest_path: String,
+    pub bytes_written: usize,
+    pub monitors_count: usize,
+}
+
+/// Redact Windows/Unix user profile directory paths (`C:\Users\<name>` or
+/// `C:/Users/<name>`) and explicit home directory prefixes to `<USER>` so
+/// shared bug reports do not leak the local OS username.
+pub fn redact_user_paths(input: &str, home_dir: Option<&Path>, username: Option<&str>) -> String {
+    let mut out = input.to_string();
+
+    if let Some(home) = home_dir {
+        let home_str = home.to_string_lossy();
+        if !home_str.is_empty() {
+            let win_form = home_str.replace('/', "\\");
+            let unix_form = home_str.replace('\\', "/");
+            if let Some(parent) = home.parent() {
+                let p_win = parent.to_string_lossy().replace('/', "\\");
+                let p_unix = parent.to_string_lossy().replace('\\', "/");
+                out = replace_case_insensitive(&out, &win_form, &format!("{p_win}\\<USER>"));
+                out = replace_case_insensitive(&out, &unix_form, &format!("{p_unix}/<USER>"));
+            } else {
+                out = replace_case_insensitive(&out, &win_form, "<USER>");
+                out = replace_case_insensitive(&out, &unix_form, "<USER>");
+            }
+        }
+    }
+
+    if let Some(user) = username.map(str::trim).filter(|u| !u.is_empty()) {
+        out = replace_case_insensitive(&out, &format!("\\Users\\{user}"), "\\Users\\<USER>");
+        out = replace_case_insensitive(&out, &format!("/Users/{user}"), "/Users/<USER>");
+    }
+
+    out
+}
+
+fn replace_case_insensitive(haystack: &str, needle: &str, replacement: &str) -> String {
+    if needle.is_empty() {
+        return haystack.to_string();
+    }
+    let hay_lower = haystack.to_ascii_lowercase();
+    let needle_lower = needle.to_ascii_lowercase();
+    let mut result = String::with_capacity(haystack.len());
+    let mut last = 0usize;
+    let mut search_from = 0usize;
+    while let Some(rel) = hay_lower[search_from..].find(&needle_lower) {
+        let idx = search_from + rel;
+        result.push_str(&haystack[last..idx]);
+        result.push_str(replacement);
+        last = idx + needle.len();
+        search_from = last;
+    }
+    result.push_str(&haystack[last..]);
+    result
+}
+
+/// Read the last `max_bytes` of a UTF-8 log file (aligned to the next newline
+/// when truncated). Returns `"(not present)"` when the file does not exist.
+fn read_log_tail(path: &Path, max_bytes: u64) -> String {
+    let mut file = match File::open(path) {
+        Ok(f) => f,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return "(not present)".into(),
+        Err(e) => return format!("(read error: {e})"),
+    };
+    let len = match file.metadata() {
+        Ok(m) => m.len(),
+        Err(e) => return format!("(metadata error: {e})"),
+    };
+    let start = len.saturating_sub(max_bytes);
+    if let Err(e) = file.seek(io::SeekFrom::Start(start)) {
+        return format!("(seek error: {e})");
+    }
+    let mut buf = Vec::with_capacity((len - start) as usize);
+    if let Err(e) = file.take(len - start).read_to_end(&mut buf) {
+        return format!("(read error: {e})");
+    }
+    let slice = if start > 0 {
+        match buf.iter().position(|&b| b == b'\n') {
+            Some(pos) => &buf[pos + 1..],
+            None => &buf[..],
+        }
+    } else {
+        &buf[..]
+    };
+    let text = String::from_utf8_lossy(slice).trim_end().to_string();
+    if text.is_empty() {
+        "(empty)".into()
+    } else {
+        text
+    }
+}
+
+/// Best-effort Windows OS product/build string from registry (zero FFI).
+pub fn windows_os_version() -> String {
+    #[cfg(windows)]
+    {
+        use winreg::enums::HKEY_LOCAL_MACHINE;
+        use winreg::RegKey;
+        let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+        if let Ok(cv) = hklm.open_subkey(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion") {
+            let product: String = cv.get_value("ProductName").unwrap_or_default();
+            let display: String = cv.get_value("DisplayVersion").unwrap_or_default();
+            let build: String = cv.get_value("CurrentBuildNumber").unwrap_or_default();
+            let ubr: u32 = cv.get_value("UBR").unwrap_or(0);
+            let build_num: u32 = build.parse().unwrap_or(0);
+            let product_clean = if build_num >= 22000 && product.contains("Windows 10") {
+                product.replace("Windows 10", "Windows 11")
+            } else {
+                product
+            };
+            let mut parts = Vec::new();
+            if !product_clean.is_empty() {
+                parts.push(product_clean);
+            }
+            if !display.is_empty() {
+                parts.push(display);
+            }
+            if !build.is_empty() {
+                parts.push(format!("Build {build}.{ubr}"));
+            }
+            if !parts.is_empty() {
+                return parts.join(" ");
+            }
+        }
+        "Windows (unknown build)".into()
+    }
+    #[cfg(not(windows))]
+    {
+        std::env::consts::OS.into()
+    }
+}
+
+/// Snapshot payload for pure diagnostics report formatting.
+pub struct DiagnosticsReportInput<'a> {
+    pub app_version: &'a str,
+    pub generated_at_utc: &'a str,
+    pub os_version: &'a str,
+    pub data_dir: &'a str,
+    pub monitors: &'a [Monitor],
+    pub probes: &'a [(String, Result<crate::color::MonitorProbe, String>)],
+    pub capabilities: &'a [(String, crate::capabilities::DisplayCapabilities)],
+    pub presets_count: usize,
+    pub pins_count: usize,
+    pub applied_count: usize,
+    pub schedules_count: usize,
+    pub auto_apply_enabled: bool,
+    pub diagnostics_log_tail: &'a str,
+    pub auto_apply_log_tail: &'a str,
+}
+
+/// Format a structured, human- and support-readable diagnostics report.
+pub fn format_diagnostics_report(input: &DiagnosticsReportInput<'_>) -> String {
+    let mut out = String::with_capacity(4096);
+    out.push_str("============================================================\n");
+    out.push_str("ChromaDeck Diagnostics Report\n");
+    out.push_str("============================================================\n");
+    out.push_str(&format!("Generated (UTC): {}\n", input.generated_at_utc));
+    out.push_str(&format!("ChromaDeck:      v{}\n", input.app_version));
+    out.push_str(&format!("OS:              {}\n", input.os_version));
+    out.push_str(&format!("Data directory:  {}\n", input.data_dir));
+    out.push_str(&format!(
+        "Store summary:   presets={} pins={} applied={} schedules={} auto_apply={}\n",
+        input.presets_count,
+        input.pins_count,
+        input.applied_count,
+        input.schedules_count,
+        input.auto_apply_enabled
+    ));
+
+    out.push_str("\n── Monitors ────────────────────────────────────────────────\n");
+    if input.monitors.is_empty() {
+        out.push_str("(no monitors enumerated)\n");
+    } else {
+        for m in input.monitors {
+            out.push_str(&per_monitor_line(m));
+            out.push('\n');
+        }
+    }
+
+    out.push_str("\n── Per-Monitor Live Probes ─────────────────────────────────\n");
+    if input.probes.is_empty() {
+        out.push_str("(no connected monitors probed)\n");
+    } else {
+        for (edid, probe) in input.probes {
+            match probe {
+                Ok(p) => {
+                    let json = serde_json::to_string_pretty(p).unwrap_or_else(|_| "{}".into());
+                    out.push_str(&format!("[{edid}]\n{json}\n\n"));
+                }
+                Err(err) => {
+                    out.push_str(&format!("[{edid}]\nerror: {err}\n\n"));
+                }
+            }
+        }
+    }
+
+    out.push_str("── Per-Monitor Capabilities ────────────────────────────────\n");
+    if input.capabilities.is_empty() {
+        out.push_str("(no connected monitors)\n");
+    } else {
+        for (edid, caps) in input.capabilities {
+            let json = serde_json::to_string_pretty(caps).unwrap_or_else(|_| "{}".into());
+            out.push_str(&format!("[{edid}]\n{json}\n\n"));
+        }
+    }
+
+    out.push_str("── diagnostics.log (tail) ──────────────────────────────────\n");
+    out.push_str(input.diagnostics_log_tail);
+    out.push('\n');
+
+    out.push_str("\n── auto-apply.log (tail) ───────────────────────────────────\n");
+    out.push_str(input.auto_apply_log_tail);
+    out.push('\n');
+
+    out
+}
+
+#[tauri::command]
+pub fn export_diagnostics_cmd(
+    state: tauri::State<'_, crate::store::AppStore>,
+    dest_path: String,
+) -> Result<DiagnosticsExportSummary, String> {
+    let (data_dir, presets_count, pins_count, applied_count, schedules_count, auto_apply_enabled) = {
+        let store = state.0.lock().map_err(|e| e.to_string())?;
+        (
+            store.data_dir().to_path_buf(),
+            store.list_presets().len(),
+            store.list_pins().len(),
+            store.list_applied().len(),
+            store.list_schedules().len(),
+            store.auto_apply_enabled(),
+        )
+    };
+
+    let monitors = crate::monitor::list_monitors();
+    let mut probes = Vec::new();
+    let mut capabilities = Vec::new();
+    for m in monitors.iter().filter(|m| m.connected) {
+        probes.push((
+            m.edid_id.clone(),
+            crate::color::probe_monitor_cmd(m.edid_id.clone()),
+        ));
+        capabilities.push((
+            m.edid_id.clone(),
+            crate::capabilities::get_display_capabilities(m.edid_id.clone()),
+        ));
+    }
+
+    let diag_tail = read_log_tail(&data_dir.join("diagnostics.log"), 16 * 1024);
+    let auto_tail = read_log_tail(&data_dir.join("auto-apply.log"), 16 * 1024);
+    let now_utc = timestamp_now_utc();
+    let os_ver = windows_os_version();
+    let data_dir_str = data_dir.to_string_lossy().to_string();
+
+    let raw_report = format_diagnostics_report(&DiagnosticsReportInput {
+        app_version: env!("CARGO_PKG_VERSION"),
+        generated_at_utc: &now_utc,
+        os_version: &os_ver,
+        data_dir: &data_dir_str,
+        monitors: &monitors,
+        probes: &probes,
+        capabilities: &capabilities,
+        presets_count,
+        pins_count,
+        applied_count,
+        schedules_count,
+        auto_apply_enabled,
+        diagnostics_log_tail: &diag_tail,
+        auto_apply_log_tail: &auto_tail,
+    });
+
+    let home = dirs::home_dir();
+    let username = std::env::var("USERNAME")
+        .or_else(|_| std::env::var("USER"))
+        .ok();
+    let redacted = redact_user_paths(&raw_report, home.as_deref(), username.as_deref());
+
+    let dest = Path::new(&dest_path);
+    if let Some(parent) = dest.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+    }
+    std::fs::write(dest, redacted.as_bytes()).map_err(|e| e.to_string())?;
+
+    Ok(DiagnosticsExportSummary {
+        dest_path,
+        bytes_written: redacted.len(),
+        monitors_count: monitors.len(),
+    })
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────
@@ -284,6 +581,42 @@ mod tests {
         assert!(append_snapshot_if_changed(dir, &changed)?);
         assert!(path.metadata()?.len() > len1);
         Ok(())
+    }
+
+    #[test]
+    fn redact_user_paths_strips_windows_and_unix_usernames() {
+        let home = Path::new(r"C:\Users\Alice Example");
+        let input = r"Data: C:\Users\Alice Example\AppData\Local\ChromaDeck and c:/users/alice example/docs";
+        let redacted = redact_user_paths(input, Some(home), Some("Alice Example"));
+        assert!(!redacted.to_lowercase().contains("alice example"));
+        assert!(redacted.contains(r"C:\Users\<USER>\AppData\Local\ChromaDeck"));
+        assert!(redacted.contains("C:/Users/<USER>/docs") || redacted.contains("c:/users/<USER>/docs"));
+    }
+
+    #[test]
+    fn format_diagnostics_report_includes_all_sections() {
+        let mon = m("EDID:TEST", true);
+        let report = format_diagnostics_report(&DiagnosticsReportInput {
+            app_version: "0.9.8",
+            generated_at_utc: "2026-11-26T00:00:00Z",
+            os_version: "Windows 11 24H2 Build 26100.1",
+            data_dir: r"C:\Users\<USER>\AppData\Local\ChromaDeck",
+            monitors: std::slice::from_ref(&mon),
+            probes: &[],
+            capabilities: &[],
+            presets_count: 3,
+            pins_count: 1,
+            applied_count: 1,
+            schedules_count: 2,
+            auto_apply_enabled: true,
+            diagnostics_log_tail: "diag-line",
+            auto_apply_log_tail: "auto-line",
+        });
+        assert!(report.contains("ChromaDeck:      v0.9.8"));
+        assert!(report.contains("presets=3 pins=1 applied=1 schedules=2 auto_apply=true"));
+        assert!(report.contains("edid_id=EDID:TEST connected=1"));
+        assert!(report.contains("diag-line"));
+        assert!(report.contains("auto-line"));
     }
 
     /// Minimal RAII temp dir for IO tests (no external test deps).

@@ -1,8 +1,10 @@
 import { useState, useRef, useEffect } from "react";
 import type { Monitor, Preset } from "../lib/types";
-import { deletePreset, createPreset, unpinMonitor } from "../lib/tauri";
+import { deletePreset, createPreset, unpinMonitor, exportPresets } from "../lib/tauri";
 import { splitCategory } from "../lib/presetCard";
-import { Copy, Pencil, PinOff, Trash2 } from "lucide-react";
+import { Copy, Download, Pencil, PinOff, Trash2 } from "lucide-react";
+import { isTauri } from "@tauri-apps/api/core";
+import { save } from "@tauri-apps/plugin-dialog";
 import { ArrowRightGlyph } from "@/components/ui/icons";
 import { PresetTag } from "@/components/ui/preset-tag";
 import DeletePresetDialog from "./DeletePresetDialog";
@@ -36,6 +38,7 @@ interface Props {
   onDuplicated?: (preset: Preset) => void;
   highlightEnter?: boolean;
   onDeleted?: (id: string) => void;
+  onStatusMessage?: (message: string) => void;
   className?: string;
   onDragStart?: () => void;
   onDragEnd?: () => void;
@@ -44,7 +47,7 @@ interface Props {
 export default function PresetCard({
   preset, monitors, pins, onEdit, onRefreshParent, onPinChange,
   onApply, appliedMap, autoApplied, staggerEnter, staggerMs, onDuplicated,
-  highlightEnter, onDeleted,
+  highlightEnter, onDeleted, onStatusMessage,
   className,
   onDragStart,
   onDragEnd,
@@ -198,6 +201,30 @@ export default function PresetCard({
       else onRefreshParent();
     } catch (err) {
       showActionError(`Duplicate failed: ${String(err)}`);
+    }
+  };
+
+  const handleExportSingle = async () => {
+    try {
+      const slug = preset.name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "") || "preset";
+      const defaultFile = `${slug}.chromadeck.json`;
+      const destPath = isTauri()
+        ? await save({
+            title: `Export "${preset.name}"`,
+            defaultPath: defaultFile,
+            filters: [{ name: "ChromaDeck Bundle", extensions: ["chromadeck.json", "json"] }],
+          })
+        : defaultFile;
+      if (!destPath) return;
+      const summary = await exportPresets([preset.id], destPath);
+      onStatusMessage?.(
+        `Exported "${preset.name}"${summary.icc_count > 0 ? ` (${summary.icc_count} ICC)` : ""}`,
+      );
+    } catch (err) {
+      showActionError(`Export failed: ${String(err)}`);
     }
   };
 
@@ -514,6 +541,20 @@ export default function PresetCard({
                 aria-label={`Duplicate preset ${preset.name}`}
               >
                 <Copy className="size-[13px] stroke-[1.5]" />
+              </button>
+
+              <button
+                type="button"
+                className={iconStripButton}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void handleExportSingle();
+                }}
+                onKeyDown={(e) => e.stopPropagation()}
+                title="Export preset bundle (.chromadeck.json)"
+                aria-label={`Export preset ${preset.name}`}
+              >
+                <Download className="size-[13px] stroke-[1.5]" />
               </button>
 
               <button

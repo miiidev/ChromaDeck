@@ -6,13 +6,29 @@ import "@fontsource/geist/600.css";
 import "@fontsource/geist/700.css";
 import "@fontsource/jetbrains-mono/500.css";
 import "@fontsource/jetbrains-mono/700.css";
-import { listMonitors, listPresets, listPins, listApplied, reapplyNow, getAutoApplyEnabled, setAutoApplyEnabled, listAutoApplied, checkForUpdate, downloadAndInstallUpdate, type AutoApplyEvent, type HotkeyEvent } from "./lib/tauri";
+import {
+  listMonitors,
+  listPresets,
+  listPins,
+  listApplied,
+  listSchedules,
+  reapplyNow,
+  getAutoApplyEnabled,
+  setAutoApplyEnabled,
+  listAutoApplied,
+  exportDiagnostics,
+  checkForUpdate,
+  downloadAndInstallUpdate,
+  type AutoApplyEvent,
+  type HotkeyEvent,
+} from "./lib/tauri";
 import { version as appVersion } from "../package.json";
-import type { Monitor, Preset, EnforceEvent } from "./lib/types";
+import type { Monitor, Preset, EnforceEvent, ScheduleOutcomeEvent, ScheduleRule } from "./lib/types";
 import { applyAutoEvent, type AutoMap } from "./lib/autoApplyState";
 import { updateStateReducer, initialUpdateState } from "./lib/autoUpdateState";
 import { mergeMonitors } from "./lib/monitorMerge";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
+import { save } from "@tauri-apps/plugin-dialog";
 import { isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { replayEntrance } from "./lib/motion";
@@ -21,11 +37,13 @@ import MonitorList from "./components/MonitorList";
 import MonitorSidebar from "./components/MonitorSidebar";
 import ApplyDialog from "./components/ApplyDialog";
 import PresetEditor from "./components/PresetEditor";
+import ScheduleDialog from "./components/ScheduleDialog";
 import UpdateCheckButton from "./components/updater/UpdateCheckButton";
 import UpdateDialog from "./components/updater/UpdateDialog";
 import { DragAndDropProvider } from "./components/DragAndDropContext";
 import DragGhost from "./components/DragGhost";
 import UndoToast from "./components/UndoToast";
+import { Clock, FileDown } from "lucide-react";
 import { cn } from "cn";
 
 // ── Update suppression ─────────────────────────────────────────────────────
@@ -147,6 +165,9 @@ function App() {
   const [updateDialogKind, setUpdateDialogKind] = useState<"available" | "up-to-date" | "downloading" | "installing" | "error">("available");
   const [updateMsg, setUpdateMsg] = useState<string | null>(null);
   const updateTimerRef = useRef<number | null>(null);
+  const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
+  const [schedules, setSchedules] = useState<ScheduleRule[]>([]);
+  const [exportingDiagnostics, setExportingDiagnostics] = useState(false);
 
   /** Transient footer note for auto-apply outcomes. */
   const showAutoMsg = (message: string) => {
@@ -238,16 +259,18 @@ function App() {
     if (!quiet) setLoading(true);
     setError(null);
     try {
-      const [monitorsData, presetsData, pinsData, appliedData] = await Promise.all([
+      const [monitorsData, presetsData, pinsData, appliedData, schedulesData] = await Promise.all([
         listMonitors(),
         listPresets(),
         listPins(),
         listApplied(),
+        listSchedules().catch(() => [] as ScheduleRule[]),
       ]);
       setMonitors(monitorsData);
       setPresets(presetsData);
       setPins(pinsData);
       setAppliedMap(appliedData);
+      setSchedules(Array.isArray(schedulesData) ? schedulesData : []);
     } catch (err) {
       setError(String(err));
     } finally {
@@ -354,6 +377,20 @@ function App() {
       showReapplyMsg(p.error ? `${p.message}: ${p.error}` : p.message);
       void fetchData(true);
     });
+    const scheduleOutcome = listen<ScheduleOutcomeEvent>("schedule://outcome", (event) => {
+      const p = event.payload;
+      if (p.kind === "applied") {
+        showAutoMsg(`Scheduled ${p.preset_name} on ${p.monitor_name}`);
+      } else if (p.kind === "reverted") {
+        showAutoMsg(
+          p.restored_preset_name
+            ? `Schedule ended: restored ${p.restored_preset_name} on ${p.monitor_name}`
+            : `Schedule ended: reset ${p.monitor_name}`,
+        );
+      } else if (p.kind === "error") {
+        showAutoMsg(`Schedule failed: ${p.error ?? "unknown error"}`);
+      }
+    });
 
     return () => {
       mounted = false;
@@ -361,6 +398,7 @@ function App() {
       enabled.then((unlisten) => unlisten()).catch(() => {});
       storeChanged.then((unlisten) => unlisten()).catch(() => {});
       hotkeyTriggered.then((unlisten) => unlisten()).catch(() => {});
+      scheduleOutcome.then((unlisten) => unlisten()).catch(() => {});
     };
   }, [fetchData]);
 
@@ -509,6 +547,30 @@ function App() {
     setEditingPreset(null);
   };
 
+  const handleExportDiagnostics = async () => {
+    if (exportingDiagnostics) return;
+    setExportingDiagnostics(true);
+    try {
+      const defaultName = `chromadeck-diagnostics-v${appVersion}.log`;
+      const destPath = isTauri()
+        ? await save({
+            title: "Export ChromaDeck Diagnostics Report",
+            defaultPath: defaultName,
+            filters: [{ name: "Log / Text Report", extensions: ["log", "txt"] }],
+          })
+        : defaultName;
+      if (!destPath) return;
+      const summary = await exportDiagnostics(destPath);
+      showReapplyMsg(
+        `Diagnostics exported (${summary.monitors_count} monitor${summary.monitors_count === 1 ? "" : "s"})`,
+      );
+    } catch (err) {
+      showReapplyMsg(`Diagnostics export failed: ${String(err)}`);
+    } finally {
+      setExportingDiagnostics(false);
+    }
+  };
+
   function LogoMark() {
     return (
       <img
@@ -608,6 +670,7 @@ function App() {
             onPresetDuplicated={handlePresetDuplicated}
             onPresetDeleted={(id) => handleBatchDeleted([id])}
             lastAddedId={lastAddedId}
+            onStatusMessage={showReapplyMsg}
             onApply={(preset) => { setApplyTargetEdid(null); setApplyingPreset(preset); }}
           />
         </div>
@@ -695,6 +758,36 @@ function App() {
           <AutoApplyToggle on={autoEnabled} onChange={setAutoEnabled} />
           <AutostartToggle />
           <button
+            type="button"
+            data-slot="button"
+            onClick={() => setScheduleDialogOpen(true)}
+            title="Configure time-of-day display schedules"
+            aria-label="Open display schedules"
+            className="inline-flex items-center justify-center gap-1.5 rounded-[8px] border border-border bg-transparent px-2.5 py-1.5 font-body text-[11px] uppercase tracking-[0.4px] text-foreground transition-colors hover:border-border-hover hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring"
+          >
+            <Clock className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <span className="btn-label">Schedules</span>
+            {schedules.filter((s) => s.enabled).length > 0 && (
+              <span className="rounded-full bg-primary-subtle px-1.5 py-0.2 font-mono text-[9px] text-primary">
+                {schedules.filter((s) => s.enabled).length}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
+            data-slot="button"
+            onClick={() => void handleExportDiagnostics()}
+            disabled={exportingDiagnostics}
+            title="Export redacted hardware and log diagnostics report"
+            aria-label="Export diagnostics report"
+            className="inline-flex items-center justify-center gap-1.5 rounded-[8px] border border-border bg-transparent px-2 py-1.5 font-body text-[11px] uppercase tracking-[0.4px] text-muted-foreground transition-colors hover:border-border-hover hover:bg-surface-hover hover:text-foreground focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring disabled:opacity-50"
+          >
+            <FileDown className="size-3.5 shrink-0" aria-hidden="true" />
+            <span className="hidden btn-label min-[1080px]:inline">
+              {exportingDiagnostics ? "Exporting…" : "Diagnostics"}
+            </span>
+          </button>
+          <button
             data-slot="button"
             onClick={async () => {
               try {
@@ -754,6 +847,25 @@ function App() {
           onClose={handleDialogCloseRequest}
           onClosed={handleEditorClosed}
           onSaved={handleEditorSaved}
+        />
+      )}
+
+      {/* ── Schedule dialog ────────────────────────────────────────────── */}
+      {scheduleDialogOpen && (
+        <ScheduleDialog
+          open={scheduleDialogOpen}
+          monitors={monitors}
+          presets={presets}
+          onClose={() => setScheduleDialogOpen(false)}
+          onSaved={(saved) => {
+            setSchedules(saved);
+            const activeCount = saved.filter((s) => s.enabled).length;
+            showReapplyMsg(
+              activeCount > 0
+                ? `Saved ${activeCount} active schedule${activeCount === 1 ? "" : "s"}`
+                : "Schedules cleared",
+            );
+          }}
         />
       )}
 

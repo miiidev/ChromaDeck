@@ -1,6 +1,7 @@
 mod auto_apply;
 mod auto_apply_runtime;
 mod backend;
+mod bundle;
 mod capabilities;
 mod cli;
 mod color;
@@ -12,6 +13,7 @@ mod identify;
 mod monitor;
 mod nvapi;
 mod nvgamma;
+mod schedule;
 mod store;
 mod tray;
 mod updater;
@@ -84,6 +86,7 @@ pub fn run() {
         .manage(app_store)
         .manage(auto_apply_runtime::AutoState::new(store_path))
         .manage(hotkeys::HotkeyState::default())
+        .manage(schedule::ScheduleState::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(
@@ -122,6 +125,11 @@ pub fn run() {
             hotkeys::set_hotkeys_suspended_cmd,
             hotkeys::get_global_hotkeys_cmd,
             hotkeys::set_global_hotkeys_cmd,
+            bundle::export_presets_cmd,
+            bundle::import_presets_cmd,
+            schedule::list_schedules_cmd,
+            schedule::save_schedules_cmd,
+            diagnostics::export_diagnostics_cmd,
             reapply_now_cmd,
             capture_nvcp_cmd,
             set_monitor_name_cmd,
@@ -151,6 +159,7 @@ pub fn run() {
 
             let handle = app.handle().clone();
             let auto_handle = app.handle().clone();
+            let schedule_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 // Reassert pinned/applied presets once through the backend
                 // registry before the drift loop takes over. Runs off the main
@@ -162,6 +171,10 @@ pub fn run() {
             // never delays drift enforcement.
             tauri::async_runtime::spawn(async move {
                 crate::auto_apply_runtime::auto_apply_loop(auto_handle).await;
+            });
+            // Time-of-day schedule watcher runs independently every 30 s.
+            tauri::async_runtime::spawn(async move {
+                crate::schedule::schedule_loop(schedule_handle).await;
             });
             Ok(())
         })

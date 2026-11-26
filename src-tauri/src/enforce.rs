@@ -662,7 +662,8 @@ pub fn shutdown_sweep(app: &tauri::AppHandle) {
         Ok(store) => (store.list_pins(), store.list_applied()),
         Err(_) => return,
     };
-    let auto_edids = crate::auto_apply_runtime::take_active_edids(app);
+    let mut auto_edids = crate::auto_apply_runtime::take_active_edids(app);
+    auto_edids.extend(crate::schedule::active_edids(app));
     let targets = shutdown_targets(&pins, &applied, &auto_edids);
     if targets.is_empty() {
         return;

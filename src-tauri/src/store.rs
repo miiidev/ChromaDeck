@@ -177,6 +177,8 @@ struct Settings {
     reapply_shortcut: Option<String>,
     #[serde(default)]
     cycle_shortcut: Option<String>,
+    #[serde(default)]
+    schedules: Vec<crate::schedule::ScheduleRule>,
 }
 
 // ── Store errors ───────────────────────────────────────────────────────────
@@ -301,6 +303,7 @@ pub struct Store {
     auto_apply_enabled: bool, // persisted master switch; default false
     reapply_shortcut: Option<String>,
     cycle_shortcut: Option<String>,
+    schedules: Vec<crate::schedule::ScheduleRule>,
     faults: LoadFaults,
 }
 
@@ -359,6 +362,7 @@ impl Store {
             auto_apply_enabled: settings.auto_apply_enabled,
             reapply_shortcut: settings.reapply_shortcut,
             cycle_shortcut: settings.cycle_shortcut,
+            schedules: settings.schedules,
             faults,
         };
 
@@ -817,6 +821,7 @@ impl Store {
         let previous_presets = self.presets.clone();
         let previous_pins = self.pinned.clone();
         let previous_applied = self.applied.clone();
+        let previous_schedules = self.schedules.clone();
         let removed = self.presets.remove(idx);
         let pinned_gone = self.pinned.values().any(|v| v == id);
         if pinned_gone {
@@ -826,6 +831,10 @@ impl Store {
         if applied_gone {
             self.applied.retain(|_, v| v != id);
         }
+        let schedules_gone = self.schedules.iter().any(|s| s.preset_id == id);
+        if schedules_gone {
+            self.schedules.retain(|s| s.preset_id != id);
+        }
         let persisted = (|| {
             if pinned_gone {
                 self.flush_pins()?;
@@ -833,15 +842,20 @@ impl Store {
             if applied_gone {
                 self.flush_applied()?;
             }
+            if schedules_gone {
+                self.flush_settings()?;
+            }
             self.flush()
         })();
         if let Err(error) = persisted {
             self.presets = previous_presets;
             self.pinned = previous_pins;
             self.applied = previous_applied;
+            self.schedules = previous_schedules;
             let rollback = self
                 .flush_pins()
                 .and_then(|_| self.flush_applied())
+                .and_then(|_| self.flush_settings())
                 .and_then(|_| self.flush());
             if let Err(rollback_error) = rollback {
                 return Err(StoreError::InvalidInput(format!(
@@ -979,6 +993,85 @@ impl Store {
         &self.data_dir
     }
 
+    /// Directory holding bundled `{sha256}.icc` files.
+    pub fn profiles_dir(&self) -> &Path {
+        &self.profiles_dir
+    }
+
+    /// Public writable check for sibling store-writing modules (e.g. `bundle`).
+    pub fn ensure_writable_public(&self) -> Result<(), StoreError> {
+        self.ensure_writable()
+    }
+
+    pub fn is_valid_color_tag_str(tag: &str) -> bool {
+        is_valid_color_tag(tag)
+    }
+
+    pub fn is_valid_tag_shape_str(shape: &str) -> bool {
+        is_valid_tag_shape(shape)
+    }
+
+    pub fn normalise_tag_shape_opt(shape: Option<String>) -> Option<String> {
+        normalise_tag_shape(shape)
+    }
+
+    /// Write raw ICC bytes into `profiles/{expected_hash}.icc` after verifying
+    /// their SHA-256 digest. Returns `Ok(true)` if a new file was written, or
+    /// `Ok(false)` if the identical file was already present.
+    pub fn import_icc_bytes(&self, expected_hash: &str, bytes: &[u8]) -> Result<bool, StoreError> {
+        self.ensure_writable()?;
+        if bytes.is_empty() {
+            return Err(StoreError::InvalidInput("ICC profile data is empty".into()));
+        }
+        use sha2::{Digest, Sha256};
+        let actual = hex::encode(Sha256::digest(bytes));
+        let expected = expected_hash.trim().to_ascii_lowercase();
+        if actual != expected {
+            return Err(StoreError::InvalidInput(format!(
+                "ICC digest mismatch: expected {expected}, got {actual}"
+            )));
+        }
+        let dest = self.profiles_dir.join(format!("{actual}.icc"));
+        if dest.exists() {
+            return Ok(false);
+        }
+        std::fs::write(&dest, bytes)?;
+        Ok(true)
+    }
+
+    /// Atomically append imported presets and flush `presets.json`.
+    pub fn insert_imported_presets(&mut self, imported: Vec<Preset>) -> Result<(), StoreError> {
+        self.ensure_writable()?;
+        let previous = self.presets.clone();
+        self.presets.extend(imported);
+        if let Err(error) = self.flush() {
+            self.presets = previous;
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    /// Return all persisted time-of-day schedule rules.
+    pub fn list_schedules(&self) -> Vec<crate::schedule::ScheduleRule> {
+        self.schedules.clone()
+    }
+
+    /// Validate and atomically persist schedule rules in `settings.json`.
+    pub fn set_schedules(
+        &mut self,
+        schedules: Vec<crate::schedule::ScheduleRule>,
+    ) -> Result<Vec<crate::schedule::ScheduleRule>, StoreError> {
+        self.ensure_writable()?;
+        let validated = crate::schedule::validate_rules(&schedules, &self.presets)
+            .map_err(StoreError::InvalidInput)?;
+        let previous = std::mem::replace(&mut self.schedules, validated.clone());
+        if let Err(error) = self.flush_settings() {
+            self.schedules = previous;
+            return Err(error);
+        }
+        Ok(validated)
+    }
+
     /// Lift every pin. Returns the number removed and flushes once.
     pub fn clear_all_pins(&mut self) -> Result<usize, StoreError> {
         self.ensure_writable()?;
@@ -1103,6 +1196,7 @@ impl Store {
             auto_apply_enabled: self.auto_apply_enabled,
             reapply_shortcut: self.reapply_shortcut.clone(),
             cycle_shortcut: self.cycle_shortcut.clone(),
+            schedules: self.schedules.clone(),
         };
         let json = serde_json::to_string_pretty(&settings)?;
         let tmp = self.data_dir.join("settings.json.tmp");
@@ -2760,6 +2854,52 @@ mod tests {
             Some("Ctrl+Alt+F1")
         );
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn schedules_persist_across_reopen_and_cascade_on_preset_delete() {
+        let dir = test_store_dir_unique();
+        let mut store = test_store_at(dir.clone());
+        let preset = store.create_preset(minimal_input()).unwrap();
+
+        let saved = store
+            .set_schedules(vec![crate::schedule::ScheduleRule {
+                id: String::new(),
+                edid_id: "EDID:MON-1".into(),
+                preset_id: preset.id.clone(),
+                start_time: "21:00".into(),
+                end_time: "07:00".into(),
+                enabled: true,
+            }])
+            .unwrap();
+        assert_eq!(saved.len(), 1);
+        assert!(!saved[0].id.is_empty());
+
+        let reopened = Store::new(dir.clone()).unwrap();
+        assert_eq!(reopened.list_schedules(), saved);
+
+        store.delete_preset(&preset.id).unwrap();
+        assert!(store.list_schedules().is_empty());
+
+        let reopened_after = Store::new(dir.clone()).unwrap();
+        assert!(reopened_after.list_schedules().is_empty());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn legacy_settings_json_without_schedules_loads_empty() {
+        let dir = test_store_dir_unique();
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("settings.json"),
+            r#"{"auto_apply_enabled": true}"#,
+        )
+        .unwrap();
+        let store = Store::new(dir.clone()).unwrap();
+        assert!(store.auto_apply_enabled());
+        assert!(store.list_schedules().is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

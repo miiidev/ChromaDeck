@@ -27,7 +27,7 @@ test('updater prevents duplicate downloads, distinguishes installation and displ
           downloads++;
           return new Promise((_resolve, reject) => { rejectDownload = reject; });
         }
-        if (command === 'list_monitors_cmd' || command === 'list_presets_cmd') return [];
+        if (command === 'list_monitors_cmd' || command === 'list_presets_cmd' || command === 'list_schedules_cmd') return [];
         if (command === 'list_pins_cmd' || command === 'list_applied_cmd') return {};
         if (command === 'list_auto_applied_cmd') return null;
         return false;
