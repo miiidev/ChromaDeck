@@ -194,6 +194,7 @@ pub fn run() {
             get_auto_apply_enabled_cmd,
             set_auto_apply_enabled_cmd,
             auto_apply_runtime::list_auto_applied_cmd,
+            foreground::list_running_programs_cmd,
             reapply_now_cmd,
             capture_nvcp_cmd,
             set_monitor_name_cmd,

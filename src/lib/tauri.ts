@@ -286,10 +286,16 @@ export async function setAutoApplyEnabled(enabled: boolean): Promise<void> {
   return invoke<void>("set_auto_apply_enabled_cmd", { enabled });
 }
 
-/** The monitor/preset pair currently auto-applied, or null. In-memory only. */
-export async function listAutoApplied(): Promise<{ edid_id: string; preset_id: string } | null> {
-  if (isBrowserPreview()) return null;
-  return invoke<{ edid_id: string; preset_id: string } | null>("list_auto_applied_cmd");
+/** All monitor/preset pairs currently auto-applied. In-memory only. */
+export async function listAutoApplied(): Promise<Array<{ edid_id: string; preset_id: string }>> {
+  if (isBrowserPreview()) return [];
+  return invoke<Array<{ edid_id: string; preset_id: string }>>("list_auto_applied_cmd");
+}
+
+/** List currently open user-facing program executables (lowercased base names). */
+export async function listRunningPrograms(): Promise<string[]> {
+  if (isBrowserPreview()) return ["chrome.exe", "code.exe", "cs2.exe", "vlc.exe"];
+  return invoke<string[]>("list_running_programs_cmd");
 }
 
 /**
@@ -304,6 +310,8 @@ export interface AutoApplyEvent {
   monitor_name: string;
   program: string;
   error: string | null;
+  /** Set on `reverted` when returning to a prior manually applied preset. */
+  restored_preset_name?: string | null;
 }
 
 // ── Auto-updater ─────────────────────────────────────────────────────────────

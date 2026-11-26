@@ -22,6 +22,7 @@ function ComboboxInput({ className, ...props }: ComboboxPrimitive.Input.Props) {
 function ComboboxContent({
   className,
   children,
+  emptyText = "Keep typing to create a new category",
   side = "bottom",
   sideOffset = 4,
   align = "start",
@@ -34,6 +35,8 @@ function ComboboxContent({
   > & {
     /** Render-prop form lets Base UI filter items as the user types. */
     children?: ComboboxPrimitive.List.Props["children"]
+    /** Message shown when the input filters out all suggestions. */
+    emptyText?: string
   }) {
   return (
     <ComboboxPrimitive.Portal>
@@ -42,12 +45,12 @@ function ComboboxContent({
         sideOffset={sideOffset}
         align={align}
         alignOffset={alignOffset}
-        className="isolate z-50"
+        className="isolate z-[60]"
       >
         <ComboboxPrimitive.Popup
           data-slot="combobox-content"
           className={cn(
-            "relative isolate z-50 max-h-(--available-height) w-(--anchor-width) min-w-36 origin-(--transform-origin) overflow-x-hidden overflow-y-auto rounded-[8px] border border-border-hover bg-surface-raised text-foreground shadow-[0_8px_24px_rgba(0,0,0,0.45)] data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+            "relative isolate z-[60] max-h-(--available-height) w-(--anchor-width) min-w-36 origin-(--transform-origin) overflow-x-hidden overflow-y-auto rounded-[8px] border border-border-hover bg-surface-raised text-foreground shadow-[0_8px_24px_rgba(0,0,0,0.45)] data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
             className
           )}
           {...props}
@@ -62,7 +65,7 @@ function ComboboxContent({
             data-slot="combobox-empty"
             className="px-2 py-1.5 text-xs text-muted-foreground"
           >
-            Keep typing to create a new category
+            {emptyText}
           </ComboboxPrimitive.Empty>
         </ComboboxPrimitive.Popup>
       </ComboboxPrimitive.Positioner>

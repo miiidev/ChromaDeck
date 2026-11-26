@@ -97,6 +97,8 @@
 
 ## Phase 2: Smarter Auto-Apply & Running-App Picker
 
+**Status:** COMPLETE (verified: 291 cargo tests, 215 vitest tests, `npm run build`, 6 Playwright E2E tests + Visual QA screenshot).
+
 **Goal:** Make foreground auto-apply multi-monitor aware, preserve manually applied desktop presets on revert, and let users pick from running apps without hunting `.exe` paths.
 
 ### Task 2.1: Revert to Previous Manual Preset (`applied.json`) Instead of Raw Identity
@@ -104,26 +106,26 @@
 - Modify: `src-tauri/src/auto_apply.rs`, `src-tauri/src/auto_apply_runtime.rs`
 - Modify: `src/lib/autoApplyState.ts`, `src/lib/autoApplyState.test.ts`
 
-- [ ] **Step 1:** Write failing unit tests in `auto_apply.rs` and `auto_apply_runtime.rs`:
+- [x] **Step 1:** Write failing unit tests in `auto_apply.rs` and `auto_apply_runtime.rs`:
   - Monitor `D1` has manual preset `Desktop Warm` in `applied.json` (unpinned). Mapped game `cs2.exe` opens on `D1` → applies `FPS Vibrance`. `cs2.exe` closes → `D1` reverts to `Desktop Warm` (`apply_color`), **not** raw identity (`reset_monitor`).
   - Monitor `D2` has nothing in `applied.json` → `cs2.exe` closes → `D2` reverts via `reset_monitor` as before.
-- [ ] **Step 2:** Implement fallback lookup against `store.list_applied()` inside the `AutoAction::Revert` and switch-off revert handlers in `auto_apply_runtime.rs` (falling back to `reset_monitor` if `applied.json` has no entry or the referenced preset was deleted).
+- [x] **Step 2:** Implement fallback lookup against `store.list_applied()` inside the `AutoAction::Revert` and switch-off revert handlers in `auto_apply_runtime.rs` (falling back to `reset_monitor` if `applied.json` has no entry or the referenced preset was deleted).
 
 ### Task 2.2: Multi-Monitor Concurrent Auto-Apply Tracking
 **Files:**
 - Modify: `src-tauri/src/auto_apply.rs`, `src-tauri/src/auto_apply_runtime.rs`, `src/lib/tauri.ts`, `src/App.tsx`
 
-- [ ] **Step 1:** Upgrade `ActiveAuto` state from a single `Option<ActiveAuto>` to per-monitor map `HashMap<String, ActiveAuto>` (`edid_id -> ActiveAuto`) or evaluate visible/foreground windows cleanly so moving a mapped window from Monitor A to Monitor B reverts A to its prior state and applies on B atomically, with `list_auto_applied_cmd` returning `Vec<AutoAppliedInfo>` (keeping frontend `AutoMap` in sync).
-- [ ] **Step 2:** Add unit tests covering dual-monitor window drag, monitor unplug mid-session, and manual apply relinquishing only the targeted monitor.
+- [x] **Step 1:** Upgrade `ActiveAuto` state from a single `Option<ActiveAuto>` to per-monitor map `HashMap<String, ActiveAuto>` (`edid_id -> ActiveAuto`) and evaluate visible/foreground windows cleanly so moving a mapped window from Monitor A to Monitor B reverts A to its prior state and applies on B atomically, with `list_auto_applied_cmd` returning `Vec<AutoAppliedInfo>` (keeping frontend `AutoMap` in sync).
+- [x] **Step 2:** Add unit tests covering dual-monitor window drag, monitor unplug mid-session, concurrent two-monitor presets, and manual apply relinquishing only the targeted monitor.
 
 ### Task 2.3: "Pick from Running Programs" Combobox in PresetEditor
 **Files:**
-- Modify: `src-tauri/src/foreground.rs` (`list_running_programs` + `list_running_programs_cmd`)
-- Modify: `src-tauri/src/lib.rs`, `src/lib/tauri.ts`, `src/components/PresetEditor.tsx`
+- Modify: `src-tauri/src/foreground.rs` (`list_visible_windows`, `filter_running_programs`, `list_running_programs_cmd`)
+- Modify: `src-tauri/src/lib.rs`, `src/lib/tauri.ts`, `src/components/PresetEditor.tsx`, `src/components/ui/combobox.tsx`
 
-- [ ] **Step 1:** Implement `list_running_programs()` in `foreground.rs` using `EnumWindows` (`IsWindowVisible` filter → `GetWindowThreadProcessId` → `QueryFullProcessImageNameW`), normalizing to deduplicated sorted lowercase `.exe` names and excluding `self_program()` and core shell noise (`explorer.exe`, `searchhost.exe`, `shellexperiencehost.exe`, `applicationframehost.exe`).
-- [ ] **Step 2:** Replace/augment the plain text `Input` in `PresetEditor.tsx` Programs section with Base UI `Combobox` pre-populated by `listRunningPrograms()` on open (plus a refresh button), while still allowing arbitrary typed `.exe` names and `Browse…`.
-- [ ] **Step 3:** Run Phase 2 verification gates and commit.
+- [x] **Step 1:** Implement `list_running_programs_cmd()` in `foreground.rs` using `EnumWindows` (`IsWindowVisible && !IsIconic && GetWindowTextLengthW > 0` → `GetWindowThreadProcessId` → `QueryFullProcessImageNameW`), normalizing to deduplicated sorted lowercase `.exe` names and excluding `self_program()` and core shell noise (`explorer.exe`, `searchhost.exe`, `shellexperiencehost.exe`, `applicationframehost.exe`, etc.).
+- [x] **Step 2:** Replace the plain text `Input` in `PresetEditor.tsx` Programs section with Base UI `Combobox` pre-populated by `listRunningPrograms()` on open (plus a refresh button), while still allowing arbitrary typed `.exe` names and `Browse…`.
+- [x] **Step 3:** Run Phase 2 verification gates (`cargo test`, `npm test`, `npm run build`, Playwright E2E + Visual QA).
 
 ---
 

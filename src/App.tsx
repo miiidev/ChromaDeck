@@ -312,9 +312,11 @@ function App() {
     let mounted = true;
 
     void listAutoApplied()
-      .then((info) => {
-        if (mounted && info) {
-          setAutoMap({ [info.edid_id]: info.preset_id });
+      .then((items) => {
+        if (mounted && items.length > 0) {
+          setAutoMap(
+            Object.fromEntries(items.map((item) => [item.edid_id, item.preset_id])),
+          );
         }
       })
       .catch(() => {});
@@ -330,7 +332,11 @@ function App() {
       if (payload.kind === "applied") {
         showAutoMsg(`Auto-applied ${payload.preset_name} to ${payload.monitor_name}`);
       } else if (payload.kind === "reverted") {
-        showAutoMsg(`Reverted ${payload.monitor_name}`);
+        showAutoMsg(
+          payload.restored_preset_name
+            ? `Restored ${payload.restored_preset_name} on ${payload.monitor_name}`
+            : `Reverted ${payload.monitor_name}`,
+        );
       } else if (payload.kind === "skipped") {
         showAutoMsg(`Auto-apply skipped: ${payload.error ?? "monitor is pinned"}`);
       } else if (payload.kind === "error") {

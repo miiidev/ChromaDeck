@@ -6,6 +6,7 @@ import {
   createPreset,
   getDisplayCapabilities,
   importIcc,
+  listRunningPrograms,
   previewPreset,
   restorePreview,
   updatePreset,
@@ -34,7 +35,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { PresetTag } from "@/components/ui/preset-tag";
-import { Check, ChevronDown, Download, Eye, RotateCcw, Upload, X } from "lucide-react";
+import { Check, ChevronDown, Download, Eye, RefreshCw, RotateCcw, Upload, X } from "lucide-react";
 import { cn } from "cn";
 
 interface Props {
@@ -168,6 +169,20 @@ export default function PresetEditor({ presets, monitors = [], editPreset, onClo
   const [iccImporting, setIccImporting] = useState(false);
   const [programInput, setProgramInput] = useState("");
   const [programError, setProgramError] = useState<string | null>(null);
+  const [runningPrograms, setRunningPrograms] = useState<string[]>([]);
+  const [loadingPrograms, setLoadingPrograms] = useState(false);
+
+  const refreshRunningPrograms = () => {
+    setLoadingPrograms(true);
+    void listRunningPrograms()
+      .then((list) => setRunningPrograms(list))
+      .catch(() => {})
+      .finally(() => setLoadingPrograms(false));
+  };
+
+  useEffect(() => {
+    refreshRunningPrograms();
+  }, []);
 
   // Hardware target for live preview & driver capture
   const connectedMonitors = monitors.filter((m) => m.connected);
@@ -401,10 +416,11 @@ export default function PresetEditor({ presets, monitors = [], editPreset, onClo
     }
   };
 
-  const handleAddProgram = () => {
+  const handleAddProgram = (rawOverride?: string) => {
+    const candidate = rawOverride ?? programInput;
     const result = addProgram(
       form.attached_programs,
-      programInput,
+      candidate,
       presets,
       editPreset?.id,
     );
@@ -721,25 +737,52 @@ export default function PresetEditor({ presets, monitors = [], editPreset, onClo
               </div>
             )}
             <div className="flex items-center gap-2">
-              <Input
-                value={programInput}
-                onChange={(e) => {
-                  setProgramInput((e.target as HTMLInputElement).value);
+              <Combobox
+                items={runningPrograms.filter((p) => !form.attached_programs.includes(p))}
+                value={null}
+                onValueChange={(value) => {
+                  if (value) handleAddProgram(value);
+                }}
+                inputValue={programInput}
+                onInputValueChange={(value) => {
+                  setProgramInput(value);
                   if (programError) setProgramError(null);
                 }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    handleAddProgram();
-                  }
-                }}
-                placeholder="chrome.exe"
-                aria-label="Program executable"
-                className="flex-1"
-              />
+              >
+                <div className="relative flex-1">
+                  <ComboboxInput
+                    placeholder="Pick running app or type chrome.exe"
+                    aria-label="Program executable"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleAddProgram();
+                      }
+                    }}
+                  />
+                  <ChevronDown className="pointer-events-none absolute top-1/2 right-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+                </div>
+                <ComboboxContent emptyText="No running match — press Enter or click Add">
+                  {(item: string) => (
+                    <ComboboxItem key={item} value={item}>
+                      <span className="mono text-[12px]">{item}</span>
+                    </ComboboxItem>
+                  )}
+                </ComboboxContent>
+              </Combobox>
               <button
                 type="button"
-                onClick={handleAddProgram}
+                onClick={refreshRunningPrograms}
+                disabled={loadingPrograms}
+                title="Refresh list of running programs"
+                aria-label="Refresh running programs"
+                className="inline-flex size-9 shrink-0 items-center justify-center rounded-[8px] border border-border text-muted-foreground transition-colors hover:border-border-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring disabled:opacity-50"
+              >
+                <RefreshCw className={cn("size-3.5", loadingPrograms && "animate-spin")} strokeWidth={1.5} />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleAddProgram()}
                 className="shrink-0 rounded-[8px] border border-border px-2.5 py-1.5 font-mono text-[11px] uppercase tracking-[0.1em] text-muted-foreground transition-colors hover:border-border-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring"
               >
                 Add

@@ -7,6 +7,7 @@
 // State is in-memory by design. Nothing here writes `applied.json`, so an
 // auto-applied look never survives a restart or masquerades as a manual apply.
 
+use std::collections::HashMap;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -14,7 +15,9 @@ use std::sync::Mutex;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::auto_apply::{transition, ActiveAuto, AutoAction, ObservedForeground};
+use crate::auto_apply::{
+    revert_target, transition_multi, ActiveAuto, AutoAction, ObservedForeground,
+};
 use crate::foreground::ObservedWindow;
 use crate::monitor::Monitor;
 use crate::store::{AppStore, Preset};
@@ -51,6 +54,10 @@ pub struct AutoApplyEvent {
     pub monitor_name: String,
     pub program: String,
     pub error: Option<String>,
+    /// Populated on `reverted` when the monitor returned to a prior manually
+    /// applied preset (`applied.json`) instead of raw system identity.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub restored_preset_name: Option<String>,
 }
 
 /// What the frontend needs to restore its marker after remounting.
@@ -60,49 +67,51 @@ pub struct AutoAppliedInfo {
     pub preset_id: String,
 }
 
+type ObservationKey = (Option<(String, String)>, Vec<(String, String)>);
+
 /// In-memory bookkeeping for the watcher thread.
 #[derive(Default)]
 pub struct AutoRuntime {
-    active: Option<ActiveAuto>,
-    /// (program, edid) from the previous tick, used to skip unchanged state.
-    last_key: Option<(String, String)>,
+    /// Active auto-applied preset per monitor (`edid_id -> ActiveAuto`).
+    active: HashMap<String, ActiveAuto>,
+    /// Snapshot of (foreground, sorted visible windows) from previous tick.
+    last_key: Option<ObservationKey>,
     /// Cold start: the first tick only records the key, never acts, so a
     /// program already in front at launch is not stomped on.
     seeded: bool,
-    /// Last observation written to the diagnostics log, so the 1 s poll only
-    /// logs real foreground / monitor changes instead of one line per second.
+    /// Last observation written to the diagnostics log, so the poll only
+    /// logs real foreground / monitor changes instead of one line per tick.
     last_logged: String,
 }
 
 impl AutoRuntime {
     fn relinquish(&mut self, edid_id: &str) {
-        if self
-            .active
-            .as_ref()
-            .is_some_and(|active| active.edid_id == edid_id)
-        {
-            self.active = None;
-        }
+        self.active.remove(edid_id);
     }
 
     /// Reset bookkeeping for a master-switch change.
     ///
     /// Enabling marks the runtime seeded and forgets the last key, so the very
-    /// next tick evaluates whatever is in front immediately. Without this the
-    /// first tick only seeded itself and the user had to alt-tab away and back
-    /// before anything applied — the "auto-apply does nothing" report.
+    /// next tick evaluates whatever is in front immediately.
     ///
-    /// Disabling keeps `active` so the next tick can revert the colour that
-    /// auto-apply applied; `seeded` is cleared so re-enabling starts fresh.
+    /// Disabling keeps `active` so the synchronous revert path (or next tick)
+    /// can restore every monitor that auto-apply coloured; `seeded` is cleared
+    /// so re-enabling starts fresh.
     fn apply_switch(&mut self, enabled: bool) {
         self.last_key = None;
         self.last_logged.clear();
         if enabled {
-            self.active = None;
+            self.active.clear();
             self.seeded = true;
         } else {
             self.seeded = false;
         }
+    }
+
+    fn drain_sorted(&mut self) -> Vec<ActiveAuto> {
+        let mut items: Vec<ActiveAuto> = self.active.drain().map(|(_, v)| v).collect();
+        items.sort_by(|a, b| a.edid_id.cmp(&b.edid_id));
+        items
     }
 }
 
@@ -177,11 +186,68 @@ pub async fn auto_apply_loop(app: AppHandle) {
     }
 }
 
+fn execute_revert(
+    app: &AppHandle,
+    edid_id: String,
+    preset_id: String,
+    presets: &[Preset],
+    applied: &HashMap<String, String>,
+    monitors: &[Monitor],
+    context: &str,
+) {
+    let preset_name = presets
+        .iter()
+        .find(|p| p.id == preset_id)
+        .map(|p| p.name.clone())
+        .unwrap_or_default();
+
+    let (result, restored_preset_name) = match revert_target(&edid_id, applied, presets) {
+        Some(prior) => (
+            crate::color::apply_color(
+                &crate::color::RealColorApi,
+                &crate::nvapi::RealNvapi,
+                prior,
+                &edid_id,
+            ),
+            Some(prior.name.clone()),
+        ),
+        None => (
+            crate::color::reset_monitor(
+                &crate::color::RealColorApi,
+                &crate::nvapi::RealNvapi,
+                &edid_id,
+            ),
+            None,
+        ),
+    };
+
+    log(
+        app,
+        &format!(
+            "{context}: reverted edid={edid_id} preset={preset_name:?} restored={restored_preset_name:?} error={:?}",
+            result.error
+        ),
+    );
+    emit(
+        app,
+        AutoApplyEvent {
+            kind: "reverted".into(),
+            monitor_name: monitor_name(monitors, &edid_id),
+            edid_id,
+            preset_id,
+            preset_name,
+            program: String::new(),
+            error: result.error,
+            restored_preset_name,
+        },
+    );
+}
+
 fn tick(app: &AppHandle) {
     let Ok(_operation) = DISPLAY_OPERATION.lock() else {
         return;
     };
-    let (enabled, presets, pins) = {
+    let (enabled, presets, pins, applied) = {
         let store_state = match app.try_state::<AppStore>() {
             Some(s) => s,
             None => return,
@@ -193,6 +259,7 @@ fn tick(app: &AppHandle) {
             store.auto_apply_enabled(),
             store.list_presets(),
             store.list_pins(),
+            store.list_applied(),
         )
     };
 
@@ -204,40 +271,21 @@ fn tick(app: &AppHandle) {
     };
 
     if !enabled {
-        // Turning the switch off must undo the colour auto-apply wrote, not
-        // just forget the record: the preset could otherwise stay on the
-        // panel after the user believed auto-apply was off.
-        if let Some(active) = rt.active.take() {
-            let preset_name = presets
-                .iter()
-                .find(|p| p.id == active.preset_id)
-                .map(|p| p.name.clone())
-                .unwrap_or_default();
-            let result = crate::color::reset_monitor(
-                &crate::color::RealColorApi,
-                &crate::nvapi::RealNvapi,
-                &active.edid_id,
-            );
+        // Turning the switch off must undo every colour auto-apply wrote.
+        let to_revert = rt.drain_sorted();
+        if !to_revert.is_empty() {
             let monitors = crate::monitor::list_monitors();
-            log(
-                app,
-                &format!(
-                    "switch off: reverted edid={} preset={:?} error={:?}",
-                    active.edid_id, preset_name, result.error
-                ),
-            );
-            emit(
-                app,
-                AutoApplyEvent {
-                    kind: "reverted".into(),
-                    monitor_name: monitor_name(&monitors, &active.edid_id),
-                    edid_id: active.edid_id,
-                    preset_id: active.preset_id,
-                    preset_name,
-                    program: String::new(),
-                    error: result.error,
-                },
-            );
+            for active in to_revert {
+                execute_revert(
+                    app,
+                    active.edid_id,
+                    active.preset_id,
+                    &presets,
+                    &applied,
+                    &monitors,
+                    "switch off",
+                );
+            }
         }
         rt.last_key = None;
         rt.seeded = false;
@@ -247,19 +295,18 @@ fn tick(app: &AppHandle) {
 
     let monitors = crate::monitor::list_monitors();
 
-    // Active monitor unplugged: drop the record, leave colour alone (the
-    // display is gone; a reconnect re-evaluates from scratch).
-    if let Some(active) = &rt.active {
-        if !monitors
-            .iter()
-            .any(|m| m.edid_id == active.edid_id && m.connected)
-        {
-            let edid = active.edid_id.clone();
-            rt.active = None;
-            log(app, &format!("active display gone: cleared edid={edid}"));
-            emit_cleared(app, &edid);
-            return;
-        }
+    // Active monitors that unplugged: drop only the disconnected entries and
+    // leave remaining connected monitors intact.
+    let gone_edids: Vec<String> = rt
+        .active
+        .keys()
+        .filter(|edid| !monitors.iter().any(|m| &m.edid_id == *edid && m.connected))
+        .cloned()
+        .collect();
+    for edid in gone_edids {
+        rt.active.remove(&edid);
+        log(app, &format!("active display gone: cleared edid={edid}"));
+        emit_cleared(app, &edid);
     }
 
     // ChromaDeck's own window must never trigger a revert: skip the whole
@@ -268,12 +315,6 @@ fn tick(app: &AppHandle) {
     let observed = match crate::foreground::foreground_window() {
         Some(w) => w,
         None => {
-            // No foreground window (lock screen, secure desktop, or the
-            // foreground process could not be queried — e.g. after
-            // minimizing a mapped program). Treat as unmapped so any
-            // active auto-apply is reverted rather than left stuck.
-            // An empty program / None device flows through the normal path
-            // so `rt.last_key` is reset and `transition(None)` reverts.
             log_observed(app, &mut rt, "fg=none".into());
             ObservedWindow {
                 program: String::new(),
@@ -292,15 +333,38 @@ fn tick(app: &AppHandle) {
 
     // Compare device names case-insensitively: Windows is not guaranteed to
     // preserve the casing returned by EnumDisplayDevices.
-    let matched = observed.device_name.as_ref().and_then(|device| {
+    let match_monitor = |device: &str| {
         monitors
             .iter()
             .find(|m| m.device_name.eq_ignore_ascii_case(device))
-    });
+    };
+
+    let matched = observed
+        .device_name
+        .as_deref()
+        .and_then(match_monitor);
     let foreground = matched.map(|m| ObservedForeground {
         program: observed.program.clone(),
         edid_id: m.edid_id.clone(),
     });
+
+    // Enumerate visible non-minimized windows when we have any active monitor
+    // (so background-monitor presets stay alive while visible and revert as
+    // soon as closed/minimized).
+    let visible: Vec<ObservedForeground> = if !rt.active.is_empty() {
+        crate::foreground::list_visible_windows()
+            .into_iter()
+            .filter_map(|w| {
+                let m = w.device_name.as_deref().and_then(match_monitor)?;
+                Some(ObservedForeground {
+                    program: w.program,
+                    edid_id: m.edid_id.clone(),
+                })
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
 
     log_observed(
         app,
@@ -313,22 +377,29 @@ fn tick(app: &AppHandle) {
         ),
     );
 
-    let key = foreground
+    let fg_key = foreground
         .as_ref()
         .map(|f| (f.program.clone(), f.edid_id.clone()));
+    let mut vis_key: Vec<(String, String)> = visible
+        .iter()
+        .map(|v| (v.program.clone(), v.edid_id.clone()))
+        .collect();
+    vis_key.sort();
+    vis_key.dedup();
+    let key: ObservationKey = (fg_key, vis_key);
 
     if !rt.seeded {
         rt.seeded = true;
-        rt.last_key = key;
+        rt.last_key = Some(key);
         log(app, "cold start: seeded foreground without acting");
         return;
     }
-    if rt.last_key == key {
+    if rt.last_key.as_ref() == Some(&key) {
         return;
     }
-    rt.last_key = key.clone();
+    rt.last_key = Some(key);
 
-    let actions = transition(rt.active.as_ref(), &presets, &pins, foreground.as_ref());
+    let actions = transition_multi(&rt.active, &presets, &pins, foreground.as_ref(), &visible);
     for action in actions {
         match action {
             AutoAction::Apply {
@@ -357,7 +428,7 @@ fn tick(app: &AppHandle) {
                         app,
                         event_for("error", &edid_id, preset, &program, &monitors, Some(error)),
                     );
-                    rt.active = None;
+                    rt.active.remove(&edid_id);
                 } else {
                     log(
                         app,
@@ -366,11 +437,14 @@ fn tick(app: &AppHandle) {
                             preset.name, edid_id, program
                         ),
                     );
-                    rt.active = Some(ActiveAuto {
-                        edid_id: edid_id.clone(),
-                        preset_id: preset_id.clone(),
-                        program: program.clone(),
-                    });
+                    rt.active.insert(
+                        edid_id.clone(),
+                        ActiveAuto {
+                            edid_id: edid_id.clone(),
+                            preset_id: preset_id.clone(),
+                            program: program.clone(),
+                        },
+                    );
                     emit(
                         app,
                         event_for("applied", &edid_id, preset, &program, &monitors, None),
@@ -378,35 +452,15 @@ fn tick(app: &AppHandle) {
                 }
             }
             AutoAction::Revert { edid_id, preset_id } => {
-                let result = crate::color::reset_monitor(
-                    &crate::color::RealColorApi,
-                    &crate::nvapi::RealNvapi,
-                    &edid_id,
-                );
-                rt.active = None;
-                let preset_name = presets
-                    .iter()
-                    .find(|p| p.id == preset_id)
-                    .map(|p| p.name.clone())
-                    .unwrap_or_default();
-                log(
+                rt.active.remove(&edid_id);
+                execute_revert(
                     app,
-                    &format!(
-                        "revert edid={} preset={:?} error={:?}",
-                        edid_id, preset_name, result.error
-                    ),
-                );
-                emit(
-                    app,
-                    AutoApplyEvent {
-                        kind: "reverted".into(),
-                        monitor_name: monitor_name(&monitors, &edid_id),
-                        edid_id,
-                        preset_id,
-                        preset_name,
-                        program: String::new(),
-                        error: result.error,
-                    },
+                    edid_id,
+                    preset_id,
+                    &presets,
+                    &applied,
+                    &monitors,
+                    "revert",
                 );
             }
             AutoAction::Skip {
@@ -437,6 +491,7 @@ fn tick(app: &AppHandle) {
                         preset_name,
                         program,
                         error: Some(reason),
+                        restored_preset_name: None,
                     },
                 );
             }
@@ -460,6 +515,7 @@ fn event_for(
         monitor_name: monitor_name(monitors, edid_id),
         program: program.into(),
         error,
+        restored_preset_name: None,
     }
 }
 
@@ -474,6 +530,7 @@ fn emit_cleared(app: &AppHandle, edid_id: &str) {
             monitor_name: String::new(),
             program: String::new(),
             error: None,
+            restored_preset_name: None,
         },
     );
 }
@@ -519,12 +576,12 @@ pub fn set_auto_apply(app: &AppHandle, enabled: bool) -> Result<(), String> {
     }
 
     // DISPLAY_OPERATION remains held through the synchronous revert.
-    let mut reverted: Option<ActiveAuto> = None;
+    let mut reverted: Vec<ActiveAuto> = Vec::new();
     if let Some(state) = app.try_state::<AutoState>() {
         if let Ok(mut rt) = state.runtime.lock() {
             rt.apply_switch(enabled);
             if !enabled {
-                reverted = rt.active.take();
+                reverted = rt.drain_sorted();
             }
         }
         if let Ok(item) = state.check_item.lock() {
@@ -534,42 +591,23 @@ pub fn set_auto_apply(app: &AppHandle, enabled: bool) -> Result<(), String> {
         }
     }
 
-    if let Some(active) = reverted {
-        let preset_name = app
+    if !reverted.is_empty() {
+        let (presets, applied) = app
             .try_state::<AppStore>()
-            .and_then(|s| s.0.lock().ok().map(|s| s.list_presets()))
-            .and_then(|presets| {
-                presets
-                    .iter()
-                    .find(|p| p.id == active.preset_id)
-                    .map(|p| p.name.clone())
-            })
+            .and_then(|s| s.0.lock().ok().map(|s| (s.list_presets(), s.list_applied())))
             .unwrap_or_default();
-        let result = crate::color::reset_monitor(
-            &crate::color::RealColorApi,
-            &crate::nvapi::RealNvapi,
-            &active.edid_id,
-        );
         let monitors = crate::monitor::list_monitors();
-        log(
-            app,
-            &format!(
-                "switch off: reverted edid={} preset={:?} error={:?}",
-                active.edid_id, preset_name, result.error
-            ),
-        );
-        emit(
-            app,
-            AutoApplyEvent {
-                kind: "reverted".into(),
-                monitor_name: monitor_name(&monitors, &active.edid_id),
-                edid_id: active.edid_id,
-                preset_id: active.preset_id,
-                preset_name,
-                program: String::new(),
-                error: result.error,
-            },
-        );
+        for active in reverted {
+            execute_revert(
+                app,
+                active.edid_id,
+                active.preset_id,
+                &presets,
+                &applied,
+                &monitors,
+                "switch off",
+            );
+        }
     }
 
     log(
@@ -585,73 +623,78 @@ pub fn set_auto_apply(app: &AppHandle, enabled: bool) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn list_auto_applied_cmd(state: tauri::State<'_, AutoState>) -> Option<AutoAppliedInfo> {
-    let rt = state.runtime.lock().ok()?;
-    rt.active.as_ref().map(|a| AutoAppliedInfo {
-        edid_id: a.edid_id.clone(),
-        preset_id: a.preset_id.clone(),
-    })
+pub fn list_auto_applied_cmd(state: tauri::State<'_, AutoState>) -> Vec<AutoAppliedInfo> {
+    let Ok(rt) = state.runtime.lock() else {
+        return Vec::new();
+    };
+    let mut list: Vec<AutoAppliedInfo> = rt
+        .active
+        .values()
+        .map(|a| AutoAppliedInfo {
+            edid_id: a.edid_id.clone(),
+            preset_id: a.preset_id.clone(),
+        })
+        .collect();
+    list.sort_by(|a, b| a.edid_id.cmp(&b.edid_id));
+    list
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn active() -> ActiveAuto {
+    fn active(edid: &str, preset: &str, program: &str) -> ActiveAuto {
         ActiveAuto {
-            edid_id: "D1".into(),
-            preset_id: "p1".into(),
-            program: "vlc.exe".into(),
+            edid_id: edid.into(),
+            preset_id: preset.into(),
+            program: program.into(),
         }
     }
 
     #[test]
     fn manual_change_relinquishes_only_the_target_monitor() {
-        let mut rt = AutoRuntime {
-            active: Some(active()),
-            ..Default::default()
-        };
-        rt.relinquish("D2");
-        assert!(rt.active.is_some());
+        let mut rt = AutoRuntime::default();
+        rt.active.insert("D1".into(), active("D1", "p1", "vlc.exe"));
+        rt.active
+            .insert("D2".into(), active("D2", "p2", "chrome.exe"));
+
+        rt.relinquish("D3");
+        assert_eq!(rt.active.len(), 2);
         rt.relinquish("D1");
-        assert!(rt.active.is_none());
+        assert!(!rt.active.contains_key("D1"));
+        assert!(rt.active.contains_key("D2"));
     }
 
     #[test]
     fn enabling_seeds_and_forgets_the_last_key() {
-        // Regression: enabling used to leave `seeded = false`, so the first
-        // tick after the switch only seeded and silently skipped the apply
-        // until the user alt-tabbed away and back.
-        let mut rt = AutoRuntime {
-            active: Some(active()),
-            last_key: Some(("old.exe".into(), "D1".into())),
-            seeded: false,
-            last_logged: String::new(),
-        };
+        let mut rt = AutoRuntime::default();
+        rt.active.insert("D1".into(), active("D1", "p1", "vlc.exe"));
+        rt.last_key = Some((Some(("old.exe".into(), "D1".into())), vec![]));
+        rt.seeded = false;
+
         rt.apply_switch(true);
         assert!(rt.seeded, "next tick must evaluate the foreground");
-        assert_eq!(
-            rt.last_key, None,
-            "the stale key must not suppress the apply"
-        );
+        assert_eq!(rt.last_key, None, "stale key must not suppress the apply");
         assert!(
-            rt.active.is_none(),
-            "a fresh enable starts with no active record"
+            rt.active.is_empty(),
+            "a fresh enable starts with no active records"
         );
     }
 
     #[test]
-    fn disabling_keeps_the_active_record_for_the_revert_tick() {
-        let mut rt = AutoRuntime {
-            active: Some(active()),
-            last_key: Some(("vlc.exe".into(), "D1".into())),
-            seeded: true,
-            last_logged: String::new(),
-        };
+    fn disabling_keeps_active_records_for_the_revert_pass() {
+        let mut rt = AutoRuntime::default();
+        rt.active.insert("D1".into(), active("D1", "p1", "vlc.exe"));
+        rt.active
+            .insert("D2".into(), active("D2", "p2", "chrome.exe"));
+        rt.last_key = Some((Some(("vlc.exe".into(), "D1".into())), vec![]));
+        rt.seeded = true;
+
         rt.apply_switch(false);
-        assert!(
-            rt.active.is_some(),
-            "the watcher still needs the record to reset the monitor"
+        assert_eq!(
+            rt.active.len(),
+            2,
+            "the revert pass needs every active monitor"
         );
         assert!(!rt.seeded);
         assert_eq!(rt.last_key, None);
@@ -661,7 +704,7 @@ mod tests {
     fn re_enabling_after_a_disable_evaluates_the_foreground_again() {
         let mut rt = AutoRuntime::default();
         rt.apply_switch(true);
-        rt.seeded = false; // simulate the disabled branch resetting the flag
+        rt.seeded = false;
         rt.apply_switch(true);
         assert!(rt.seeded);
         assert_eq!(rt.last_key, None);

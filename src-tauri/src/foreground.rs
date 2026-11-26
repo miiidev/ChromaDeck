@@ -8,15 +8,18 @@
 // between monitors resolves to its new display on the next tick. The public
 // surface is deliberately tiny; all policy lives in `auto_apply`.
 
-use windows::core::PWSTR;
-use windows::Win32::Foundation::{CloseHandle, HANDLE, HWND};
+use windows::core::{BOOL, PWSTR};
+use windows::Win32::Foundation::{CloseHandle, HANDLE, HWND, LPARAM};
 use windows::Win32::Graphics::Gdi::{
     GetMonitorInfoW, MonitorFromWindow, MONITORINFOEXW, MONITOR_DEFAULTTONEAREST,
 };
 use windows::Win32::System::Threading::{
     OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
 };
-use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
+use windows::Win32::UI::WindowsAndMessaging::{
+    EnumWindows, GetForegroundWindow, GetWindowTextLengthW, GetWindowThreadProcessId, IsIconic,
+    IsWindowVisible,
+};
 
 use crate::auto_apply::normalize_program_name;
 
@@ -61,6 +64,77 @@ pub fn self_program() -> Option<String> {
     std::env::current_exe()
         .ok()
         .and_then(|path| program_from_path(&path.to_string_lossy()))
+}
+
+/// Core Windows shell processes excluded from the user-facing running-apps picker.
+const SHELL_NOISE: &[&str] = &[
+    "applicationframehost.exe",
+    "explorer.exe",
+    "lockapp.exe",
+    "searchhost.exe",
+    "shellexperiencehost.exe",
+    "startmenuexperiencehost.exe",
+    "textinputhost.exe",
+];
+
+/// Enumerate all visible, non-minimized top-level windows with a non-empty
+/// title, returning each window's normalized executable name and display.
+pub fn list_visible_windows() -> Vec<ObservedWindow> {
+    unsafe extern "system" fn callback(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        let out = &mut *(lparam.0 as *mut Vec<ObservedWindow>);
+        // Skip hidden, minimized, or zero-title helper windows.
+        if !IsWindowVisible(hwnd).as_bool() || IsIconic(hwnd).as_bool() {
+            return BOOL(1);
+        }
+        if GetWindowTextLengthW(hwnd) <= 0 {
+            return BOOL(1);
+        }
+        if let Some(program) = process_name_for_window(hwnd) {
+            out.push(ObservedWindow {
+                program,
+                device_name: device_name_for_window(hwnd),
+            });
+        }
+        BOOL(1)
+    }
+
+    let mut windows: Vec<ObservedWindow> = Vec::new();
+    // SAFETY: `callback` receives a valid pointer to `windows` for the synchronous
+    // duration of `EnumWindows` and never retains it afterward.
+    unsafe {
+        let _ = EnumWindows(
+            Some(callback),
+            LPARAM(&mut windows as *mut Vec<ObservedWindow> as isize),
+        );
+    }
+    windows
+}
+
+/// Pure filter/dedupe/sort for the running-apps picker (unit-testable without Win32).
+pub fn filter_running_programs(
+    windows: &[ObservedWindow],
+    self_exe: Option<&str>,
+) -> Vec<String> {
+    let mut programs: Vec<String> = windows
+        .iter()
+        .map(|w| w.program.as_str())
+        .filter(|p| !p.is_empty())
+        .filter(|p| self_exe.is_none_or(|me| me != *p))
+        .filter(|p| !SHELL_NOISE.contains(p))
+        .map(str::to_string)
+        .collect();
+    programs.sort();
+    programs.dedup();
+    programs
+}
+
+/// Tauri command: list currently open user-facing application executable names
+/// for the PresetEditor "Programs" combobox.
+#[tauri::command]
+pub fn list_running_programs_cmd() -> Vec<String> {
+    let windows = list_visible_windows();
+    let me = self_program();
+    filter_running_programs(&windows, me.as_deref())
 }
 
 fn process_name_for_window(hwnd: HWND) -> Option<String> {
@@ -144,5 +218,26 @@ mod tests {
             Some("chrome.exe".into())
         );
         assert_eq!(program_from_path(""), None);
+    }
+
+    #[test]
+    fn filter_running_programs_dedupes_sorts_and_drops_shell_and_self() {
+        let obs = |program: &str| ObservedWindow {
+            program: program.into(),
+            device_name: Some(r"\\.\DISPLAY1".into()),
+        };
+        let windows = vec![
+            obs("vlc.exe"),
+            obs("chrome.exe"),
+            obs("vlc.exe"),
+            obs("explorer.exe"),
+            obs("searchhost.exe"),
+            obs("chromadeck.exe"),
+            obs("code.exe"),
+        ];
+        assert_eq!(
+            filter_running_programs(&windows, Some("chromadeck.exe")),
+            vec!["chrome.exe", "code.exe", "vlc.exe"]
+        );
     }
 }
