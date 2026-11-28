@@ -550,6 +550,7 @@ mod tests {
             tag_shape: None,
             attached_programs: vec![],
             shortcut: None,
+            hardware_brightness: None,
         }
     }
 

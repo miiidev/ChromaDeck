@@ -196,6 +196,7 @@ export default function PresetCard({
         // A copy must not claim programs already owned by the original;
         // mappings are intentionally not duplicated.
         attached_programs: [],
+        hardware_brightness: preset.hardware_brightness ?? undefined,
       });
       if (onDuplicated) onDuplicated(created);
       else onRefreshParent();
@@ -316,7 +317,7 @@ export default function PresetCard({
     return () => ro.disconnect();
   }, [title, titleSize]);
 
-  const summary = `γ ${preset.gamma.toFixed(2)} · B ${preset.brightness.toFixed(0)} · C ${preset.contrast.toFixed(0)} · V ${preset.vibrance.toFixed(0)} · S ${preset.saturation.toFixed(0)}`;
+  const summary = `γ ${preset.gamma.toFixed(2)} · B ${preset.brightness.toFixed(0)} · C ${preset.contrast.toFixed(0)} · V ${preset.vibrance.toFixed(0)} · S ${preset.saturation.toFixed(0)}${preset.hardware_brightness != null ? ` · BL ${preset.hardware_brightness}%` : ""}`;
 
   return (
     <div

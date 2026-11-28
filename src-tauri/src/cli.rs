@@ -389,6 +389,8 @@ mod tests {
             instance_path: String::new(),
             edid_present: true,
             edid_len: 128,
+            hdr_active: false,
+            acm_active: false,
         }
     }
 
@@ -410,6 +412,7 @@ mod tests {
             tag_shape: None,
             attached_programs: vec![],
             shortcut: None,
+            hardware_brightness: None,
         }
     }
 

@@ -13,6 +13,10 @@ export interface Monitor {
   instance_path?: string;
   edid_present?: boolean;
   edid_len?: number;
+  /** True when Windows HDR is active on this display. */
+  hdr_active?: boolean;
+  /** True when Windows 11 Auto Color Management (ACM) is active in SDR mode. */
+  acm_active?: boolean;
 }
 
 export interface GammaRamp {
@@ -49,6 +53,8 @@ export interface Preset {
   attached_programs?: string[];
   /** Optional global hotkey chord (e.g. "Ctrl+Alt+F1"). */
   shortcut?: string | null;
+  /** Optional opt-in DDC/CI hardware backlight percentage (0–100). */
+  hardware_brightness?: number | null;
 }
 
 export interface PresetInput {
@@ -69,6 +75,14 @@ export interface PresetInput {
   attached_programs: string[];
   /** Optional global hotkey chord (empty/undefined clears). */
   shortcut?: string;
+  /** Optional opt-in DDC/CI hardware backlight percentage (0–100). */
+  hardware_brightness?: number | null;
+}
+
+export interface DdcciProbe {
+  supported: boolean;
+  current_percent: number | null;
+  reason: string | null;
 }
 
 export type AdjustmentStatus = "applied" | "skipped" | "failed";

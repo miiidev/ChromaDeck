@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, type FormEvent } from "react";
 
-import type { Monitor, Preset, PresetInput } from "../lib/types";
+import type { DdcciProbe, Monitor, Preset, PresetInput } from "../lib/types";
 import {
   captureNvcp,
   createPreset,
@@ -8,6 +8,7 @@ import {
   importIcc,
   listRunningPrograms,
   previewPreset,
+  probeDdcci,
   restorePreview,
   setHotkeysSuspended,
   updatePreset,
@@ -37,7 +38,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { PresetTag } from "@/components/ui/preset-tag";
-import { Check, ChevronDown, Download, Eye, Keyboard, RefreshCw, RotateCcw, Upload, X } from "lucide-react";
+import { Check, ChevronDown, Download, Eye, Keyboard, RefreshCw, RotateCcw, Sun, Upload, X } from "lucide-react";
 import { cn } from "cn";
 
 interface Props {
@@ -205,6 +206,10 @@ export default function PresetEditor({ presets, monitors = [], editPreset, onClo
     backendId?: string;
     backendLabel?: string;
   }>({ status: "idle" });
+  const [ddcciState, setDdcciState] = useState<{
+    status: "idle" | "loading" | "ready" | "error";
+    probe?: DdcciProbe;
+  }>({ status: "idle" });
   const [capturing, setCapturing] = useState(false);
   const [captureNote, setCaptureNote] = useState<{ text: string; isError: boolean } | null>(null);
   const [livePreview, setLivePreview] = useState(false);
@@ -243,6 +248,28 @@ export default function PresetEditor({ presets, monitors = [], editPreset, onClo
       })
       .catch(() => {
         if (!cancelled) setTargetCap({ status: "error" });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [targetEdid]);
+
+  // Probe DDC/CI hardware backlight support for the selected calibration monitor
+  useEffect(() => {
+    if (!targetEdid) {
+      setDdcciState({ status: "idle" });
+      return;
+    }
+    let cancelled = false;
+    setDdcciState({ status: "loading" });
+    probeDdcci(targetEdid)
+      .then((probe) => {
+        if (!cancelled) {
+          setDdcciState({ status: "ready", probe });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setDdcciState({ status: "error" });
       });
     return () => {
       cancelled = true;
@@ -323,6 +350,7 @@ export default function PresetEditor({ presets, monitors = [], editPreset, onClo
     form.rgb_gains[0],
     form.rgb_gains[1],
     form.rgb_gains[2],
+    form.hardware_brightness,
   ]);
 
   // Escape and backdrop dismissal must respect the same in-flight guard as the
@@ -1033,7 +1061,8 @@ export default function PresetEditor({ presets, monitors = [], editPreset, onClo
                   form.hue_deg === 0 &&
                   form.rgb_gains[0] === 1 &&
                   form.rgb_gains[1] === 1 &&
-                  form.rgb_gains[2] === 1
+                  form.rgb_gains[2] === 1 &&
+                  form.hardware_brightness == null
                 }
                 onClick={() => setForm((prev) => resetSliderValues(prev))}
                 className="inline-flex shrink-0 items-center gap-1.5 rounded-[8px] border border-border px-2.5 py-1.5 font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground transition-colors enabled:hover:border-border-hover enabled:hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring disabled:opacity-40"
@@ -1131,6 +1160,75 @@ export default function PresetEditor({ presets, monitors = [], editPreset, onClo
               </div>
               {errors.rgb_gains && (
                 <p className="mono text-[10px] text-destructive-text validation-slide">{errors.rgb_gains}</p>
+              )}
+            </div>
+
+            {/* ── Hardware Backlight (DDC/CI opt-in) ─────────────── */}
+            <div
+              data-slot="ddcci-section"
+              className="flex flex-col gap-3 rounded-[8px] border border-border bg-surface p-4"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5">
+                  <Sun className="size-3.5 text-muted-foreground" strokeWidth={1.5} />
+                  <span className="font-body text-[12px] uppercase tracking-[0.4px] text-muted-foreground">
+                    Hardware Backlight (DDC/CI)
+                  </span>
+                </div>
+                <span
+                  data-slot="ddcci-status"
+                  className="mono text-[10px] text-muted-foreground"
+                >
+                  {ddcciState.status === "loading"
+                    ? "Probing DDC/CI…"
+                    : ddcciState.status === "ready" && ddcciState.probe?.supported
+                      ? `DDC/CI ready${ddcciState.probe.current_percent != null ? ` · current ${ddcciState.probe.current_percent}%` : ""}`
+                      : ddcciState.status === "ready" && ddcciState.probe?.reason
+                        ? ddcciState.probe.reason
+                        : ddcciState.status === "error"
+                          ? "DDC/CI probe unavailable"
+                          : "Opt-in per preset"}
+                </span>
+              </div>
+
+              <label className="flex cursor-pointer items-center gap-2.5 select-none">
+                <Checkbox
+                  checked={form.hardware_brightness != null}
+                  onCheckedChange={(checked) => {
+                    if (checked) {
+                      updateField(
+                        "hardware_brightness",
+                        ddcciState.probe?.current_percent ?? 70,
+                      );
+                    } else {
+                      updateField("hardware_brightness", undefined);
+                    }
+                  }}
+                  aria-label="Control physical monitor backlight via DDC/CI"
+                >
+                  <CheckboxIndicator />
+                </Checkbox>
+                <span className="font-body text-[12px] text-foreground">
+                  Control physical monitor brightness (VCP 0x10)
+                </span>
+              </label>
+
+              <p className="font-mono text-[10px] leading-relaxed text-muted-foreground">
+                Off by default. When enabled, applying this preset adjusts your panel&apos;s OSD backlight and restores its previous level on Reset or Quit.
+              </p>
+
+              {form.hardware_brightness != null && (
+                <SliderField
+                  label="Backlight"
+                  min={0}
+                  max={100}
+                  step={1}
+                  neutral={ddcciState.probe?.current_percent ?? 70}
+                  value={form.hardware_brightness}
+                  display={`${form.hardware_brightness}%`}
+                  onChange={(v) => updateField("hardware_brightness", Math.round(v))}
+                  error={errors.hardware_brightness}
+                />
               )}
             </div>
           </div>

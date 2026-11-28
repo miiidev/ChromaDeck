@@ -175,3 +175,20 @@ describe("color_tag validation", () => {
     expect(errors.color_tag).toBeUndefined();
   });
 });
+
+
+describe("hardware_brightness validation", () => {
+  it("accepts undefined, null, and integer 0..100", () => {
+    expect(validatePreset({ hardware_brightness: undefined }).hardware_brightness).toBeUndefined();
+    expect(validatePreset({ hardware_brightness: null }).hardware_brightness).toBeUndefined();
+    expect(validatePreset({ hardware_brightness: 0 }).hardware_brightness).toBeUndefined();
+    expect(validatePreset({ hardware_brightness: 65 }).hardware_brightness).toBeUndefined();
+    expect(validatePreset({ hardware_brightness: 100 }).hardware_brightness).toBeUndefined();
+  });
+
+  it("rejects out-of-range or non-integer hardware_brightness", () => {
+    expect(validatePreset({ hardware_brightness: -1 }).hardware_brightness).toBeDefined();
+    expect(validatePreset({ hardware_brightness: 101 }).hardware_brightness).toBeDefined();
+    expect(validatePreset({ hardware_brightness: 55.5 }).hardware_brightness).toBeDefined();
+  });
+});

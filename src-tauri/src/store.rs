@@ -140,6 +140,10 @@ pub struct Preset {
     /// Optional global hotkey chord (canonical form e.g. `"Ctrl+Alt+F1"`).
     #[serde(default)]
     pub shortcut: Option<String>,
+    /// Opt-in physical monitor backlight brightness (0–100%) via DDC/CI VCP 0x10.
+    /// When `None`, applying this preset never touches physical OSD brightness.
+    #[serde(default)]
+    pub hardware_brightness: Option<u8>,
 }
 
 /// Input data for creating or updating a preset.
@@ -165,6 +169,8 @@ pub struct PresetInput {
     pub attached_programs: Vec<String>,
     #[serde(default)]
     pub shortcut: Option<String>,
+    #[serde(default)]
+    pub hardware_brightness: Option<u8>,
 }
 
 /// Persisted user settings (`settings.json`). Additive fields default so a
@@ -633,6 +639,13 @@ impl Store {
                 ));
             }
         }
+        if let Some(hb) = input.hardware_brightness {
+            if hb > 100 {
+                return Err(StoreError::InvalidInput(
+                    "hardware_brightness must be in 0..=100".into(),
+                ));
+            }
+        }
 
         // Validate color_tag
         if let Some(ref tag) = input.color_tag {
@@ -679,6 +692,7 @@ impl Store {
             tag_shape: normalise_tag_shape(input.tag_shape),
             attached_programs,
             shortcut,
+            hardware_brightness: input.hardware_brightness,
         };
 
         self.presets.push(preset.clone());
@@ -735,6 +749,13 @@ impl Store {
             if !(0.0..=10.0).contains(&g) {
                 return Err(StoreError::InvalidInput(
                     "rgb_gains values must be in 0.0..=10.0".into(),
+                ));
+            }
+        }
+        if let Some(hb) = input.hardware_brightness {
+            if hb > 100 {
+                return Err(StoreError::InvalidInput(
+                    "hardware_brightness must be in 0..=100".into(),
                 ));
             }
         }
@@ -796,6 +817,7 @@ impl Store {
             tag_shape: normalise_tag_shape(input.tag_shape),
             attached_programs,
             shortcut,
+            hardware_brightness: input.hardware_brightness,
         };
 
         let previous = std::mem::replace(&mut self.presets[idx], updated.clone());
@@ -1466,6 +1488,7 @@ mod tests {
             tag_shape: None,
             attached_programs: vec![],
             shortcut: None,
+            hardware_brightness: None,
         }
     }
 
@@ -1669,6 +1692,7 @@ mod tests {
                     tag_shape: None,
                     attached_programs: vec![],
                     shortcut: None,
+            hardware_brightness: None,
                 },
             )
             .unwrap();
@@ -1784,6 +1808,7 @@ mod tests {
                     tag_shape: None,
                     attached_programs: vec![],
                     shortcut: None,
+            hardware_brightness: None,
                 })
                 .unwrap();
             assert_eq!(store.list_presets().len(), 2);
@@ -2073,6 +2098,7 @@ mod tests {
                     tag_shape: None,
                     attached_programs: vec![],
                     shortcut: None,
+            hardware_brightness: None,
                 },
             )
             .unwrap();
@@ -2105,6 +2131,7 @@ mod tests {
                     tag_shape: None,
                     attached_programs: vec![],
                     shortcut: None,
+            hardware_brightness: None,
                 },
             )
             .unwrap();
@@ -2137,6 +2164,7 @@ mod tests {
                     tag_shape: None,
                     attached_programs: vec![],
                     shortcut: None,
+            hardware_brightness: None,
                 },
             )
             .unwrap_err();
@@ -2900,6 +2928,44 @@ mod tests {
         let store = Store::new(dir.clone()).unwrap();
         assert!(store.auto_apply_enabled());
         assert!(store.list_schedules().is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn hardware_brightness_validates_persists_and_defaults_none_for_legacy_json() {
+        let dir = test_store_dir_unique();
+        let mut store = test_store_at(dir.clone());
+
+        let mut bad = minimal_input();
+        bad.hardware_brightness = Some(101);
+        assert!(store.create_preset(bad).is_err());
+
+        let mut ok_input = minimal_input();
+        ok_input.hardware_brightness = Some(45);
+        let created = store.create_preset(ok_input).unwrap();
+        assert_eq!(created.hardware_brightness, Some(45));
+
+        let reopened = Store::new(dir.clone()).unwrap();
+        assert_eq!(reopened.list_presets()[0].hardware_brightness, Some(45));
+
+        // Legacy preset JSON without `hardware_brightness` deserializes cleanly as None.
+        let legacy_json = r#"[{
+            "id": "legacy-1",
+            "name": "Legacy",
+            "icc_hash": "",
+            "icc_filename": "",
+            "brightness": 50.0,
+            "contrast": 50.0,
+            "rgb_gains": [1.0, 1.0, 1.0],
+            "gamma": 1.0,
+            "vibrance": 50.0,
+            "saturation": 50.0,
+            "hue_deg": 0.0,
+            "color_model": "nvcp-v1"
+        }]"#;
+        let parsed: Vec<Preset> = serde_json::from_str(legacy_json).unwrap();
+        assert_eq!(parsed[0].hardware_brightness, None);
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

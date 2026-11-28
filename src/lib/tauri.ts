@@ -10,6 +10,7 @@ const isBrowserPreview = () => !isTauri();
 import type {
   ApplyResult,
   CapturedState,
+  DdcciProbe,
   DiagnosticsExportSummary,
   DisplayCapabilities,
   EnforceEvent,
@@ -225,6 +226,22 @@ export async function getDisplayCapabilities(edidId: string): Promise<DisplayCap
     };
   }
   return invoke<DisplayCapabilities>("get_display_capabilities", { edidId });
+}
+
+/** Probe whether a monitor exposes DDC/CI luminance (VCP 0x10) control. */
+export async function probeDdcci(edidId: string): Promise<DdcciProbe> {
+  if (isBrowserPreview()) {
+    const mon = DEMO_MONITORS.find((m) => m.edid_id === edidId);
+    if (mon && mon.connected) {
+      return { supported: true, current_percent: 65, reason: null };
+    }
+    return {
+      supported: false,
+      current_percent: null,
+      reason: "Monitor is offline or does not expose DDC/CI",
+    };
+  }
+  return invoke<DdcciProbe>("probe_ddcci_cmd", { edidId });
 }
 
 // ── Pin enforcement ─────────────────────────────────────────────────────────

@@ -235,7 +235,7 @@
 
 ---
 
-## Phase 6: DDC/CI Hardware Backlight & Windows 11 ACM/HDR Resilience
+## Phase 6: DDC/CI Hardware Backlight & Windows 11 ACM/HDR Resilience — COMPLETE
 
 **Goal:** Add optional physical monitor backlight control via DDC/CI and make ChromaDeck reactive to Windows 11 HDR / Auto Color Management (ACM) state changes.
 
@@ -245,17 +245,17 @@
 - Create: `src-tauri/src/ddcci.rs`
 - Modify: `src-tauri/src/store.rs` (`Preset.hardware_brightness: Option<u8>`), `src-tauri/src/capabilities.rs`, `src-tauri/src/color.rs`, `src/lib/types.ts`, `src/components/PresetEditor.tsx`
 
-- [ ] **Step 1:** Implement `DdcciApi` trait + `RealDdcci` using `EnumDisplayMonitors` → `GetPhysicalMonitorsFromHMONITOR` → `GetVCPFeatureAndVCPFeatureReply` / `SetVCPFeature` (VCP `0x10` Luminance, `0..=max` normalized to `0..=100`), always calling `DestroyPhysicalMonitors` on drop. Cache negative DDC/CI support per `edid_id` (since DDC/CI I2C timeouts on unsupported/internal laptop panels take ~40–100 ms; laptop eDP panels can optionally check WMI/display brightness or report `"Internal/non-DDC panel"`).
-- [ ] **Step 2:** Keep `hardware_brightness: Option<u8>` **opt-in per preset** (toggle + 0–100 slider in `PresetEditor.tsx`): when `None`, presets never touch physical monitor OSD brightness. Capture pre-apply VCP `0x10` value in session state so `Reset` / Auto-apply `Revert` restores prior backlight brightness cleanly.
+- [x] **Step 1:** Implement `DdcciApi` trait + `RealDdcci` using `EnumDisplayMonitors` → `GetPhysicalMonitorsFromHMONITOR` → `GetVCPFeatureAndVCPFeatureReply` / `SetVCPFeature` (VCP `0x10` Luminance, `0..=max` normalized to `0..=100`), always calling `DestroyPhysicalMonitors` on drop. Cache negative DDC/CI support per `edid_id` (since DDC/CI I2C timeouts on unsupported/internal laptop panels take ~40–100 ms; laptop eDP panels can optionally check WMI/display brightness or report `"Internal/non-DDC panel"`).
+- [x] **Step 2:** Keep `hardware_brightness: Option<u8>` **opt-in per preset** (toggle + 0–100 slider in `PresetEditor.tsx`): when `None`, presets never touch physical monitor OSD brightness. Capture pre-apply VCP `0x10` value in session state so `Reset` / Auto-apply `Revert` restores prior backlight brightness cleanly.
 
 ### Task 6.2: Windows 11 ACM Detection & `WM_DISPLAYCHANGE` Listener
 **Files:**
 - Modify: `src-tauri/src/monitor.rs` or create `src-tauri/src/display_events.rs`
 - Modify: `src-tauri/src/capabilities.rs`, `src-tauri/src/enforce.rs`
 
-- [ ] **Step 1:** Query `DisplayConfigGetDeviceInfo` with `DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO` per target to detect both **HDR active** and **Windows 11 Auto Color Management (ACM) active** on SDR panels across *all* vendors (not only Intel IGCL). Report HDR/ACM status in `Monitor` diagnostics and `get_display_capabilities` (`Unsupported("HDR is active on this display — switch to SDR to apply presets")` where driver LUTs are bypassed).
-- [ ] **Step 2:** Spawn a lightweight hidden message-only Win32 window listening for `WM_DISPLAYCHANGE` and `WM_SETTINGCHANGE`: on display hot-plug or `Win+Alt+B` HDR toggle, invalidate capability caches, emit `monitors://changed` to the frontend (instant UI update instead of waiting up to 5s poll), and trigger a non-forced `enforce::check_once` pass when a display returns from HDR to SDR.
-- [ ] **Step 3:** Run Phase 6 verification gates and commit.
+- [x] **Step 1:** Query `DisplayConfigGetDeviceInfo` with `DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO` per target to detect both **HDR active** and **Windows 11 Auto Color Management (ACM) active** on SDR panels across *all* vendors (not only Intel IGCL). Report HDR/ACM status in `Monitor` diagnostics and `get_display_capabilities` (`Unsupported("HDR is active on this display — switch to SDR to apply presets")` where driver LUTs are bypassed).
+- [x] **Step 2:** Spawn a lightweight hidden message-only Win32 window listening for `WM_DISPLAYCHANGE` and `WM_SETTINGCHANGE`: on display hot-plug or `Win+Alt+B` HDR toggle, invalidate capability caches, emit `monitors://changed` to the frontend (instant UI update instead of waiting up to 5s poll), and trigger a non-forced `enforce::check_once` pass when a display returns from HDR to SDR.
+- [x] **Step 3:** Run Phase 6 verification gates and commit.
 
 ---
 

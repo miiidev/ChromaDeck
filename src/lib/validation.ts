@@ -26,6 +26,7 @@ export interface ValidationErrors {
   nvcp?: string;
   color_tag?: string;
   tag_shape?: string;
+  hardware_brightness?: string;
 }
 
 /** Validate a partial PresetInput and return per-field error strings. */
@@ -96,6 +97,17 @@ export function validatePreset(input: Partial<PresetInput>): ValidationErrors {
     }
   }
 
+  if (input.hardware_brightness !== undefined && input.hardware_brightness !== null) {
+    if (
+      typeof input.hardware_brightness !== "number" ||
+      !Number.isInteger(input.hardware_brightness) ||
+      input.hardware_brightness < 0 ||
+      input.hardware_brightness > 100
+    ) {
+      errors.hardware_brightness = "Hardware brightness must be an integer between 0 and 100";
+    }
+  }
+
   return errors;
 }
 
@@ -116,6 +128,7 @@ export function validatePresetForm(
     hue_deg: input.hue_deg,
     color_tag: input.color_tag,
     tag_shape: input.tag_shape,
+    hardware_brightness: input.hardware_brightness,
   });
 
   Object.assign(errors, all);

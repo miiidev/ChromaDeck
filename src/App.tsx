@@ -372,6 +372,15 @@ function App() {
     const storeChanged = listen("store://changed", () => {
       void fetchData(true);
     });
+    const monitorsChanged = listen("monitors://changed", () => {
+      void listMonitors()
+        .then((fresh) => {
+          if (mounted) {
+            setMonitors((prev) => mergeMonitors(prev, fresh));
+          }
+        })
+        .catch(() => {});
+    });
     const hotkeyTriggered = listen<HotkeyEvent>("hotkey://triggered", (event) => {
       const p = event.payload;
       showReapplyMsg(p.error ? `${p.message}: ${p.error}` : p.message);
@@ -397,6 +406,7 @@ function App() {
       outcome.then((unlisten) => unlisten()).catch(() => {});
       enabled.then((unlisten) => unlisten()).catch(() => {});
       storeChanged.then((unlisten) => unlisten()).catch(() => {});
+      monitorsChanged.then((unlisten) => unlisten()).catch(() => {});
       hotkeyTriggered.then((unlisten) => unlisten()).catch(() => {});
       scheduleOutcome.then((unlisten) => unlisten()).catch(() => {});
     };

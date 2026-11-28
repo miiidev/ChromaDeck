@@ -42,6 +42,7 @@ const LABELS: Record<string, string> = {
   saturation: "Saturation",
   vibrance: "Vibrance",
   hue: "Hue",
+  hardware_brightness: "Hardware backlight",
 };
 
 /** Readable label for a backend adjustment key (unknown keys degrade safely). */

@@ -2201,6 +2201,7 @@ mod backend_tests {
             tag_shape: None,
             attached_programs: Vec::new(),
             shortcut: None,
+            hardware_brightness: None,
         }
     }
 
@@ -3277,6 +3278,7 @@ mod hw_verify {
             tag_shape: None,
             attached_programs: Vec::new(),
             shortcut: None,
+            hardware_brightness: None,
         }
     }
 

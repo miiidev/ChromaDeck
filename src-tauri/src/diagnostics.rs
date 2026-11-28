@@ -14,7 +14,7 @@ use crate::monitor::Monitor;
 /// One `connected=…` line per monitor, shared with the Identify overlay
 /// (Task 4) so both callers produce identical text.
 pub fn per_monitor_line(m: &Monitor) -> String {
-    format!(
+    let mut line = format!(
         "edid_id={} connected={} model={} adapter={} instance={} EDID={}",
         m.edid_id,
         if m.connected { 1 } else { 0 },
@@ -26,7 +26,14 @@ pub fn per_monitor_line(m: &Monitor) -> String {
         } else {
             "none".to_string()
         }
-    )
+    );
+    if m.hdr_active {
+        line.push_str(" HDR=1");
+    }
+    if m.acm_active {
+        line.push_str(" ACM=1");
+    }
+    line
 }
 
 /// Full snapshot text: one header line (carries the fingerprint), then one
@@ -491,6 +498,8 @@ mod tests {
             instance_path: String::new(),
             edid_present: false,
             edid_len: 0,
+            hdr_active: false,
+            acm_active: false,
         }
     }
 
@@ -517,6 +526,8 @@ mod tests {
             instance_path: r"MON\INFO\1".into(),
             edid_present: true,
             edid_len: 256,
+            hdr_active: false,
+            acm_active: false,
         };
         let snapshot = format_snapshot(std::slice::from_ref(&monitor));
         assert!(snapshot.lines().count() >= 2); // header + 1 monitor

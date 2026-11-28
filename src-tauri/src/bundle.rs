@@ -59,6 +59,8 @@ pub struct ExportedPreset {
     pub attached_programs: Vec<String>,
     #[serde(default)]
     pub shortcut: Option<String>,
+    #[serde(default)]
+    pub hardware_brightness: Option<u8>,
 }
 
 /// Self-contained `.chromadeck.json` bundle file.
@@ -161,6 +163,7 @@ pub fn build_bundle(
             tag_shape: preset.tag_shape,
             attached_programs: preset.attached_programs,
             shortcut: preset.shortcut,
+            hardware_brightness: preset.hardware_brightness,
         });
     }
 
@@ -247,6 +250,14 @@ fn validate_exported_preset(p: &ExportedPreset) -> Result<(), StoreError> {
         if !(0.0..=10.0).contains(&g) {
             return Err(StoreError::InvalidInput(format!(
                 "preset \"{}\": rgb_gains values must be in 0.0..=10.0",
+                p.name
+            )));
+        }
+    }
+    if let Some(hb) = p.hardware_brightness {
+        if hb > 100 {
+            return Err(StoreError::InvalidInput(format!(
+                "preset \"{}\": hardware_brightness must be in 0..=100",
                 p.name
             )));
         }
@@ -465,6 +476,7 @@ pub fn import_bundle(store: &mut Store, bundle: PresetBundle) -> Result<ImportSu
             tag_shape: Store::normalise_tag_shape_opt(raw.tag_shape),
             attached_programs: programs,
             shortcut,
+            hardware_brightness: raw.hardware_brightness,
         });
     }
 
@@ -562,6 +574,7 @@ mod tests {
             tag_shape: Some("diamond".into()),
             attached_programs: vec!["cs2.exe".into()],
             shortcut: Some("Ctrl+Alt+F1".into()),
+            hardware_brightness: Some(72),
         }
     }
 
@@ -634,6 +647,7 @@ mod tests {
                 tag_shape: None,
                 attached_programs: vec![],
                 shortcut: None,
+                hardware_brightness: None,
             }],
             icc_blobs,
         };

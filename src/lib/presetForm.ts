@@ -22,6 +22,7 @@ export const DEFAULT_PRESET_INPUT: PresetInput = {
   tag_shape: "pill",
   attached_programs: [],
   shortcut: "",
+  hardware_brightness: undefined,
 };
 
 export function withSelectedIcc(form: PresetInput, path: string): PresetInput {
@@ -49,6 +50,7 @@ export function presetToFormValues(preset: Preset): PresetInput {
     tag_shape: preset.tag_shape ?? "pill",
     attached_programs: preset.attached_programs ?? [],
     shortcut: preset.shortcut ?? "",
+    hardware_brightness: preset.hardware_brightness ?? undefined,
   };
 }
 
@@ -66,6 +68,7 @@ export function resetSliderValues(form: PresetInput): PresetInput {
     vibrance: NEUTRAL.vibrance,
     saturation: NEUTRAL.saturation,
     hue_deg: 0,
+    hardware_brightness: undefined,
   };
 }
 

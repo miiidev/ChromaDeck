@@ -695,6 +695,7 @@ pub fn shutdown_sweep(app: &tauri::AppHandle) {
         &targets,
         &|edid_id| crate::color::ColorApi::is_connected(&api, edid_id),
     );
+    crate::ddcci::restore_all_hardware_brightness();
     for outcome in outcomes {
         eprintln!(
             "ChromaDeck exit: {} [{}] {}",
@@ -788,6 +789,7 @@ mod tests {
             tag_shape: None,
             attached_programs: Vec::new(),
             shortcut: None,
+            hardware_brightness: None,
         }
     }
 

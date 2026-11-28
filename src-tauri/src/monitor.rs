@@ -32,6 +32,12 @@ pub struct Monitor {
     pub edid_present: bool,
     /// Length of the EDID blob in bytes (0 when absent).
     pub edid_len: usize,
+    /// True when Windows HDR is active on this display (cross-vendor via DisplayConfig).
+    #[serde(default)]
+    pub hdr_active: bool,
+    /// True when Windows 11 Auto Color Management (ACM) is active on this SDR display.
+    #[serde(default)]
+    pub acm_active: bool,
 }
 
 // ── EDID parsing ───────────────────────────────────────────────────────────
@@ -98,6 +104,7 @@ pub fn list_monitors() -> Vec<Monitor> {
 }
 
 fn enum_gdi_monitors() -> Vec<Monitor> {
+    let color_modes = crate::display_events::query_all_display_color_modes();
     let mut monitors = Vec::new();
     for adapter_index in 0.. {
         let mut adapter = DISPLAY_DEVICEW {
@@ -154,6 +161,10 @@ fn enum_gdi_monitors() -> Vec<Monitor> {
             let edid: Option<[u8; 128]> = edid_blob.as_ref().and_then(|v| base_block(v.clone()));
             let (edid_id, model, serial) =
                 identify_monitor(edid.as_ref(), &instance_id, &device_string);
+            let mode = color_modes
+                .get(&adapter_name.to_ascii_uppercase())
+                .copied()
+                .unwrap_or_default();
             monitors.push(Monitor {
                 edid_id,
                 model,
@@ -164,6 +175,8 @@ fn enum_gdi_monitors() -> Vec<Monitor> {
                 instance_path: instance_id.clone(),
                 edid_present,
                 edid_len,
+                hdr_active: adapter_attached && mode.hdr_active,
+                acm_active: adapter_attached && mode.acm_active,
             });
         }
     }
@@ -617,6 +630,8 @@ mod tests {
             instance_path: r"MONITOR\FERMICAN012\5&2f3a&0&UID265977".into(),
             edid_present: true,
             edid_len: 256,
+            hdr_active: false,
+            acm_active: false,
         };
         assert!(
             m.edid_present && m.edid_len == 256 && m.instance_path.contains("UID"),
@@ -638,6 +653,8 @@ mod tests {
             instance_path: String::new(),
             edid_present: false,
             edid_len: 0,
+            hdr_active: false,
+            acm_active: false,
         }
     }
 

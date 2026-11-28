@@ -149,6 +149,30 @@ pub fn get_display_capabilities(edid_id: String) -> DisplayCapabilities {
     let registry = BackendRegistry::new();
     let backend = registry.select(&edid_id);
     let id = backend.id();
+    let os_color_mode = crate::display_events::color_mode_for_edid(&edid_id);
+    if os_color_mode.hdr_active {
+        const HDR_REASON: &str =
+            "HDR is active on this display — switch to SDR to apply presets";
+        let backend_label = match id {
+            "nvapi" => "NVIDIA (NVAPI)",
+            "amd" => "AMD (ADLX)",
+            "intel" => "Intel (IGCL)",
+            "gdi" => "Basic (GDI)",
+            _ => "Unknown backend",
+        };
+        return DisplayCapabilities {
+            backend_id: id.to_string(),
+            backend_label: backend_label.to_string(),
+            adjustments: adjustment_names()
+                .into_iter()
+                .map(|adjustment| DisplayCapability {
+                    adjustment,
+                    status: CapabilityStatus::Unsupported,
+                    reason: Some(HDR_REASON),
+                })
+                .collect(),
+        };
+    }
     if id == "amd" {
         // Live AMD ADLX probe: Custom Color capability + HDR (PQ) verdicts.
         return DisplayCapabilities {

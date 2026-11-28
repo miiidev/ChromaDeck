@@ -274,6 +274,7 @@ mod tests {
             tag_shape: None,
             attached_programs: programs.iter().map(|p| p.to_string()).collect(),
             shortcut: None,
+            hardware_brightness: None,
         }
     }
 

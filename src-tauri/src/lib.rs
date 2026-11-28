@@ -5,7 +5,9 @@ mod bundle;
 mod capabilities;
 mod cli;
 mod color;
+mod ddcci;
 mod diagnostics;
+mod display_events;
 mod enforce;
 mod foreground;
 mod hotkeys;
@@ -130,6 +132,7 @@ pub fn run() {
             schedule::list_schedules_cmd,
             schedule::save_schedules_cmd,
             diagnostics::export_diagnostics_cmd,
+            ddcci::probe_ddcci_cmd,
             reapply_now_cmd,
             capture_nvcp_cmd,
             set_monitor_name_cmd,
@@ -138,6 +141,7 @@ pub fn run() {
         .setup(|app| {
             tray::build_tray(app.handle())?;
             hotkeys::start_hotkey_thread(app.handle().clone());
+            display_events::start_display_event_listener(app.handle().clone());
 
             // Cold-start CLI handling (`--headless` hides main window to tray;
             // explicit CLI actions run without popping the UI).

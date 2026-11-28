@@ -61,7 +61,15 @@ describe("preset editor saturation round-trip", () => {
       tag_shape: PRESET.tag_shape,
       attached_programs: [],
       shortcut: "",
+      hardware_brightness: undefined,
     });
+  });
+
+  it("carries opt-in hardware_brightness and clears it on reset", () => {
+    const form = presetToFormValues({ ...PRESET, hardware_brightness: 40 });
+    expect(form.hardware_brightness).toBe(40);
+    const reset = resetSliderValues(form);
+    expect(reset.hardware_brightness).toBeUndefined();
   });
 
   it("carries the tag shape into the form and defaults to pill", () => {

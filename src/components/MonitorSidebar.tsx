@@ -495,6 +495,24 @@ function MonitorCard({ monitor, pinnedPreset, appliedMap, autoMap, setAppliedMap
             </span>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
+            {connected && monitor.hdr_active && (
+              <span
+                data-slot="hdr-badge"
+                title="HDR is active — switch to SDR (Win+Alt+B) to apply colour presets"
+                className="mono shrink-0 rounded-[8px] border border-destructive/70 bg-destructive/10 px-1 py-[1px] text-[8px] leading-[1.4] uppercase tracking-[0.1em] text-destructive-text"
+              >
+                HDR
+              </span>
+            )}
+            {connected && !monitor.hdr_active && monitor.acm_active && (
+              <span
+                data-slot="acm-badge"
+                title="Windows 11 Auto Color Management (ACM) is active on this display"
+                className="mono shrink-0 rounded-[8px] border border-border px-1 py-[1px] text-[8px] leading-[1.4] uppercase tracking-[0.1em] text-muted-foreground"
+              >
+                ACM
+              </span>
+            )}
             {isAuto && (
               <span
                 data-slot="auto-badge"

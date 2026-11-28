@@ -315,6 +315,8 @@ mod tests {
             instance_path: String::new(),
             edid_present: false,
             edid_len: 0,
+            hdr_active: false,
+            acm_active: false,
         }
     }
 

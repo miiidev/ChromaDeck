@@ -478,14 +478,25 @@ pub(crate) fn gdi_identity_purge(api: &dyn ColorApi, edid_id: &str) -> Option<St
 }
 
 /// Apply driver-level color state (gamma LUT + NVAPI vibrance/hue),
-/// without ICC association. Shared by manual Apply and the enforcer.
+/// without ICC association. Shared by manual Apply, auto-apply, schedules, and
+/// the enforcer. Also applies opt-in DDC/CI hardware backlight when present (or
+/// restores a previously captured baseline when switching back to a preset
+/// without hardware backlight).
 pub fn apply_color(
     api: &dyn ColorApi,
     nv: &dyn crate::nvapi::NvColorApi,
     preset: &crate::store::Preset,
     target_edid: &str,
 ) -> ApplyResult {
-    apply_color_with_backend(api, nv, preset, target_edid).0
+    let result = apply_color_with_backend(api, nv, preset, target_edid).0;
+    if result.error.is_none() || result.gamma_applied {
+        if let Some(pct) = preset.hardware_brightness {
+            let _ = crate::ddcci::apply_hardware_brightness(target_edid, pct);
+        } else {
+            let _ = crate::ddcci::restore_hardware_brightness(target_edid);
+        }
+    }
+    result
 }
 
 /// Shared apply core that also names the backend that handled the display,
@@ -756,6 +767,18 @@ pub fn apply_preset_detailed(
     }
     adjustments.extend(adjustment_outcomes(backend_id, preset, &result));
 
+    // Step 5 — opt-in DDC/CI hardware backlight. Never touched when `None`
+    // unless a previous preset modified this display (in which case we restore
+    // its captured pre-apply OSD baseline).
+    if let Some(pct) = preset.hardware_brightness {
+        match crate::ddcci::apply_hardware_brightness(target_edid, pct) {
+            Ok(()) => adjustments.push(applied("hardware_brightness")),
+            Err(reason) => adjustments.push(failed("hardware_brightness", reason)),
+        }
+    } else {
+        let _ = crate::ddcci::restore_hardware_brightness(target_edid);
+    }
+
     ApplyOutcome {
         result,
         adjustments,
@@ -916,6 +939,10 @@ pub fn reset_monitor_with_icc(
         }
     }
 
+    // Restore any pre-apply DDC/CI hardware backlight captured earlier in this
+    // session (strict no-op if this monitor was never touched by DDC/CI).
+    let _ = crate::ddcci::restore_hardware_brightness(edid_id);
+
     result
 }
 
@@ -967,6 +994,11 @@ pub fn ephemeral_preset_from_input(
             return Err("rgb_gains values must be in 0.0..=10.0".into());
         }
     }
+    if let Some(hb) = input.hardware_brightness {
+        if hb > 100 {
+            return Err("hardware_brightness must be in 0..=100".into());
+        }
+    }
     Ok(crate::store::Preset {
         id: String::new(),
         name: input.name.clone(),
@@ -984,6 +1016,7 @@ pub fn ephemeral_preset_from_input(
         tag_shape: None,
         attached_programs: Vec::new(),
         shortcut: None,
+        hardware_brightness: input.hardware_brightness,
     })
 }
 
@@ -1009,7 +1042,15 @@ pub fn preview_preset(
         }
     };
     let (result, backend_id) = apply_color_with_backend(api, nv, &preset, target_edid);
-    let adjustments = adjustment_outcomes(backend_id, &preset, &result);
+    let mut adjustments = adjustment_outcomes(backend_id, &preset, &result);
+    if let Some(pct) = preset.hardware_brightness {
+        match crate::ddcci::apply_hardware_brightness(target_edid, pct) {
+            Ok(()) => adjustments.push(applied("hardware_brightness")),
+            Err(reason) => adjustments.push(failed("hardware_brightness", reason)),
+        }
+    } else {
+        let _ = crate::ddcci::restore_hardware_brightness(target_edid);
+    }
     ApplyOutcome {
         result,
         adjustments,
@@ -1398,6 +1439,7 @@ mod tests {
             tag_shape: None,
             attached_programs: Vec::new(),
             shortcut: None,
+            hardware_brightness: None,
         }
     }
 
@@ -1616,6 +1658,8 @@ mod tests {
             instance_path: String::new(),
             edid_present: false,
             edid_len: 0,
+            hdr_active: false,
+            acm_active: false,
         }
     }
 
@@ -1998,6 +2042,7 @@ mod tests {
             tag_shape: None,
             attached_programs: Vec::new(),
             shortcut: None,
+            hardware_brightness: None,
         }
     }
 
@@ -2173,6 +2218,7 @@ mod tests {
             tag_shape: None,
             attached_programs: vec![],
             shortcut: None,
+            hardware_brightness: None,
         };
         let outcome = preview_preset(&color, &nv, &input, "EDID-001");
         assert!(outcome.result.gamma_applied);
@@ -2201,6 +2247,7 @@ mod tests {
             tag_shape: None,
             attached_programs: vec![],
             shortcut: None,
+            hardware_brightness: None,
         };
         let outcome = preview_preset(&color, &nv, &input, "EDID-001");
         assert!(!outcome.result.gamma_applied);
