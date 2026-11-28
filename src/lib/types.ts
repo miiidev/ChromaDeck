@@ -120,14 +120,14 @@ export interface DisplayCapability {
 
 /** Per-display capability report returned by `get_display_capabilities`. */
 export interface DisplayCapabilities {
-  backend_id: string;    // "nvapi" | "intel" | "gdi"
+  backend_id: string;    // "nvapi" | "amd" | "intel" | "gdi"
   backend_label: string; // human-readable backend name
   adjustments: DisplayCapability[];
 }
 
 export interface MonitorProbe {
   engine: string;     // legacy coarse class: "nvapi" | "gdi"
-  backend_id: string; // real backend: "nvapi" | "intel" | "gdi"
+  backend_id: string; // real backend: "nvapi" | "amd" | "intel" | "gdi"
   vibrance_supported: boolean;
   vibrance: number | null;
   hue: number | null;

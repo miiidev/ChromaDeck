@@ -618,11 +618,11 @@ pub fn adjustment_outcomes(
         });
     }
 
-    // Saturation — no backend except Intel applies the desktop saturation
-    // transform. Neutral saturation requests nothing, so stay silent.
+    // Saturation — Intel (IGCL) and AMD (ADLX) apply desktop saturation natively.
+    // Neutral saturation requests nothing, so stay silent.
     const SATURATION_NEUTRAL: f64 = 50.0;
     if preset.saturation != SATURATION_NEUTRAL {
-        if backend_id == "intel" {
+        if backend_id == "intel" || backend_id == "amd" {
             out.push(match &gamma_failure {
                 None => applied(ADJUSTMENT_SATURATION),
                 Some(reason) => failed(ADJUSTMENT_SATURATION, reason.clone()),
@@ -657,12 +657,11 @@ pub fn adjustment_outcomes(
     }
 
     if hue_requested {
-        // Intel delivers hue inside the pixtx colour matrix, written as part
-        // of the same pipeline SET as the gamma family (tracked by
-        // `gamma_applied`) — `vibrance_applied` is always false on Intel and
-        // must not be used to judge hue. NVIDIA/GDI deliver hue through the
-        // DVC vibrance write.
-        if backend_id == "intel" {
+        // Intel (pixtx matrix) and AMD (ADLX Custom Color) deliver hue directly
+        // as part of the backend apply pass (tracked by `gamma_applied`) —
+        // `vibrance_applied` is always false on Intel/AMD. NVIDIA/GDI deliver
+        // hue through the NVAPI DVC vibrance write.
+        if backend_id == "intel" || backend_id == "amd" {
             out.push(match &gamma_failure {
                 None => applied(ADJUSTMENT_HUE),
                 Some(reason) => failed(ADJUSTMENT_HUE, reason.clone()),
@@ -1215,9 +1214,9 @@ pub fn probe_monitor_cmd(edid_id: String) -> Result<MonitorProbe, String> {
         GammaEngine::Nvapi => "nvapi",
         GammaEngine::Gdi => "gdi",
     };
-    // Vibrance/hue are NVAPI controls; Intel reports unsupported (false) and
+    // Vibrance/hue are NVAPI controls; Intel/AMD report unsupported (false) and
     // GDI probes NVAPI best-effort exactly as before.
-    let supported = backend_id != "intel" && nv.supported(&edid_id);
+    let supported = backend_id != "intel" && backend_id != "amd" && nv.supported(&edid_id);
     let (vibrance, hue) = if supported {
         match nv.levels(&edid_id) {
             Ok((v, h)) => (Some(v), Some(h)),
@@ -1226,11 +1225,14 @@ pub fn probe_monitor_cmd(edid_id: String) -> Result<MonitorProbe, String> {
     } else {
         (None, None)
     };
-    // Intel colour is driven by the pixtx 1D LUT, so reading the OS GDI ramp
-    // would report "identity" while the panel is tinted. Probe the live pixtx
-    // LUT instead.
+    // Intel (pixtx) and AMD (ADLX) drive driver LUTs rather than the OS GDI ramp.
     let (ramp_peak, ramp_identity) = if backend_id == "intel" {
         match crate::backend::intel::current_1dlut_summary(&edid_id) {
+            Ok((peak, identity)) => (Some(peak), Some(identity)),
+            Err(_) => (None, None),
+        }
+    } else if backend_id == "amd" {
+        match crate::backend::amd::current_gamma_summary(&edid_id) {
             Ok((peak, identity)) => (Some(peak), Some(identity)),
             Err(_) => (None, None),
         }

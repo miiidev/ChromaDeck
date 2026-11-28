@@ -212,8 +212,8 @@ function MonitorProbeButton({ edidId }: { edidId: string }) {
         p.vibrance_supported && p.vibrance !== null && p.vibrance !== undefined
           ? `vib ${p.vibrance} hue ${p.hue ?? "?"}`
           : "vib n/a";
-      // Intel's colour lives in the pixtx LUT, not the OS ramp.
-      const rampLabel = p.backend_id === "intel" ? "lut" : "ramp";
+      // Intel (pixtx) and AMD (ADLX) colour live in driver LUTs, not the OS ramp.
+      const rampLabel = p.backend_id === "intel" || p.backend_id === "amd" ? "lut" : "ramp";
       const ramp =
         p.ramp_peak !== null && p.ramp_peak !== undefined
           ? `${rampLabel} ${p.ramp_peak.toFixed(2)}${p.ramp_identity ? "" : " !"}`

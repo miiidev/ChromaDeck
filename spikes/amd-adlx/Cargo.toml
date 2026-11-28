@@ -1,0 +1,13 @@
+[package]
+name = "amd-adlx-spike"
+version = "0.1.0"
+edition = "2021"
+description = "Standalone AMD ADLX hardware probe: enumerates AMD displays, EDID correlation, Custom Color ranges, and Gamma/HDR state. NOT part of the ChromaDeck build."
+publish = false
+
+[dependencies]
+hex = "0.4"
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_System_LibraryLoader",
+] }

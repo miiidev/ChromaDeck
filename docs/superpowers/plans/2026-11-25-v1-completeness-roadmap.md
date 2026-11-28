@@ -207,7 +207,7 @@
 
 ---
 
-## Phase 5: AMD Native Display Backend (`ADLX`)
+## Phase 5: AMD Native Display Backend (`ADLX`) — COMPLETE
 
 **Goal:** Deliver first-class AMD Radeon & Ryzen iGPU support alongside NVIDIA and Intel, completing three-vendor desktop & hybrid-laptop coverage.
 
@@ -216,8 +216,8 @@
 - Create: `spikes/amd-adlx/` (standalone probe crate, mirroring `spikes/intel-igcl/`)
 - Modify: `NOTICE` (add MIT attribution for AMD ADLX SDK C header struct/vtable definitions)
 
-- [ ] **Step 1:** Transcribe minimal `#[repr(C)]` C-interface vtables from AMD's public MIT-licensed ADLX SDK (`ADLXQueryFullVersion`, `ADLXInitializeWithCallerAdl` / `ADLXInitialize`, `IADLXSystem`, `IADLXDisplayServices`, `IADLXDisplay`, `IADLXDisplayCustomColor`, `IADLXDisplayGamma`) loaded dynamically via `LoadLibraryExW("amdadlx64.dll")` — zero build-time SDK binary dependency; machines without AMD drivers cleanly skip in <1 ms.
-- [ ] **Step 2:** Verify display correlation (`IADLXDisplay::EDID` / manufacturer+model+serial / connector mapping to ChromaDeck `edid_id`) and document findings in `docs/superpowers/specs/amd-adlx-design.md`. If no AMD hardware is attached on the dev machine, gate hardware-live paths cleanly behind mockable `AmdApi` FFI trait (matching `NvColorApi` and `IntelBackend` mock seams).
+- [x] **Step 1:** Transcribe minimal `#[repr(C)]` C-interface vtables from AMD's public MIT-licensed ADLX SDK (`ADLXQueryFullVersion`, `ADLXInitializeWithCallerAdl` / `ADLXInitialize`, `IADLXSystem`, `IADLXDisplayServices`, `IADLXDisplay`, `IADLXDisplayCustomColor`, `IADLXDisplayGamma`) loaded dynamically via `LoadLibraryExW("amdadlx64.dll")` — zero build-time SDK binary dependency; machines without AMD drivers cleanly skip in <1 ms.
+- [x] **Step 2:** Verify display correlation (`IADLXDisplay::EDID` / manufacturer+model+serial / connector mapping to ChromaDeck `edid_id`) and document findings in `docs/superpowers/specs/amd-adlx-design.md`. If no AMD hardware is attached on the dev machine, gate hardware-live paths cleanly behind mockable `AmdApi` FFI trait (matching `NvColorApi` and `IntelBackend` mock seams).
 
 ### Task 5.2: `AmdBackend` Implementation & Registry Integration
 **Files:**
@@ -225,13 +225,13 @@
 - Modify: `src-tauri/src/backend/mod.rs` (`BackendRegistry` selection order: `nvapi` → `amd` → `intel` → `gdi` per physical display)
 - Modify: `src-tauri/src/capabilities.rs`, `src-tauri/src/enforce.rs`, `src-tauri/src/color.rs`
 
-- [ ] **Step 1:** Implement `ColorBackend` for `AmdBackend`:
+- [x] **Step 1:** Implement `ColorBackend` for `AmdBackend`:
   - `id()` → `"amd"`, label → `"AMD (ADLX)"`.
   - `probe(edid_id)` queries `IADLXDisplayCustomColor` (`IsHueSupported`, `IsSaturationSupported`, `IsBrightnessSupported`, `IsContrastSupported`, `IsTemperatureSupported`) and HDR state per display, reporting exact `Supported` / `Unsupported(reason)` verdicts.
   - `apply` maps ChromaDeck UI ranges (`brightness` 0–100, `contrast` 0–100, `gamma` 0.3–2.8, `saturation` 0–100, `hue_deg` 0–359, `rgb_gains`) to ADLX custom color & re-gamma LUT, purging GDI ramp to identity first for stage purity.
   - `restore` resets ADLX custom color & gamma to driver defaults and verifies by read-back.
-- [ ] **Step 2:** Wire `AmdBackend` into `enforce.rs` drift detection (reading back ADLX custom color / gamma state) and `probe_monitor_cmd`.
-- [ ] **Step 3:** Add comprehensive unit tests with mock ADLX vtables + run Phase 5 verification gates and commit.
+- [x] **Step 2:** Wire `AmdBackend` into `enforce.rs` drift detection (reading back ADLX custom color / gamma state) and `probe_monitor_cmd`.
+- [x] **Step 3:** Add comprehensive unit tests with mock ADLX vtables + run Phase 5 verification gates and commit.
 
 ---
 

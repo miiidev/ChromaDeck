@@ -21,11 +21,16 @@ pub trait StateReader {
     fn read_nvcp_registry(&self, edid_id: &str) -> Option<(f64, f64, f64)>;
     /// The gamma engine active for this display (NVAPI or GDI).
     fn engine(&self, edid_id: &str) -> crate::color::GammaEngine;
-    /// Whether this display is routed to the Intel IGCL backend (pixtx). The
-    /// GDI/NVAPI drift paths are inapplicable to Intel: Intel apply purges the
-    /// GDI ramp to identity and drives a pixtx LUT, so a GDI read-back would
-    /// always look "drifted" and re-apply every cycle.
+    /// Whether this display is routed to the Intel IGCL backend (pixtx).
     fn is_intel(&self, edid_id: &str) -> bool;
+    /// Whether this display is routed to the AMD ADLX backend.
+    fn is_amd(&self, _edid_id: &str) -> bool {
+        false
+    }
+    /// Check live ADLX Custom Color + re-gamma drift for an AMD display.
+    fn amd_drifted(&self, _edid_id: &str, _preset: &crate::store::Preset) -> bool {
+        false
+    }
 }
 
 pub struct RealStateReader;
@@ -58,6 +63,14 @@ impl StateReader for RealStateReader {
         // cycle on non-Intel machines (L-4). The uncached path stays for
         // backend selection, which must remain hot-plug correct.
         crate::backend::intel::correlates_to_intel_cached(edid_id)
+    }
+
+    fn is_amd(&self, edid_id: &str) -> bool {
+        crate::backend::amd::correlates_to_amd_cached(edid_id)
+    }
+
+    fn amd_drifted(&self, edid_id: &str, preset: &crate::store::Preset) -> bool {
+        crate::backend::amd::is_drifted_live(edid_id, preset)
     }
 }
 
@@ -110,7 +123,9 @@ pub fn check_once(
                     // is runtime-only driver state (a reboot resets it), and
                     // only ChromaDeck writes it, so the foreign-clobber case
                     // the loop exists for is rare for Intel.
-                    if reader.is_intel(edid_id) {
+                    if reader.is_amd(edid_id) {
+                        reader.amd_drifted(edid_id, preset)
+                    } else if reader.is_intel(edid_id) {
                         false
                     } else {
                         lut_drifted(preset, reader, edid_id)

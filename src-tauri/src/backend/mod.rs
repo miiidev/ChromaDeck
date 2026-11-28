@@ -21,7 +21,9 @@ use crate::nvapi::{
 use crate::nvgamma::{display_luid, nvcp_ramp, persist_nvcp, set_target_gamma, ui_to_internal};
 use crate::store::Preset;
 
+pub mod amd;
 pub mod intel;
+pub use amd::AmdBackend;
 pub use intel::IntelBackend;
 
 // ── Capabilities ───────────────────────────────────────────────────────────
@@ -468,25 +470,29 @@ impl ColorBackend for GdiBackend {
 pub struct BackendRegistry {
     nvapi: Box<dyn ColorBackend>,
     gdi: Box<dyn ColorBackend>,
+    amd: Option<Box<dyn ColorBackend>>,
+    amd_correlates: fn(&str) -> bool,
     intel: Option<Box<dyn ColorBackend>>,
     intel_correlates: fn(&str) -> bool,
 }
 
 impl BackendRegistry {
-    /// Construct a registry with injected backends (test double). Intel is
-    /// absent, so selection never consults the IGCL layer.
+    /// Construct a registry with injected backends (test double). AMD and Intel
+    /// are absent, so selection never consults ADLX or IGCL.
     #[cfg(test)]
     pub fn with_backends(nvapi: Box<dyn ColorBackend>, gdi: Box<dyn ColorBackend>) -> Self {
         BackendRegistry {
             nvapi,
             gdi,
+            amd: None,
+            amd_correlates: |_| false,
             intel: None,
             intel_correlates: |_| false,
         }
     }
 
     /// Construct a registry with injected backends AND an Intel correlation
-    /// predicate (test double) — exercises the full NVIDIA→Intel→GDI order.
+    /// predicate (test double) — exercises the NVIDIA→Intel→GDI order.
     #[cfg(test)]
     pub fn with_backends_and_intel(
         nvapi: Box<dyn ColorBackend>,
@@ -497,36 +503,64 @@ impl BackendRegistry {
         BackendRegistry {
             nvapi,
             gdi,
+            amd: None,
+            amd_correlates: |_| false,
             intel: Some(intel),
             intel_correlates,
         }
     }
 
-    /// Production registry: NVIDIA NVAPI, Intel IGCL, and GDI fallback.
-    /// The Intel backend is bound to the real (lazily-loaded) IGCL session;
-    /// constructing it does NOT load the DLL — the first load happens inside
-    /// `select` (correlation) or the first `probe`/`apply`/`restore`.
+    /// Construct a registry with injected backends for all four tiers
+    /// (NVIDIA→AMD→Intel→GDI) to pin strict vendor selection precedence.
+    #[cfg(test)]
+    pub fn with_all_backends(
+        nvapi: Box<dyn ColorBackend>,
+        amd: Box<dyn ColorBackend>,
+        amd_correlates: fn(&str) -> bool,
+        intel: Box<dyn ColorBackend>,
+        intel_correlates: fn(&str) -> bool,
+        gdi: Box<dyn ColorBackend>,
+    ) -> Self {
+        BackendRegistry {
+            nvapi,
+            gdi,
+            amd: Some(amd),
+            amd_correlates,
+            intel: Some(intel),
+            intel_correlates,
+        }
+    }
+
+    /// Production registry: NVIDIA NVAPI, AMD ADLX, Intel IGCL, and GDI fallback.
+    /// Vendor backends are bound lazily — constructing the registry does NOT load
+    /// any driver DLL until `select` / `probe` / `apply` / `restore` runs.
     pub fn new() -> Self {
         BackendRegistry {
             nvapi: Box::new(NvapiBackend),
             gdi: Box::new(GdiBackend),
+            amd: Some(Box::new(amd::AmdBackend::new())),
+            amd_correlates: amd::correlates_to_amd,
             intel: Some(Box::new(intel::IntelBackend::new())),
             intel_correlates: intel::correlates_to_intel,
         }
     }
 
     /// Select the backend for a display, in strict precedence order:
-    ///   1. NVIDIA — any display NVAPI can resolve keeps its existing dGPU
-    ///      path (hybrid-graphics HDMI). Never touches the Intel DLL.
-    ///   2. Intel — only when the display correlates to a unique active Intel
-    ///      output (`correlates_to_intel`). Ambiguous/absent → not Intel.
-    ///   3. GDI — universal fallback.
+    ///   1. NVIDIA — any display NVAPI can resolve keeps its dGPU path.
+    ///   2. AMD — when the display correlates to a unique AMD ADLX output.
+    ///   3. Intel — when the display correlates to a unique Intel IGCL output.
+    ///   4. GDI — universal fallback.
     ///
     /// Computed per call (no cache): not on a hot path; caching would go
     /// stale on hot-plug / MUX changes.
     pub fn select(&self, edid_id: &str) -> &dyn ColorBackend {
         if crate::color::gamma_engine(edid_id) == GammaEngine::Nvapi {
             return self.nvapi.as_ref();
+        }
+        if let Some(amd) = self.amd.as_ref() {
+            if (self.amd_correlates)(edid_id) {
+                return amd.as_ref();
+            }
         }
         if let Some(intel) = self.intel.as_ref() {
             if (self.intel_correlates)(edid_id) {
@@ -538,26 +572,22 @@ impl BackendRegistry {
 
     /// Cheap backend classification for logging/classification-only paths.
     ///
-    /// Unlike [`select`], this NEVER initialises a driver library: NVAPI is
-    /// only consulted when it is already loaded, and Intel is only claimed
-    /// when the IGCL session is already live. If neither API was live it
-    /// returns "unknown" rather than guessing. This keeps tray quit
-    /// (`KeepApplied`) from stalling on a DLL load merely to print a log line.
+    /// Unlike [`select`], this NEVER initialises a driver library: NVAPI, AMD,
+    /// and Intel are only consulted when already loaded.
     pub fn backend_id_hint(&self, edid_id: &str) -> &'static str {
+        let amd_live = self.amd.is_some() && amd::session_loaded();
         let intel_live = self.intel.is_some() && intel::session_loaded();
 
-        // NVAPI: only classify when it is already initialised. Calling
-        // `gamma_engine` would otherwise load nvapi64.dll.
         if crate::nvapi::loaded() && crate::color::gamma_engine(edid_id) == GammaEngine::Nvapi {
             return "nvapi";
+        }
+        if amd_live && (self.amd_correlates)(edid_id) {
+            return "amd";
         }
         if intel_live && (self.intel_correlates)(edid_id) {
             return "intel";
         }
-        // No driver was loaded to produce this verdict. If neither API was
-        // live we cannot know the backend without loading one, so say so
-        // rather than guessing.
-        if !crate::nvapi::loaded() && !intel_live {
+        if !crate::nvapi::loaded() && !amd_live && !intel_live {
             return "unknown";
         }
         "gdi"
@@ -771,5 +801,21 @@ mod tests {
             .find(|c| c.adjustment == ADJUSTMENT_GAMMA)
             .unwrap();
         assert_eq!(gamma.cap, AdjustmentCap::Supported);
+    }
+
+    #[test]
+    fn registry_selects_amd_before_intel_and_falls_back_to_gdi() {
+        let reg = BackendRegistry::with_all_backends(
+            Box::new(FakeBackend("nvapi")),
+            Box::new(FakeBackend("amd")),
+            |edid| edid.starts_with("AMD-"),
+            Box::new(FakeBackend("intel")),
+            |edid| edid.starts_with("AMD-") || edid.starts_with("INT-"),
+            Box::new(FakeBackend("gdi")),
+        );
+        // Synthetic EDIDs never match a live NVAPI device on the host.
+        assert_eq!(reg.select("AMD-001").id(), "amd");
+        assert_eq!(reg.select("INT-001").id(), "intel");
+        assert_eq!(reg.select("GEN-001").id(), "gdi");
     }
 }

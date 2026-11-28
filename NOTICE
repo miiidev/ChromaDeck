@@ -25,6 +25,23 @@ libraries (`ControlLib.dll`, `IntelControlLib.dll`) are loaded at runtime
 from the local Windows DriverStore, and only their exported symbols and the
 public header are used. No Intel binary is reverse-engineered.
 
+## AMD Device Library eXtra (ADLX)
+
+`src-tauri/src/backend/amd.rs` and `spikes/amd-adlx/src/main.rs` contain C
+struct and vtable definitions transcribed from the public MIT-licensed AMD
+ADLX SDK headers (`ADLX.h`, `ADLXDefines.h`, `ADLXStructures.h`, `ISystem.h`,
+`IDisplays.h`, `IDisplaySettings.h`, `IDisplayGamma.h`):
+
+- Source: https://github.com/GPUOpen-LibrariesAndSDKs/ADLX
+- Copyright (c) Advanced Micro Devices, Inc. All rights reserved.
+- License: MIT License
+  (license text: https://github.com/GPUOpen-LibrariesAndSDKs/ADLX/blob/main/license.txt)
+
+Only the minimal subset of C ABI vtables and structs required for display
+enumeration, EDID retrieval, Custom Color, and Gamma ramp control is
+transcribed. ChromaDeck does not redistribute any AMD binaries; `amdadlx64.dll`
+is loaded dynamically at runtime from the local Windows driver installation.
+
 ## nvBrightness
 
 [nvBrightness](https://github.com/pbatard/nvBrightness) by Pete Batard was

@@ -11,9 +11,9 @@
 use serde::Serialize;
 
 use crate::backend::{
-    AdjustmentCap, AdjustmentCapability, BackendRegistry, ColorBackend, GdiBackend, IntelBackend,
-    NvapiBackend, ADJUSTMENT_BRIGHTNESS, ADJUSTMENT_CONTRAST, ADJUSTMENT_GAMMA, ADJUSTMENT_HUE,
-    ADJUSTMENT_RGB_GAINS, ADJUSTMENT_SATURATION, ADJUSTMENT_VIBRANCE,
+    AdjustmentCap, AdjustmentCapability, AmdBackend, BackendRegistry, ColorBackend, GdiBackend,
+    IntelBackend, NvapiBackend, ADJUSTMENT_BRIGHTNESS, ADJUSTMENT_CONTRAST, ADJUSTMENT_GAMMA,
+    ADJUSTMENT_HUE, ADJUSTMENT_RGB_GAINS, ADJUSTMENT_SATURATION, ADJUSTMENT_VIBRANCE,
 };
 use crate::nvapi::{NvColorApi, RealNvapi};
 
@@ -58,6 +58,7 @@ pub struct DisplayCapabilities {
 pub fn capabilities_for_backend(backend_id: &str, vibrance_supported: bool) -> DisplayCapabilities {
     let (backend_label, table) = match backend_id {
         "nvapi" => ("NVIDIA (NVAPI)", nvapi_table(vibrance_supported)),
+        "amd" => ("AMD (ADLX)", AmdBackend::nominal_probe()),
         "gdi" => ("Basic (GDI)", gdi_table()),
         // Nominal Intel table (healthy panel); the live HDR/pixtx probe
         // refines it in `get_display_capabilities`.
@@ -148,6 +149,14 @@ pub fn get_display_capabilities(edid_id: String) -> DisplayCapabilities {
     let registry = BackendRegistry::new();
     let backend = registry.select(&edid_id);
     let id = backend.id();
+    if id == "amd" {
+        // Live AMD ADLX probe: Custom Color capability + HDR (PQ) verdicts.
+        return DisplayCapabilities {
+            backend_id: id.to_string(),
+            backend_label: "AMD (ADLX)".to_string(),
+            adjustments: backend.probe(&edid_id).into_iter().map(to_wire).collect(),
+        };
+    }
     if id == "intel" {
         // Live Intel probe: correlation + pixtx capability + HDR verdicts.
         return DisplayCapabilities {
@@ -313,8 +322,28 @@ mod tests {
     }
 
     #[test]
+    fn amd_reports_native_controls_and_vibrance_unsupported() {
+        let caps = capabilities_for_backend("amd", false);
+        assert_eq!(caps.backend_id, "amd");
+        assert_eq!(caps.backend_label, "AMD (ADLX)");
+        for name in [
+            ADJUSTMENT_GAMMA,
+            ADJUSTMENT_BRIGHTNESS,
+            ADJUSTMENT_CONTRAST,
+            ADJUSTMENT_RGB_GAINS,
+            ADJUSTMENT_SATURATION,
+            ADJUSTMENT_HUE,
+        ] {
+            assert_eq!(cap(&caps, name).status, CapabilityStatus::Supported, "{name}");
+        }
+        let vib = cap(&caps, ADJUSTMENT_VIBRANCE);
+        assert_eq!(vib.status, CapabilityStatus::Unsupported);
+        assert!(vib.reason.is_some());
+    }
+
+    #[test]
     fn every_backend_reports_all_seven_adjustments_once() {
-        for id in ["nvapi", "gdi", "intel", "unknown"] {
+        for id in ["nvapi", "amd", "gdi", "intel", "unknown"] {
             let caps = capabilities_for_backend(id, true);
             assert_eq!(caps.adjustments.len(), 7, "{id}");
             for name in adjustment_names() {
